@@ -47,6 +47,26 @@
     },
     "docs": {
       "$ref": "https://loopo.dev/schemas/steps/common.v3.json#/$defs/docs"
+    },
+    "landing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_branch",
+        "target_branch",
+        "target_worktree",
+        "landed_commit",
+        "strategy"
+      ],
+      "properties": {
+        "source_branch": { "type": "string" },
+        "target_branch": { "type": "string" },
+        "target_worktree": { "type": "string" },
+        "landed_commit": { "type": "string" },
+        "strategy": {
+          "enum": ["already-up-to-date", "fast-forward", "merge-commit"]
+        }
+      }
     }
   }
 }

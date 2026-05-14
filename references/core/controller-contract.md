@@ -55,22 +55,28 @@ Subflow starts:
   `children[].commands.init`; the child returns to the parent through a
   `child_result` payload.
 
-Child subagent lifecycle:
+Child CLI-agent lifecycle:
 
 `child_received -> child_executing -> child_validating -> child_verification_pending -> child_landing_ready -> child_merged -> child_archived`
 
-## Root And Child Subagent Roles
+## Root And Child CLI-Agent Roles
 
 - The root assistant is coordinator/team lead: intake, planning, assignment,
   monitoring, escalation, and `system_update_pending`.
-- Child subagents are senior developer agents: implement, test, validate,
-  self-review, merge into the assigned `merge_target`, and submit final
-  summary/evidence.
+- Child CLI agents are senior developer agents: implement, test, validate,
+  self-review, submit the landing step that merges into the assigned
+  `merge_target`, and submit final summary/evidence with the landed commit.
 - The root coordinator normally does not merge child code.
-- Each `tasks.yaml` row maps to exactly one child subagent flow and one child
+- The same landing step performs the real git merge for child-to-parent and
+  root-to-main landings; successful archived output must report the landed
+  commit hash and merge strategy.
+- Each `tasks.yaml` row maps to exactly one child CLI-agent flow and one child
   worktree; hidden task splitting is rejected.
-- Executing prompts must say: “Start builtin generalist default subagent
-  instances in parallel for these independent tasks…”.
+- Executing prompts must say: “Launch dedicated child CLI agent sessions for
+  these independent tasks…”.
+- The root coordinator does not satisfy child work inline in the parent
+  session; it launches the emitted child CLI command in a separate session and
+  waits for a terminal child result.
 
 ## Task Model
 
@@ -96,7 +102,7 @@ lease ownership is unambiguous.
   repo working directory and reads hook payload JSON from stdin.
 - All root and child state mutations go through schema-valid `quest next`
   payloads for the current step.
-- Child subagents update loopo only through JSON payloads; they never edit
+- Child CLI agents update loopo only through JSON payloads; they never edit
   `.loopo/**` directly.
 - `system_update_pending` is coordinator-led:
   child summary -> bin storage -> root prompt -> `system_update` payload -> bin

@@ -241,6 +241,7 @@
         "task_id",
         "title",
         "child_slug",
+        "branch_ref",
         "worktree_path",
         "acceptance",
         "commands",
@@ -250,6 +251,7 @@
         "task_id": { "type": "string" },
         "title": { "type": "string" },
         "child_slug": { "type": "string" },
+        "branch_ref": { "type": "string" },
         "worktree_path": { "type": "string" },
         "acceptance": { "type": "string" },
         "commands": {

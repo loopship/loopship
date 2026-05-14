@@ -120,6 +120,11 @@ export type QuestState = {
   resolution_source: string;
   coordinator_branch: string;
   coordinator_worktree: string;
+  parent_quest_slug: string;
+  landing_target_branch: string;
+  landing_target_worktree: string;
+  landed_commit: string;
+  landing_strategy: string;
   assumptions: string[];
   constraints: string[];
   tasks: QuestTask[];
@@ -1267,6 +1272,11 @@ export function renderTasksYaml(state: QuestState): string {
     `resolution_source: ${yamlScalar(state.resolution_source)}`,
     `coordinator_branch: ${yamlScalar(state.coordinator_branch)}`,
     `coordinator_worktree: ${yamlScalar(state.coordinator_worktree)}`,
+    `parent_quest_slug: ${yamlScalar(state.parent_quest_slug)}`,
+    `landing_target_branch: ${yamlScalar(state.landing_target_branch)}`,
+    `landing_target_worktree: ${yamlScalar(state.landing_target_worktree)}`,
+    `landed_commit: ${yamlScalar(state.landed_commit)}`,
+    `landing_strategy: ${yamlScalar(state.landing_strategy)}`,
     `assumptions: ${yamlStringList(state.assumptions)}`,
     `constraints: ${yamlStringList(state.constraints)}`,
     "tasks:",
@@ -1370,6 +1380,11 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
           "resolution_source",
           "coordinator_branch",
           "coordinator_worktree",
+          "parent_quest_slug",
+          "landing_target_branch",
+          "landing_target_worktree",
+          "landed_commit",
+          "landing_strategy",
         ].includes(key)
       ) {
         (result as Record<string, unknown>)[key] = value;
@@ -1413,6 +1428,11 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
   if (!result.quest_id && result.slug) result.quest_id = result.slug;
   if (!result.flow_id) result.flow_id = "swe";
   if (!result.flow_version) result.flow_version = 1;
+  if (!result.parent_quest_slug) result.parent_quest_slug = "";
+  if (!result.landing_target_branch) result.landing_target_branch = "main";
+  if (!result.landing_target_worktree) result.landing_target_worktree = "";
+  if (!result.landed_commit) result.landed_commit = "";
+  if (!result.landing_strategy) result.landing_strategy = "";
   return result;
 }
 
@@ -1537,30 +1557,44 @@ function normalizePlanTask(
   const rawId = String(input.id ?? input.task_id ?? `task-${index + 1}`);
   const id = slugify(rawId);
   const contextRoot = String(state.context_root ?? ".");
+  const normalizedPrompt = String(state.prompt ?? "")
+    .toLowerCase()
+    .replace(/^loopo:\s*/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const leafChild = normalizedPrompt.startsWith("execute child task ");
+  const coordinatorBranch = String(state.coordinator_branch ?? "main");
+  const coordinatorWorktree = String(state.coordinator_worktree ?? contextRoot);
   return {
     id,
     title: String(input.title ?? input.name ?? id),
     type: input.type === "general" ? "general" : "coding",
-    status: String(input.status ?? "child_received"),
+    status: String(input.status ?? (leafChild ? "pending" : "child_received")),
     dependencies: asStringList(input.dependencies ?? input.depends_on).map((id) =>
       slugify(id),
     ),
     scope_files: asStringList(input.scope_files ?? input.scope),
     spec_refs: asStringList(input.spec_refs ?? input.specs),
     context_refs: asStringList(input.context_refs ?? input.context),
-    branch_ref: String(input.branch_ref ?? `codex/${slug}-${id}`),
+    branch_ref: String(
+      input.branch_ref ?? (leafChild ? coordinatorBranch : `codex/${slug}-${id}`),
+    ),
     worktree_path: String(
-      input.worktree_path ?? resolve(contextRoot, "worktrees", `${slug}-${id}`),
+      input.worktree_path ??
+        (leafChild
+          ? coordinatorWorktree
+          : resolve(contextRoot, "worktrees", `${slug}-${id}`)),
     ),
-    child_slug: String(input.child_slug ?? `${slug}-${id}`),
+    child_slug: String(input.child_slug ?? (leafChild ? "" : `${slug}-${id}`)),
     concurrency_group: String(input.concurrency_group ?? ""),
-    merge_target: String(
-      input.merge_target ?? state.coordinator_branch ?? "main",
+    merge_target: String(input.merge_target ?? coordinatorBranch),
+    merge_lease_id: String(
+      input.merge_lease_id ?? (leafChild ? "" : `lease-${slug}-${id}`),
     ),
-    merge_lease_id: String(input.merge_lease_id ?? `lease-${slug}-${id}`),
     merge_commit: String(input.merge_commit ?? ""),
     system_impact_ref: String(
-      input.system_impact_ref ?? `.loopo/quests/${slug}/children/${id}.yaml`,
+      input.system_impact_ref ??
+        (leafChild ? "" : `.loopo/quests/${slug}/children/${id}.yaml`),
     ),
     acceptance: planTaskAcceptance(
       input.acceptance ?? input.acceptance_criteria,
@@ -1588,6 +1622,11 @@ export function applyQuestPlanToTasks(
     resolution_source: String(state.resolution_source ?? ""),
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
+    parent_quest_slug: String(state.parent_quest_slug ?? ""),
+    landing_target_branch: String(state.landing_target_branch ?? "main"),
+    landing_target_worktree: String(state.landing_target_worktree ?? ""),
+    landed_commit: String(state.landed_commit ?? ""),
+    landing_strategy: String(state.landing_strategy ?? ""),
     assumptions: asStringList(plan?.assumptions),
     constraints: asStringList(plan?.constraints),
     tasks: taskInputs.map((task, index) =>
@@ -1685,6 +1724,11 @@ export function applyChildStatusToTasks(
     resolution_source: String(state.resolution_source ?? ""),
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
+    parent_quest_slug: String(state.parent_quest_slug ?? ""),
+    landing_target_branch: String(state.landing_target_branch ?? "main"),
+    landing_target_worktree: String(state.landing_target_worktree ?? ""),
+    landed_commit: String(state.landed_commit ?? ""),
+    landing_strategy: String(state.landing_strategy ?? ""),
     assumptions: asStringList(state.assumptions),
     constraints: asStringList(state.constraints),
     tasks: (Array.isArray(state.tasks) ? state.tasks : []).map((task) => {
@@ -1719,6 +1763,53 @@ export function applyChildSummaryToTasks(
   });
 }
 
+export function applyLandingReceipt(
+  files: QuestFiles,
+  state: Partial<QuestState>,
+  receipt: Partial<
+    Pick<
+      QuestState,
+      | "parent_quest_slug"
+      | "landing_target_branch"
+      | "landing_target_worktree"
+      | "landed_commit"
+      | "landing_strategy"
+    >
+  >,
+): QuestState {
+  const nextState: QuestState = {
+    schema_version: 3,
+    slug: files.slug,
+    quest_id: String(state.quest_id ?? files.slug),
+    flow_id: String(state.flow_id ?? "swe"),
+    flow_version: Number(state.flow_version ?? 1),
+    stage: String(state.stage ?? "planning"),
+    prompt: String(state.prompt ?? ""),
+    context_root: String(state.context_root ?? ""),
+    resolution_source: String(state.resolution_source ?? ""),
+    coordinator_branch: String(state.coordinator_branch ?? "main"),
+    coordinator_worktree: String(state.coordinator_worktree ?? ""),
+    parent_quest_slug: String(
+      receipt.parent_quest_slug ?? state.parent_quest_slug ?? "",
+    ),
+    landing_target_branch: String(
+      receipt.landing_target_branch ?? state.landing_target_branch ?? "main",
+    ),
+    landing_target_worktree: String(
+      receipt.landing_target_worktree ?? state.landing_target_worktree ?? "",
+    ),
+    landed_commit: String(receipt.landed_commit ?? state.landed_commit ?? ""),
+    landing_strategy: String(
+      receipt.landing_strategy ?? state.landing_strategy ?? "",
+    ),
+    assumptions: asStringList(state.assumptions),
+    constraints: asStringList(state.constraints),
+    tasks: Array.isArray(state.tasks) ? state.tasks : [],
+  };
+  writeText(files.tasks, renderTasksYaml(nextState));
+  return nextState;
+}
+
 export function createQuest(input: {
   repoRoot: string;
   slug: string;
@@ -1727,6 +1818,11 @@ export function createQuest(input: {
   workspace: QuestWorkspace;
   flowId?: string;
   flowVersion?: number;
+  parentQuestSlug?: string;
+  landingTargetBranch?: string;
+  landingTargetWorktree?: string;
+  landedCommit?: string;
+  landingStrategy?: string;
 }): { files: QuestFiles; state: QuestState } {
   const files = questFiles(input.repoRoot, input.slug);
   if (existsSync(files.tasks) || existsSync(files.plan)) {
@@ -1744,6 +1840,11 @@ export function createQuest(input: {
     resolution_source: input.resolutionSource,
     coordinator_branch: input.workspace.branch_ref,
     coordinator_worktree: input.workspace.worktree_path,
+    parent_quest_slug: String(input.parentQuestSlug ?? ""),
+    landing_target_branch: String(input.landingTargetBranch ?? "main"),
+    landing_target_worktree: String(input.landingTargetWorktree ?? ""),
+    landed_commit: String(input.landedCommit ?? ""),
+    landing_strategy: String(input.landingStrategy ?? ""),
     assumptions: [],
     constraints: [],
     tasks: [],
@@ -1965,12 +2066,18 @@ export function coordinatorWorktreePath(
   return resolve(repoRoot, "worktrees", slug);
 }
 
-export function ensureCoordinatorWorkspace(
+export function landingTargetWorktreePath(
   repoRoot: string,
-  slug: string,
+  branchRef: string,
+): string {
+  return resolve(repoRoot, "worktrees", `landing-${slugify(branchRef)}`);
+}
+
+function ensureNamedWorkspace(
+  repoRoot: string,
+  branchRef: string,
+  desiredPath: string,
 ): QuestWorkspace {
-  const branchRef = slug;
-  const desiredPath = coordinatorWorktreePath(repoRoot, slug);
   if (!hasGitCommit(repoRoot)) {
     mkdirSync(desiredPath, { recursive: true });
     return {
@@ -2046,6 +2153,21 @@ export function ensureCoordinatorWorkspace(
     worktree_path: desiredPath,
     mode: "git",
   };
+}
+
+export function ensureCoordinatorWorkspace(
+  repoRoot: string,
+  slug: string,
+): QuestWorkspace {
+  return ensureNamedWorkspace(repoRoot, slug, coordinatorWorktreePath(repoRoot, slug));
+}
+
+export function ensureTaskWorkspace(
+  repoRoot: string,
+  branchRef: string,
+  worktreePath: string,
+): QuestWorkspace {
+  return ensureNamedWorkspace(repoRoot, branchRef, resolve(worktreePath));
 }
 
 function renderLoopoShim(loopoScriptAbs: string): string {

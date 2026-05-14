@@ -234,6 +234,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
         task_id: "t001",
         title: "Build",
         child_slug: "demo-t001",
+        branch_ref: "codex/demo-t001",
         worktree_path: "/tmp/worktree",
         acceptance: "works",
         commands: { init: command, next: command },
@@ -279,6 +280,13 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     state: "archived",
     callback_schema: null,
     allowed_transitions: {},
+    landing: {
+      source_branch: "build-demo",
+      target_branch: "main",
+      target_worktree: "/tmp/main-worktree",
+      landed_commit: "abc123",
+      strategy: "fast-forward",
+    },
     context: {
       step: {
         schema_version: 1,

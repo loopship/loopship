@@ -27,6 +27,7 @@ import {
 } from "./loopo_utils.ts";
 import type { Runtime } from "./loopo_utils.ts";
 import {
+  applyLandingReceipt,
   applyQuestPlanToTasks,
   applyChildSummaryToTasks,
   applyChildStatusToTasks,
@@ -35,10 +36,12 @@ import {
   createLoopoShim,
   createQuest,
   ensureCoordinatorWorkspace,
+  ensureTaskWorkspace,
   ensureGlobalSkillFiles,
   ensureSystemScaffold,
   ensureStateScaffold,
   findLatestQuest,
+  landingTargetWorktreePath,
   LOOPO_STATE_FILE,
   loadState,
   LOOPO_HOOK_STATE_FILE,
@@ -77,6 +80,22 @@ import {
 import { runSimCli } from "./loopo_sim.ts";
 
 type Command = "init" | "doctor" | "quest" | "hook" | "sim";
+
+type ParentQuestAssignment = {
+  parent_quest_slug: string;
+  task_id: string;
+  landing_target_branch: string;
+  landing_target_worktree: string;
+  merge_lease_id: string;
+};
+
+type GitLandingReceipt = {
+  source_branch: string;
+  target_branch: string;
+  target_worktree: string;
+  landed_commit: string;
+  strategy: "already-up-to-date" | "fast-forward" | "merge-commit";
+};
 
 type DoctorArgs = {
   repo: string;
@@ -619,6 +638,21 @@ const CHILD_DONE_STATUSES = new Set([
 ]);
 const CHILD_STALLED_STATUSES = new Set(["blocked", "deferred", "failed"]);
 
+function inferRepoRuntime(repoRoot: string): DoctorArgs["runtime"] {
+  const runtimes: Runtime[] = [];
+  if (existsSync(resolve(repoRoot, ".codex", "hooks.json"))) {
+    runtimes.push("codex");
+  }
+  if (existsSync(resolve(repoRoot, ".gemini", "settings.json"))) {
+    runtimes.push("gemini");
+  }
+  if (existsSync(resolve(repoRoot, ".github", "hooks", "loopo.json"))) {
+    runtimes.push("copilot");
+  }
+  if (runtimes.length === 1) return runtimes[0];
+  return "all";
+}
+
 function readyChildTasks(state: Partial<{ tasks: QuestTask[] }>): QuestTask[] {
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   const done = new Set(
@@ -744,6 +778,40 @@ function allQuestSlugs(repoRoot: string): string[] {
     .sort();
 }
 
+function findParentQuestAssignment(
+  repoRoot: string,
+  childSlug: string,
+): ParentQuestAssignment | null {
+  for (const parentSlug of allQuestSlugs(repoRoot)) {
+    const parentQuest = questBySlug(repoRoot, parentSlug);
+    const parentTasks = Array.isArray(parentQuest?.state.tasks)
+      ? (parentQuest!.state.tasks as QuestTask[])
+      : [];
+    const matched = parentTasks.find(
+      (task) =>
+        String(task.child_slug ?? "").trim() === childSlug ||
+        `${parentSlug}-${task.id}` === childSlug,
+    );
+    if (!matched) continue;
+    return {
+      parent_quest_slug: parentSlug,
+      task_id: matched.id,
+      landing_target_branch: String(
+        matched.merge_target || parentQuest?.state.coordinator_branch || "main",
+      ),
+      landing_target_worktree: String(
+        parentQuest?.state.coordinator_worktree ??
+          landingTargetWorktreePath(
+            repoRoot,
+            String(matched.merge_target || "main"),
+          ),
+      ),
+      merge_lease_id: String(matched.merge_lease_id ?? ""),
+    };
+  }
+  return null;
+}
+
 function requestTokens(value: string): Set<string> {
   return new Set(
     value
@@ -785,6 +853,8 @@ function rankQuestCandidates(
           "next",
           "--slug",
           slug,
+          "--cwd",
+          String(quest?.state.coordinator_worktree ?? repoRoot),
           "--json",
           "@-",
         ]),
@@ -837,9 +907,17 @@ function v3InitRoute(input: {
   runtime: DoctorArgs["runtime"];
   request: string;
   flowId: string;
+  slug?: string | null;
 }): Record<string, unknown> {
-  const slug = suggestedSlug(input.request);
+  const slug = String(input.slug ?? "").trim() || suggestedSlug(input.request);
   const flow = loadFlowDefinition(input.flowId);
+  const createQuestInput = {
+    step: "select_quest",
+    action: "create_quest",
+    slug,
+    flow_id: flow.id,
+    request: input.request,
+  };
   return {
     schema_version: 3,
     kind: "init_route",
@@ -860,16 +938,10 @@ function v3InitRoute(input: {
         "--cwd",
         input.cwd,
         "--json",
-        "@-",
+        JSON.stringify(createQuestInput),
       ]),
       callback_schema: embeddedCallbackSchema("next-input"),
-      input: {
-        step: "select_quest",
-        action: "create_quest",
-        slug,
-        flow_id: flow.id,
-        request: input.request,
-      },
+      input: createQuestInput,
     },
     help: compactCommand("loopo", ["quest", "help", "--json"]),
   };
@@ -975,23 +1047,35 @@ function readyChildrenForV3(
   full = false,
 ): Array<Record<string, unknown>> {
   const command = full ? compactCommand : tokenCommand;
+  const flowId = flowIdForState(state as Partial<{ [key: string]: any }>);
+  const runtime = inferRepoRuntime(repoRoot);
   return readyChildTasks(state).map((task) => {
     const childSlug = `${slug}-${task.id}`;
+    const workspace = ensureTaskWorkspace(
+      repoRoot,
+      String(task.branch_ref || `codex/${childSlug}`),
+      String(task.worktree_path || resolve(repoRoot, "worktrees", childSlug)),
+    );
     const request = `loopo: execute child task ${task.id}: ${task.title}`;
     return {
       task_id: task.id,
       title: task.title,
       child_slug: childSlug,
-      worktree_path: task.worktree_path,
+      branch_ref: workspace.branch_ref,
+      worktree_path: workspace.worktree_path,
       acceptance: task.acceptance,
       commands: {
         init: command("loopo", [
           "init",
           request,
+          "--slug",
+          childSlug,
           "--cwd",
-          task.worktree_path || repoRoot,
+          workspace.worktree_path || repoRoot,
           "--runtime",
-          "all",
+          runtime,
+          "--flow",
+          flowId,
         ]),
         next: command("loopo", [
           "quest",
@@ -999,7 +1083,7 @@ function readyChildrenForV3(
           "--slug",
           childSlug,
           "--cwd",
-          task.worktree_path || repoRoot,
+          workspace.worktree_path || repoRoot,
           "--json",
           "@-",
         ]),
@@ -1054,13 +1138,16 @@ function v3StepOutput(input: {
   const stepDef = flowStep(flow, stage);
   const step = stepDef.id;
   const schema = outputSchemaForStage(stage, flow);
+  const questCwd =
+    String(input.state.coordinator_worktree ?? "").trim() ||
+    String(input.state.context_root ?? input.repoRoot);
   const nextArgs = [
     "quest",
     "next",
     "--slug",
     input.files.slug,
     "--cwd",
-    String(input.state.context_root ?? input.repoRoot),
+    questCwd,
     "--json",
     "@-",
   ];
@@ -1078,6 +1165,15 @@ function v3StepOutput(input: {
         input.files.slug,
         input.state,
       );
+    }
+    if (step === "archived" && String(input.state.landed_commit ?? "").trim()) {
+      compactOutput.landing = {
+        source_branch: String(input.state.coordinator_branch ?? ""),
+        target_branch: String(input.state.landing_target_branch ?? ""),
+        target_worktree: String(input.state.landing_target_worktree ?? ""),
+        landed_commit: String(input.state.landed_commit ?? ""),
+        strategy: String(input.state.landing_strategy ?? ""),
+      };
     }
     return compactOutput;
   }
@@ -1134,6 +1230,15 @@ function v3StepOutput(input: {
   }
   if (step === "archived") {
     output.callback_schema = null;
+    if (String(input.state.landed_commit ?? "").trim()) {
+      output.landing = {
+        source_branch: String(input.state.coordinator_branch ?? ""),
+        target_branch: String(input.state.landing_target_branch ?? ""),
+        target_worktree: String(input.state.landing_target_worktree ?? ""),
+        landed_commit: String(input.state.landed_commit ?? ""),
+        strategy: String(input.state.landing_strategy ?? ""),
+      };
+    }
   }
   return output;
 }
@@ -1153,6 +1258,16 @@ function v3Error(
 
 function asArray(value: unknown): any[] {
   return Array.isArray(value) ? value : [];
+}
+
+function isChildExecutionQuestPrompt(prompt: unknown): boolean {
+  const normalized = String(prompt ?? "")
+    .trim()
+    .toLowerCase();
+  return (
+    normalized.startsWith("loopo: execute child task ") ||
+    normalized.startsWith("execute child task ")
+  );
 }
 
 function stageInputStep(stage: string, flow = loadFlowDefinition()): string {
@@ -1189,6 +1304,7 @@ function writeV3Manifest(files: QuestFiles, requestId: string): void {
 function validatePlan(
   input: Record<string, any>,
   state: Partial<{ [key: string]: any }>,
+  files: QuestFiles,
 ): string | null {
   for (const key of [
     "classification",
@@ -1203,10 +1319,22 @@ function validatePlan(
   const highImpact = asArray(input.high_impact_unknowns);
   const defaulted = asArray(input.defaulted_unknowns);
   const questions = asArray(input.questions);
+  const hasRecordedAnswers = readText(files.questions)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line) => {
+      try {
+        return JSON.parse(line)?.event === "answers";
+      } catch {
+        return false;
+      }
+    });
   if (
     input.classification === "greenfield_app" &&
     questions.length === 0 &&
-    looksLikeVagueGreenfieldPrompt(state.prompt)
+    looksLikeVagueGreenfieldPrompt(state.prompt) &&
+    !hasRecordedAnswers
   ) {
     return "generic greenfield request requires a clarification round before task decomposition";
   }
@@ -1230,7 +1358,7 @@ function handlePlan(input: {
   payload: Record<string, any>;
   requestId: string;
 }): Partial<{ [key: string]: any }> {
-  const validation = validatePlan(input.payload, input.state);
+  const validation = validatePlan(input.payload, input.state, input.files);
   if (validation) throw new Error(validation);
   const questions = asArray(input.payload.questions);
   appendJsonl(input.files.plans, {
@@ -1288,6 +1416,197 @@ function handleQuestions(input: {
   );
 }
 
+function taskById(
+  state: Partial<{ tasks: QuestTask[] }>,
+  taskId: string,
+): QuestTask | null {
+  const normalized = slugify(taskId);
+  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  return tasks.find((task) => task.id === normalized) ?? null;
+}
+
+function gitWorktreeDirtyEntries(path: string): string[] {
+  const cwd = path.trim();
+  if (!cwd || !existsSync(cwd)) return [];
+  const probe = runCommand("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  if (probe.status !== 0) return [];
+  const status = runCommand(
+    "git",
+    ["status", "--short", "--untracked-files=all"],
+    {
+      cwd,
+      timeoutMs: 15_000,
+    },
+  );
+  if (status.status !== 0) return [];
+  return status.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function dirtyEntryPath(entry: string): string {
+  return entry.replace(/^[A-Z?! ][A-Z?! ]\s+/, "").trim();
+}
+
+function isIgnorableOperationalDirtyPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  return (
+    normalized === ".codex/hooks.json" ||
+    normalized === ".gemini/settings.json" ||
+    normalized === ".github/hooks/loopo.json" ||
+    normalized === ".github/hooks" ||
+    normalized.startsWith(".loopo/") ||
+    normalized.startsWith("worktrees/")
+  );
+}
+
+function relevantGitDirtyEntries(path: string): string[] {
+  return gitWorktreeDirtyEntries(path).filter(
+    (entry) => !isIgnorableOperationalDirtyPath(dirtyEntryPath(entry)),
+  );
+}
+
+function gitCurrentBranch(cwd: string): string | null {
+  const proc = runCommand("git", ["branch", "--show-current"], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  if (proc.status !== 0) return null;
+  const branch = proc.stdout.trim();
+  return branch || null;
+}
+
+function gitRevParse(cwd: string, ref: string): string {
+  const proc = runCommand("git", ["rev-parse", "--verify", ref], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  if (proc.status !== 0) {
+    throw new Error(proc.stderr || proc.stdout || `git rev-parse failed for ${ref}`);
+  }
+  return proc.stdout.trim();
+}
+
+function gitIsAncestor(cwd: string, ancestor: string, descendant: string): boolean {
+  const proc = runCommand("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  return proc.status === 0;
+}
+
+function gitMergeIntoBranch(
+  repoRoot: string,
+  sourceBranch: string,
+  targetBranch: string,
+  preferredWorktree: string,
+): GitLandingReceipt {
+  const workspace = ensureTaskWorkspace(
+    repoRoot,
+    targetBranch,
+    preferredWorktree || landingTargetWorktreePath(repoRoot, targetBranch),
+  );
+  const targetWorktree = String(workspace.worktree_path);
+  const currentBranch = gitCurrentBranch(targetWorktree);
+  if (currentBranch !== targetBranch) {
+    throw new Error(
+      `landing target worktree ${targetWorktree} is on ${currentBranch || "unknown"} instead of ${targetBranch}`,
+    );
+  }
+  const dirtyTargetEntries = relevantGitDirtyEntries(targetWorktree);
+  if (dirtyTargetEntries.length) {
+    throw new Error(
+      `cannot merge into dirty landing target worktree ${targetWorktree}: ${dirtyTargetEntries.slice(0, 5).join(", ")}`,
+    );
+  }
+  const sourceCommit = gitRevParse(repoRoot, sourceBranch);
+  const targetCommit = gitRevParse(repoRoot, targetBranch);
+  if (sourceCommit === targetCommit) {
+    return {
+      source_branch: sourceBranch,
+      target_branch: targetBranch,
+      target_worktree: targetWorktree,
+      landed_commit: sourceCommit,
+      strategy: "already-up-to-date",
+    };
+  }
+  const ffOnly = gitIsAncestor(repoRoot, targetCommit, sourceCommit);
+  const mergeArgs = ffOnly
+    ? ["merge", "--ff-only", sourceBranch]
+    : ["merge", "--no-ff", "--no-edit", sourceBranch];
+  const merge = runCommand("git", mergeArgs, {
+    cwd: targetWorktree,
+    timeoutMs: 60_000,
+  });
+  if (merge.status !== 0) {
+    throw new Error(
+      merge.stderr ||
+        merge.stdout ||
+        `failed to merge ${sourceBranch} into ${targetBranch}`,
+    );
+  }
+  const landedCommit = gitRevParse(targetWorktree, "HEAD");
+  const dirtyAfterMerge = relevantGitDirtyEntries(targetWorktree);
+  if (dirtyAfterMerge.length) {
+    throw new Error(
+      `landing target worktree ${targetWorktree} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
+    );
+  }
+  return {
+    source_branch: sourceBranch,
+    target_branch: targetBranch,
+    target_worktree: targetWorktree,
+    landed_commit: landedCommit,
+    strategy: ffOnly ? "fast-forward" : "merge-commit",
+  };
+}
+
+function resolveQuestLandingContext(input: {
+  repoRoot: string;
+  slug: string;
+  state: Partial<{ [key: string]: any }>;
+}): {
+  parentQuestSlug: string;
+  landingTargetBranch: string;
+  landingTargetWorktree: string;
+} {
+  const parentQuestSlug = String(input.state.parent_quest_slug ?? "").trim();
+  const landingTargetBranch = String(
+    input.state.landing_target_branch ?? "",
+  ).trim();
+  const landingTargetWorktree = String(
+    input.state.landing_target_worktree ?? "",
+  ).trim();
+  if (landingTargetBranch) {
+    return {
+      parentQuestSlug,
+      landingTargetBranch,
+      landingTargetWorktree:
+        landingTargetWorktree ||
+        landingTargetWorktreePath(input.repoRoot, landingTargetBranch),
+    };
+  }
+  if (isChildExecutionQuestPrompt(input.state.prompt)) {
+    const parent = findParentQuestAssignment(input.repoRoot, input.slug);
+    if (parent) {
+      return {
+        parentQuestSlug: parent.parent_quest_slug,
+        landingTargetBranch: parent.landing_target_branch,
+        landingTargetWorktree: parent.landing_target_worktree,
+      };
+    }
+  }
+  return {
+    parentQuestSlug: "",
+    landingTargetBranch: "main",
+    landingTargetWorktree: landingTargetWorktreePath(input.repoRoot, "main"),
+  };
+}
+
 function handleTaskGraph(input: {
   files: QuestFiles;
   state: Partial<{ [key: string]: any }>;
@@ -1309,6 +1628,14 @@ function handleTaskGraph(input: {
   const tasks = Array.isArray(input.state.tasks) ? input.state.tasks : [];
   if (!tasks.length) throw new Error("cannot execute an empty task graph");
   appendV3Event(input.files, "task_graph_approved", input.payload);
+  if (isChildExecutionQuestPrompt(input.state.prompt)) {
+    return updateQuestStage(
+      input.files,
+      "validating",
+      input.requestId,
+      "loopo quest next",
+    );
+  }
   return updateQuestStage(
     input.files,
     "task_graph_ready",
@@ -1332,6 +1659,7 @@ function allTasksDone(state: Partial<{ tasks: QuestTask[] }>): boolean {
 }
 
 function handleChildResult(input: {
+  repoRoot: string;
   files: QuestFiles;
   state: Partial<{ [key: string]: any }>;
   payload: Record<string, any>;
@@ -1347,6 +1675,39 @@ function handleChildResult(input: {
     throw new Error(
       "child_result with status=passed requires merge_commit from the merged child branch",
     );
+  }
+  const task = taskById(
+    input.state,
+    String(input.payload.task_id ?? input.payload.id ?? ""),
+  );
+  if (!task) {
+    throw new Error(
+      `child_result references unknown task_id: ${input.payload.task_id}`,
+    );
+  }
+  if (CHILD_DONE_STATUSES.has(String(task.status ?? ""))) {
+    throw new Error(
+      `child_result cannot update already completed task: ${task.id}`,
+    );
+  }
+  const payloadChildSlug = String(input.payload.child_slug ?? "").trim();
+  if (task.child_slug.trim() && payloadChildSlug !== task.child_slug.trim()) {
+    throw new Error(
+      `child_result child_slug must match planned child slug ${task.child_slug}`,
+    );
+  }
+  if (status === "passed") {
+    const childQuest = task.child_slug.trim()
+      ? questBySlug(input.repoRoot, task.child_slug.trim())
+      : null;
+    if (childQuest) {
+      const childStage = String(childQuest.state.stage ?? "");
+      if (childStage !== "archived") {
+        throw new Error(
+          `child_result cannot pass until child quest ${task.child_slug} is archived; current stage=${childStage || "unknown"}`,
+        );
+      }
+    }
   }
   const taskUpdate = {
     id: String(input.payload.task_id),
@@ -1386,6 +1747,7 @@ function handleChildResult(input: {
 
 function handleValidation(input: {
   files: QuestFiles;
+  state: Partial<{ [key: string]: any }>;
   payload: Record<string, any>;
   requestId: string;
 }): Partial<{ [key: string]: any }> {
@@ -1401,7 +1763,9 @@ function handleValidation(input: {
     input.files,
     input.payload.status === "passed"
       ? "verification_pending"
-      : "task_graph_ready",
+      : isChildExecutionQuestPrompt(input.state.prompt)
+        ? "validating"
+        : "task_graph_ready",
     input.requestId,
     "loopo quest next",
   );
@@ -1456,6 +1820,7 @@ function handleSystemUpdate(input: {
 }
 
 function handleLanding(input: {
+  repoRoot: string;
   cwd: string;
   files: QuestFiles;
   payload: Record<string, any>;
@@ -1464,11 +1829,11 @@ function handleLanding(input: {
   if (!["landed", "blocked"].includes(String(input.payload.status))) {
     throw new Error("landing status must be landed or blocked");
   }
+  let landingReceipt: GitLandingReceipt | null = null;
   if (String(input.payload.status) === "landed") {
-    const tasks = Array.isArray(
-      parseTasksYaml(readText(input.files.tasks)).tasks,
-    )
-      ? (parseTasksYaml(readText(input.files.tasks)).tasks as QuestTask[])
+    const currentState = parseTasksYaml(readText(input.files.tasks));
+    const tasks = Array.isArray(currentState.tasks)
+      ? (currentState.tasks as QuestTask[])
       : [];
     const unmerged = tasks.filter(
       (task) =>
@@ -1478,6 +1843,26 @@ function handleLanding(input: {
     if (unmerged.length) {
       throw new Error(
         `cannot land while child tasks are missing merge_commit: ${unmerged.map((task) => task.id).join(", ")}`,
+      );
+    }
+    const unresolvedChildren = tasks.filter((task) => {
+      if (!CHILD_DONE_STATUSES.has(task.status)) return false;
+      const slug = String(task.child_slug ?? "").trim();
+      if (!slug) return false;
+      const childQuest = questBySlug(input.repoRoot, slug);
+      return childQuest != null && String(childQuest.state.stage ?? "") !== "archived";
+    });
+    if (unresolvedChildren.length) {
+      throw new Error(
+        `cannot land while child quests are unresolved: ${unresolvedChildren.map((task) => task.child_slug).join(", ")}`,
+      );
+    }
+    const dirtyCoordinatorEntries = relevantGitDirtyEntries(
+      String(currentState.coordinator_worktree ?? ""),
+    );
+    if (dirtyCoordinatorEntries.length) {
+      throw new Error(
+        `cannot land while coordinator worktree has uncommitted changes: ${dirtyCoordinatorEntries.slice(0, 5).join(", ")}`,
       );
     }
     const trackedWorktreePaths = runCommand(
@@ -1496,8 +1881,39 @@ function handleLanding(input: {
         );
       }
     }
+    const landingContext = resolveQuestLandingContext({
+      repoRoot: input.repoRoot,
+      slug: input.files.slug,
+      state: currentState,
+    });
+    landingReceipt = gitMergeIntoBranch(
+      input.repoRoot,
+      String(currentState.coordinator_branch ?? ""),
+      landingContext.landingTargetBranch,
+      landingContext.landingTargetWorktree,
+    );
+    applyLandingReceipt(input.files, currentState, {
+      parent_quest_slug: landingContext.parentQuestSlug,
+      landing_target_branch: landingReceipt.target_branch,
+      landing_target_worktree: landingReceipt.target_worktree,
+      landed_commit: landingReceipt.landed_commit,
+      landing_strategy: landingReceipt.strategy,
+    });
   }
-  appendV3Event(input.files, "landing", input.payload);
+  appendV3Event(input.files, "landing", {
+    ...input.payload,
+    ...(landingReceipt
+      ? {
+          landing: {
+            source_branch: landingReceipt.source_branch,
+            target_branch: landingReceipt.target_branch,
+            target_worktree: landingReceipt.target_worktree,
+            landed_commit: landingReceipt.landed_commit,
+            strategy: landingReceipt.strategy,
+          },
+        }
+      : {}),
+  });
   return updateQuestStage(
     input.files,
     input.payload.status === "landed" ? "archived" : "landing_ready",
@@ -1705,6 +2121,15 @@ function createV3Quest(input: {
   ensureSystemScaffold(input.repoRoot);
   const flow = loadFlowDefinition(input.flowId);
   const workspace = ensureCoordinatorWorkspace(input.repoRoot, input.slug);
+  const parentAssignment = isChildExecutionQuestPrompt(input.request)
+    ? findParentQuestAssignment(input.repoRoot, input.slug)
+    : null;
+  const landingTargetBranch = parentAssignment
+    ? parentAssignment.landing_target_branch
+    : "main";
+  const landingTargetWorktree = parentAssignment
+    ? parentAssignment.landing_target_worktree
+    : landingTargetWorktreePath(input.repoRoot, landingTargetBranch);
   const { files, state } = createQuest({
     repoRoot: input.repoRoot,
     slug: input.slug,
@@ -1713,6 +2138,9 @@ function createV3Quest(input: {
     workspace,
     flowId: flow.id,
     flowVersion: flow.version,
+    parentQuestSlug: parentAssignment?.parent_quest_slug ?? "",
+    landingTargetBranch,
+    landingTargetWorktree,
   });
   setActiveSlug(input.repoRoot, input.slug);
   recordActiveSessionForContext({
@@ -1875,6 +2303,7 @@ function runQuestNextV3(argv: string[]): number {
           });
         } else if (expected === "child_result") {
           state = handleChildResult({
+            repoRoot: context.repoRoot,
             files: existing.files,
             state,
             payload,
@@ -1883,6 +2312,7 @@ function runQuestNextV3(argv: string[]): number {
         } else if (expected === "validation") {
           state = handleValidation({
             files: existing.files,
+            state,
             payload,
             requestId,
           });
@@ -1901,6 +2331,7 @@ function runQuestNextV3(argv: string[]): number {
           });
         } else if (expected === "landing") {
           state = handleLanding({
+            repoRoot: context.repoRoot,
             cwd: args.cwd ? resolve(expandHome(args.cwd)) : context.repoRoot,
             files: existing.files,
             payload,
@@ -2003,7 +2434,7 @@ function runQuestHelpV3(argv: string[]): number {
         "Submit all quest mutations through commands.next with --json @-.",
         "Runtime hook configs can infer cwd from the current working directory.",
         "Generated hook files only need loopo hook --runtime <runtime>.",
-        "When executing children, run the child command shown in children[].commands, then submit a child_result to the parent only after the child finishes.",
+        "When executing children, launch the child init command shown in children[].commands.init in a dedicated child CLI agent session, then submit a child_result to the parent only after that child quest finishes.",
       ],
       commands: [
         {
@@ -2214,6 +2645,7 @@ function runInit(argv: string[]): number {
         runtime: args.runtime,
         request: args.objective,
         flowId: args.flowId,
+        slug: args.slug,
       }),
     );
     return 0;

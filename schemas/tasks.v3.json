@@ -29,6 +29,11 @@
     "resolution_source": { "type": "string" },
     "coordinator_branch": { "type": "string" },
     "coordinator_worktree": { "type": "string" },
+    "parent_quest_slug": { "type": "string" },
+    "landing_target_branch": { "type": "string" },
+    "landing_target_worktree": { "type": "string" },
+    "landed_commit": { "type": "string" },
+    "landing_strategy": { "type": "string" },
     "assumptions": { "type": "array", "items": { "type": "string" } },
     "constraints": { "type": "array", "items": { "type": "string" } },
     "tasks": { "type": "array" }

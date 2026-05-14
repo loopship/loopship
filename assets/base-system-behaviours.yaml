@@ -232,7 +232,9 @@ behaviours:
     statement: >-
       Child task execution is modeled as a spawned_quest subflow that starts
       from task_graph_ready via children[].commands.init and returns to the
-      parent task_graph_ready stage through a child_result payload.
+      parent task_graph_ready stage through a child_result payload. Each child
+      launch is a dedicated CLI agent session, not inline execution by the
+      parent coordinator.
     test_refs:
       - scripts/verify_flow_schema.test.ts
       - scripts/verify_coherency.ts
@@ -376,10 +378,10 @@ behaviours:
 
   - id: child-one-task-one-worktree
     statement: >-
-      Each planned task maps to exactly one child subagent flow and one child
-      worktree; executing instructions call for builtin generalist default
-      subagents in parallel for independent tasks and reject hidden task
-      splitting.
+      Each planned task maps to exactly one dedicated child CLI-agent flow and
+      one child worktree; executing instructions call for launching dedicated
+      child CLI agent sessions for independent tasks and reject hidden task
+      splitting or inline child execution by the parent session.
     test_refs:
       - scripts/verify_coherency.ts
       - scripts/verify_child_agent_integration.test.ts
@@ -401,8 +403,8 @@ behaviours:
     statement: >-
       Executing output emits one ready child command per selected task, with
       child_slug <parent-slug>-<task-id>, loopo init and quest next commands,
-      cwd set to the task worktree or repo root, runtime all, and result schema
-      child-result-input.
+      init forced to that child slug and flow id, cwd set to the task worktree
+      or repo root, runtime all, and result schema child-result-input.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
       - scripts/verify_flow_schema.test.ts
@@ -534,8 +536,10 @@ behaviours:
   - id: landing-transition
     statement: >-
       The landing step accepts only status landed or blocked, appends a landing
-      event, archives the quest when landed, and remains landing_ready when
-      blocked.
+      event, performs the real git merge from the coordinator branch into the
+      quest landing target when landed, records the landed commit and merge
+      strategy in canonical quest state, archives the quest when landed, and
+      remains landing_ready when blocked.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
       - scripts/verify_flow_schema.test.ts

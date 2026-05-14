@@ -37,8 +37,9 @@
     "bun": ">=1.1.0"
   },
   "scripts": {
-    "test": "bun test scripts/verify_flow_schema.test.ts scripts/verify_child_agent_integration.test.ts",
-    "verify": "bun run scripts/verify_coherency.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts",
+    "test": "bun test scripts/verify_flow_schema.test.ts scripts/verify_child_agent_integration.test.ts scripts/verify_lifecycle_matrix.test.ts scripts/verify_runtime_live.test.ts",
+    "verify": "bun run scripts/verify_coherency.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts && bun run scripts/report_lifecycle_matrix.ts",
+    "verify:lifecycle": "bun run scripts/report_lifecycle_matrix.ts",
     "verify:live": "bun run scripts/verify_runtime_live.ts"
   },
   "devDependencies": {

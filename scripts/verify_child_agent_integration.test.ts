@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseTasksYaml } from "./loopo_core.ts";
 import { runCommand } from "./loopo_utils.ts";
 import { validateV3Input } from "./loopo_schema.ts";
 
@@ -60,6 +61,12 @@ function runLoopo(
 function runGit(cwd: string, args: string[]): void {
   const proc = runCommand("git", args, { cwd, timeoutMs: 30_000 });
   expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+}
+
+function gitStdout(cwd: string, args: string[]): string {
+  const proc = runCommand("git", args, { cwd, timeoutMs: 30_000 });
+  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+  return proc.stdout.trim();
 }
 
 function createFixture(prefix: string): Fixture {
@@ -185,9 +192,11 @@ describe("loopo v3 child slug integration", () => {
     }
   });
 
-  it("runs the bin-coordinated parent and child result flow", () => {
-    const fixture = createFixture("loopo-v3-child-");
-    try {
+  it(
+    "runs the bin-coordinated parent and child result flow",
+    () => {
+      const fixture = createFixture("loopo-v3-child-");
+      try {
       const init = runLoopo(
         fixture.repo,
         [
@@ -210,6 +219,19 @@ describe("loopo v3 child slug integration", () => {
         "https://loopo.dev/schemas/steps/init-output.v3.json",
       );
       const slug = String(route.new_quest.suggested_slug);
+      expect((route.new_quest.command.args as string[])).not.toContain("@-");
+      expect((route.new_quest.command.args as string[])).toEqual(
+        expect.arrayContaining([
+          "--json",
+          JSON.stringify({
+            step: "select_quest",
+            action: "create_quest",
+            slug,
+            flow_id: "swe",
+            request: "loopo: build calculator",
+          }),
+        ]),
+      );
 
       const created = next(fixture, slug, {
         step: "select_quest",
@@ -691,6 +713,225 @@ describe("loopo v3 child slug integration", () => {
       });
       expectValidSchema(archived, "archive-output");
       expect(archived.step).toBe("archived");
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    },
+    30_000,
+  );
+
+  it("allows decomposition after answered clarification for vague greenfield prompts", () => {
+    const fixture = createFixture("loopo-v3-vague-greenfield-");
+    try {
+      const init = runLoopo(
+        fixture.repo,
+        [
+          "init",
+          "loopo: a fullstack app",
+          "--cwd",
+          fixture.repo,
+          "--runtime",
+          "codex",
+        ],
+        undefined,
+        fixture.env,
+      );
+      expect(init.status, init.stderr || init.stdout).toBe(0);
+      const route = parseJson(init.stdout);
+      const slug = String(route.new_quest.suggested_slug);
+
+      const created = next(fixture, slug, {
+        step: "select_quest",
+        action: "create_quest",
+        slug,
+        request: "loopo: a fullstack app",
+      });
+      expectValidSchema(created, "step-output");
+      expect(created.step).toBe("plan");
+      expect(((created.commands as any).next as any).args).toEqual(
+        expect.arrayContaining(["--cwd", join(fixture.repo, "worktrees", slug)]),
+      );
+
+      const awaitingAnswers = next(fixture, slug, {
+        step: "plan",
+        classification: "greenfield_app",
+        scope: "Generic fullstack application as requested by the user.",
+        summary:
+          "The request is generic, so clarification is required before decomposition.",
+        af: {},
+        of: {},
+        verification_targets: [],
+        questions: [
+          {
+            id: "app_purpose",
+            question: "What is the primary purpose of the app?",
+            impact: "high",
+            default: "Task tracker",
+          },
+        ],
+        task_graph: { tasks: [] },
+      });
+      expectValidSchema(awaitingAnswers, "step-output");
+      expect(awaitingAnswers.step).toBe("questions");
+      expect(awaitingAnswers.state).toBe("awaiting_user_answers");
+
+      const backToPlanning = next(fixture, slug, {
+        step: "questions",
+        answers: [
+          {
+            question_id: "app_purpose",
+            answer: "Build a task tracker for small teams.",
+          },
+        ],
+      });
+      expectValidSchema(backToPlanning, "step-output");
+      expect(backToPlanning.step).toBe("plan");
+      expect(backToPlanning.state).toBe("planning");
+
+      const decomposed = next(fixture, slug, {
+        step: "plan",
+        classification: "greenfield_app",
+        scope:
+          "Build a full-stack task tracker for small teams with a React frontend, an Express backend, and SQLite persistence.",
+        summary: "Implement the MVP task tracker in one bounded child task.",
+        defaulted_unknowns: ["No auth for MVP", "Simple list UI"],
+        assumptions: ["All team members share the same permissions."],
+        constraints: ["Use React, Express, and SQLite."],
+        af: {
+          resolved_scope: [
+            "App purpose is a task tracker.",
+            "The implementation stays within MVP scope.",
+          ],
+        },
+        of: {
+          delivery_strategy:
+            "Use one dedicated child quest to build the MVP end to end.",
+        },
+        verification_targets: ["Production build succeeds"],
+        task_graph: {
+          tasks: [
+            {
+              id: "T001",
+              title: "Build the MVP task tracker",
+              type: "coding",
+              acceptance: ["Production build succeeds"],
+            },
+          ],
+        },
+      });
+      expectValidSchema(decomposed, "step-output");
+      expect(decomposed.step).toBe("task_graph");
+      expect(decomposed.state).toBe("plan_review");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("treats execute-child quests as leaf workers after task graph approval", () => {
+    const fixture = createFixture("loopo-v3-child-worker-");
+    try {
+      const init = runLoopo(
+        fixture.repo,
+        [
+          "init",
+          "loopo: execute child task build-mvp-task-tracker: Build the MVP full-stack task tracker application",
+          "--slug",
+          "a-fullstack-app-build-mvp-task-tracker",
+          "--cwd",
+          fixture.repo,
+          "--runtime",
+          "codex",
+        ],
+        undefined,
+        fixture.env,
+      );
+      expect(init.status, init.stderr || init.stdout).toBe(0);
+
+      const created = next(fixture, "a-fullstack-app-build-mvp-task-tracker", {
+        step: "select_quest",
+        action: "create_quest",
+        slug: "a-fullstack-app-build-mvp-task-tracker",
+        request:
+          "loopo: execute child task build-mvp-task-tracker: Build the MVP full-stack task tracker application",
+      });
+      expectValidSchema(created, "step-output");
+      expect(created.step).toBe("plan");
+      expect(((created.commands as any).next as any).args).toEqual(
+        expect.arrayContaining([
+          "--cwd",
+          join(
+            fixture.repo,
+            "worktrees",
+            "a-fullstack-app-build-mvp-task-tracker",
+          ),
+        ]),
+      );
+
+      const planned = next(fixture, "a-fullstack-app-build-mvp-task-tracker", {
+        step: "plan",
+        classification: "feature",
+        scope:
+          "Implement the assigned MVP task tracker in this dedicated child worktree.",
+        summary:
+          "Execute the assigned child task locally without delegating to another child quest.",
+        defaulted_unknowns: ["No auth for MVP", "Simple list UI"],
+        assumptions: ["Task requirements are inherited from the parent quest."],
+        constraints: ["Work must stay within the assigned child worktree."],
+        af: {
+          decision:
+            "Treat the child quest as the execution worker for the assigned task.",
+        },
+        of: {
+          delivery_strategy:
+            "Implement locally, validate locally, and archive before reporting to the parent.",
+        },
+        verification_targets: ["Production build succeeds"],
+        task_graph: {
+          tasks: [
+            {
+              id: "T001",
+              title: "Implement the assigned MVP task tracker",
+              type: "coding",
+              acceptance: ["Production build succeeds"],
+            },
+          ],
+        },
+      });
+      expectValidSchema(planned, "step-output");
+      expect(planned.step).toBe("task_graph");
+
+      const childState = parseTasksYaml(
+        readFileSync(
+          join(
+            fixture.repo,
+            ".loopo",
+            "quests",
+            "a-fullstack-app-build-mvp-task-tracker",
+            "tasks.yaml",
+          ),
+          "utf8",
+        ),
+      );
+      const childTask = (childState.tasks ?? [])[0] as any;
+      expect(childTask.status).toBe("pending");
+      expect(childTask.worktree_path).toBe(
+        join(
+          fixture.repo,
+          "worktrees",
+          "a-fullstack-app-build-mvp-task-tracker",
+        ),
+      );
+      expect(childTask.child_slug).toBe("");
+      expect(childTask.merge_lease_id).toBe("");
+      expect(childTask.system_impact_ref).toBe("");
+
+      const validation = next(fixture, "a-fullstack-app-build-mvp-task-tracker", {
+        step: "task_graph",
+        approved: true,
+      });
+      expectValidSchema(validation, "step-output");
+      expect(validation.step).toBe("validation");
+      expect(validation.state).toBe("validating");
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -847,9 +1088,28 @@ describe("loopo v3 child slug integration", () => {
         approved: true,
       });
       expectValidSchema(executing, "child-dispatch-output");
-      expect(
-        (executing.children as any[]).map((child) => child.task_id),
-      ).toEqual(["t001", "t002"]);
+      const children = executing.children as any[];
+      expect(children.map((child) => child.task_id)).toEqual(["t001", "t002"]);
+      expect(children[0].commands.init.args).toEqual(
+        expect.arrayContaining([
+          "--slug",
+          `${slug}-t001`,
+          "--runtime",
+          "codex",
+          "--flow",
+          "swe",
+        ]),
+      );
+      expect(children[1].commands.init.args).toEqual(
+        expect.arrayContaining([
+          "--slug",
+          `${slug}-t002`,
+          "--runtime",
+          "codex",
+          "--flow",
+          "swe",
+        ]),
+      );
 
       const partial = next(fixture, slug, {
         step: "child_result",
@@ -947,4 +1207,479 @@ describe("loopo v3 child slug integration", () => {
       rmSync(fixture.root, { recursive: true, force: true });
     }
   });
+
+  it("rejects passing a child result while the matching child quest is unresolved", () => {
+    const fixture = createFixture("loopo-v3-child-guard-");
+    try {
+      const init = runLoopo(
+        fixture.repo,
+        [
+          "init",
+          "loopo: build guarded child flow",
+          "--cwd",
+          fixture.repo,
+          "--runtime",
+          "codex",
+        ],
+        undefined,
+        fixture.env,
+      );
+      expect(init.status, init.stderr || init.stdout).toBe(0);
+      const route = parseJson(init.stdout);
+      const slug = String(route.new_quest.suggested_slug);
+
+      next(fixture, slug, {
+        step: "select_quest",
+        action: "create_quest",
+        slug,
+        request: "loopo: build guarded child flow",
+      });
+
+      next(fixture, slug, {
+        step: "plan",
+        classification: "feature",
+        scope: "guarded child flow",
+        af: {},
+        of: {},
+        verification_targets: ["child must finish before parent can pass"],
+        task_graph: {
+          tasks: [
+            {
+              id: "T001",
+              title: "Run guarded child task",
+              type: "coding",
+              acceptance: ["guard works"],
+            },
+          ],
+        },
+      });
+
+      const executing = next(fixture, slug, {
+        step: "task_graph",
+        approved: true,
+      });
+      const child = (executing.children as any[])[0];
+
+      const childInit = runLoopo(
+        fixture.repo,
+        child.commands.init.args,
+        undefined,
+        fixture.env,
+      );
+      expect(childInit.status, childInit.stderr || childInit.stdout).toBe(0);
+      const childRoute = parseJson(childInit.stdout);
+      expect(String(childRoute.new_quest.suggested_slug)).toBe(child.child_slug);
+      expect(child.commands.init.args).toEqual(
+        expect.arrayContaining(["--runtime", "codex"]),
+      );
+
+      next(fixture, child.child_slug, childRoute.new_quest.input);
+
+      const premature = runLoopo(
+        fixture.repo,
+        [
+          "quest",
+          "next",
+          "--slug",
+          slug,
+          "--cwd",
+          fixture.repo,
+          "--json",
+          "@-",
+        ],
+        {
+          step: "child_result",
+          task_id: "t001",
+          child_slug: child.child_slug,
+          status: "passed",
+          merge_commit: "guard123",
+          evidence: [{ type: "summary", ref: "guard.txt" }],
+        },
+        fixture.env,
+      );
+      expect(premature.status).toBe(1);
+      expect(String(parseJson(premature.stdout).error)).toContain(
+        "cannot pass until child quest",
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects landing while the coordinator worktree is dirty", () => {
+    const fixture = createFixture("loopo-v3-landing-guard-");
+    try {
+      const init = runLoopo(
+        fixture.repo,
+        [
+          "init",
+          "loopo: build landing guard",
+          "--cwd",
+          fixture.repo,
+          "--runtime",
+          "codex",
+        ],
+        undefined,
+        fixture.env,
+      );
+      expect(init.status, init.stderr || init.stdout).toBe(0);
+      const route = parseJson(init.stdout);
+      const slug = String(route.new_quest.suggested_slug);
+
+      next(fixture, slug, {
+        step: "select_quest",
+        action: "create_quest",
+        slug,
+        request: "loopo: build landing guard",
+      });
+
+      next(fixture, slug, {
+        step: "plan",
+        classification: "feature",
+        scope: "landing guard",
+        af: {},
+        of: {},
+        verification_targets: ["landing checks coordinator cleanliness"],
+        task_graph: {
+          tasks: [
+            {
+              id: "T001",
+              title: "Complete one guarded task",
+              type: "coding",
+              acceptance: ["done"],
+            },
+          ],
+        },
+      });
+
+      next(fixture, slug, {
+        step: "task_graph",
+        approved: true,
+      });
+
+      next(fixture, slug, {
+        step: "child_result",
+        task_id: "t001",
+        child_slug: `${slug}-t001`,
+        status: "passed",
+        merge_commit: "landing123",
+        evidence: [{ type: "summary", ref: "done.txt" }],
+      });
+
+      next(fixture, slug, {
+        step: "validation",
+        status: "passed",
+        checks: [{ name: "guard", status: "passed" }],
+      });
+
+      next(fixture, slug, {
+        step: "verification",
+        status: "passed",
+        acceptance_trace: [{ acceptance: "done", status: "passed" }],
+        risks: [],
+      });
+
+      next(fixture, slug, {
+        step: "system_update",
+        system_update: {
+          schema_version: 1,
+          updates: [{ doc_id: "architecture", summary: "landing guard" }],
+        },
+      });
+
+      writeFileSync(
+        join(fixture.repo, "worktrees", slug, "DIRTY.txt"),
+        "dirty\n",
+        "utf8",
+      );
+
+      const landing = runLoopo(
+        fixture.repo,
+        [
+          "quest",
+          "next",
+          "--slug",
+          slug,
+          "--cwd",
+          fixture.repo,
+          "--json",
+          "@-",
+        ],
+        {
+          step: "landing",
+          status: "landed",
+          summary: "done",
+        },
+        fixture.env,
+      );
+      expect(landing.status).toBe(1);
+      expect(String(parseJson(landing.stdout).error)).toContain(
+        "coordinator worktree has uncommitted changes",
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it(
+    "merges child branches during child landing and lands the parent branch into main",
+    () => {
+      const fixture = createFixture("loopo-v3-git-landing-");
+      try {
+      const init = runLoopo(
+        fixture.repo,
+        [
+          "init",
+          "loopo: build landed workflow",
+          "--cwd",
+          fixture.repo,
+          "--runtime",
+          "codex",
+        ],
+        undefined,
+        fixture.env,
+      );
+      expect(init.status, init.stderr || init.stdout).toBe(0);
+      const route = parseJson(init.stdout);
+      const slug = String(route.new_quest.suggested_slug);
+
+      next(fixture, slug, {
+        step: "select_quest",
+        action: "create_quest",
+        slug,
+        request: "loopo: build landed workflow",
+      });
+
+      next(fixture, slug, {
+        step: "plan",
+        classification: "feature",
+        scope: "landed workflow",
+        summary:
+          "Use two independent child tasks so the second child must merge into an already-advanced parent branch.",
+        af: { decision: "Exercise real git merge behavior through landing." },
+        of: {
+          delivery_strategy:
+            "Dispatch two child quests, land them into the parent branch, then land the parent into main.",
+        },
+        verification_targets: [
+          "Both child slices merge into the parent branch.",
+          "The parent branch lands into main.",
+        ],
+        task_graph: {
+          tasks: [
+            {
+              id: "T001",
+              title: "Build alpha slice",
+              type: "coding",
+              acceptance: ["alpha slice merged"],
+              scope_files: ["alpha.txt"],
+              concurrency_group: "alpha",
+            },
+            {
+              id: "T002",
+              title: "Build beta slice",
+              type: "coding",
+              acceptance: ["beta slice merged"],
+              scope_files: ["beta.txt"],
+              concurrency_group: "beta",
+            },
+          ],
+        },
+      });
+
+      const executing = next(fixture, slug, {
+        step: "task_graph",
+        approved: true,
+      });
+      const children = executing.children as any[];
+      expect(children).toHaveLength(2);
+
+      const parentWorktree = join(fixture.repo, "worktrees", slug);
+
+      const runChildLifecycle = (
+        child: any,
+        fileName: string,
+        title: string,
+      ): Record<string, unknown> => {
+        const childInit = runLoopo(
+          fixture.repo,
+          child.commands.init.args,
+          undefined,
+          fixture.env,
+        );
+        expect(childInit.status, childInit.stderr || childInit.stdout).toBe(0);
+        const childRoute = parseJson(childInit.stdout);
+        const childSlug = String(childRoute.new_quest.suggested_slug);
+        expect(childSlug).toBe(String(child.child_slug));
+
+        next(fixture, childSlug, childRoute.new_quest.input);
+
+        next(fixture, childSlug, {
+          step: "plan",
+          classification: "feature",
+          scope: `${title} implementation`,
+          summary: `Implement ${title} directly in the child branch and land it through the landing step.`,
+          defaulted_unknowns: ["No further delegation."],
+          assumptions: ["The parent quest already assigned the file boundary."],
+          constraints: ["Stay within this child worktree."],
+          af: { decision: "Treat the child as a leaf worker." },
+          of: {
+            delivery_strategy:
+              "Commit the child change locally, validate it, and land it into the parent branch.",
+          },
+          verification_targets: [`${fileName} is committed and merged.`],
+          task_graph: {
+            tasks: [
+              {
+                id: "T001",
+                title,
+                type: "coding",
+                acceptance: [`${fileName} is committed and merged.`],
+              },
+            ],
+          },
+        });
+
+        const childWorktree = String(child.worktree_path);
+        writeFileSync(join(childWorktree, fileName), `${title}\n`, "utf8");
+        runGit(childWorktree, ["add", fileName]);
+        runGit(childWorktree, ["commit", "-m", `feat: add ${fileName}`]);
+        const childHead = gitStdout(childWorktree, ["rev-parse", "HEAD"]);
+
+        const validation = next(fixture, childSlug, {
+          step: "task_graph",
+          approved: true,
+        });
+        expectValidSchema(validation, "step-output");
+        expect(validation.step).toBe("validation");
+
+        next(fixture, childSlug, {
+          step: "validation",
+          status: "passed",
+          checks: [{ name: `${fileName}-smoke`, status: "passed" }],
+        });
+
+        next(fixture, childSlug, {
+          step: "verification",
+          status: "passed",
+          acceptance_trace: [
+            { acceptance: `${fileName} is committed and merged.`, status: "passed" },
+          ],
+          risks: [],
+        });
+
+        next(fixture, childSlug, {
+          step: "system_update",
+          system_update: {
+            schema_version: 1,
+            updates: [{ doc_id: "architecture", summary: `${fileName} landed` }],
+          },
+        });
+
+        const archived = next(fixture, childSlug, {
+          step: "landing",
+          status: "landed",
+          summary: `${fileName} landed into parent`,
+        });
+        expectValidSchema(archived, "archive-output");
+        expect(archived.step).toBe("archived");
+        expect((archived as any).landing.target_branch).toBe(slug);
+        expect((archived as any).landing.target_worktree).toBe(parentWorktree);
+        expect(existsSync(join(parentWorktree, fileName))).toBe(true);
+        if (String((archived as any).landing.strategy) === "fast-forward") {
+          expect(String((archived as any).landing.landed_commit)).toBe(childHead);
+        } else {
+          const ancestry = runCommand(
+            "git",
+            ["merge-base", "--is-ancestor", childHead, "HEAD"],
+            { cwd: parentWorktree, timeoutMs: 30_000 },
+          );
+          expect(ancestry.status, ancestry.stderr || ancestry.stdout).toBe(0);
+        }
+        return archived;
+      };
+
+      const alphaArchived = runChildLifecycle(children[0], "alpha.txt", "Build alpha slice");
+      expect((alphaArchived as any).landing.strategy).toBe("fast-forward");
+
+      next(fixture, slug, {
+        step: "child_result",
+        task_id: String(children[0].task_id),
+        child_slug: String(children[0].child_slug),
+        status: "passed",
+        merge_commit: String((alphaArchived as any).landing.landed_commit),
+        evidence: [{ type: "summary", ref: "alpha.txt" }],
+      });
+
+      const betaArchived = runChildLifecycle(children[1], "beta.txt", "Build beta slice");
+      expect((betaArchived as any).landing.strategy).toBe("merge-commit");
+
+      const validating = next(fixture, slug, {
+        step: "child_result",
+        task_id: String(children[1].task_id),
+        child_slug: String(children[1].child_slug),
+        status: "passed",
+        merge_commit: String((betaArchived as any).landing.landed_commit),
+        evidence: [{ type: "summary", ref: "beta.txt" }],
+      });
+      expectValidSchema(validating, "step-output");
+      expect(validating.step).toBe("validation");
+
+      expect(existsSync(join(parentWorktree, "alpha.txt"))).toBe(true);
+      expect(existsSync(join(parentWorktree, "beta.txt"))).toBe(true);
+
+      next(fixture, slug, {
+        step: "validation",
+        status: "passed",
+        checks: [{ name: "parent-merge-smoke", status: "passed" }],
+      });
+
+      next(fixture, slug, {
+        step: "verification",
+        status: "passed",
+        acceptance_trace: [
+          { acceptance: "alpha slice merged", status: "passed" },
+          { acceptance: "beta slice merged", status: "passed" },
+        ],
+        risks: [],
+      });
+
+      next(fixture, slug, {
+        step: "system_update",
+        system_update: {
+          schema_version: 1,
+          updates: [{ doc_id: "architecture", summary: "parent branch ready for main" }],
+        },
+      });
+
+      const rootArchived = next(fixture, slug, {
+        step: "landing",
+        status: "landed",
+        summary: "parent branch landed into main",
+      });
+      expectValidSchema(rootArchived, "archive-output");
+      expect(rootArchived.step).toBe("archived");
+      expect((rootArchived as any).landing.target_branch).toBe("main");
+      expect((rootArchived as any).landing.strategy).toBe("fast-forward");
+
+      const mainHead = gitStdout(fixture.repo, ["rev-parse", "main"]);
+      expect(mainHead).toBe(String((rootArchived as any).landing.landed_commit));
+      expect(existsSync(join(fixture.repo, "alpha.txt"))).toBe(true);
+      expect(existsSync(join(fixture.repo, "beta.txt"))).toBe(true);
+
+      const rootState = parseTasksYaml(
+        readFileSync(
+          join(fixture.repo, ".loopo", "quests", slug, "tasks.yaml"),
+          "utf8",
+        ),
+      ) as any;
+      expect(rootState.landed_commit).toBe(mainHead);
+      expect(rootState.landing_target_branch).toBe("main");
+      expect(rootState.landing_strategy).toBe("fast-forward");
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
 });
