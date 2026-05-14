@@ -726,6 +726,73 @@ function readHookDecision(fixture: Fixture): {
   return { reason, raw: payload };
 }
 
+function routeInitQuest(
+  fixture: Fixture,
+  logChunks: string[],
+): ReturnType<typeof runCommand> {
+  const initProc = runLoopo(fixture, [
+    "init",
+    USER_REQUEST,
+    "--cwd",
+    fixture.repo,
+    "--runtime",
+    fixture.runtime,
+  ]);
+  logChunks.push(
+    [
+      "# init",
+      `$ loopo init ${JSON.stringify(USER_REQUEST)} --cwd ${fixture.repo} --runtime ${fixture.runtime}`,
+      "",
+      "STDOUT",
+      initProc.stdout,
+      "",
+      "STDERR",
+      initProc.stderr,
+      "",
+    ].join("\n"),
+  );
+  if (initProc.status !== 0) {
+    fail(initProc.stderr || initProc.stdout || "loopo init failed");
+  }
+
+  const initPayload = parseJson(initProc.stdout);
+  const route = initPayload?.new_quest as
+    | { command?: { cmd?: string; args?: string[] } }
+    | undefined;
+  const cmd = route?.command?.cmd;
+  const args = route?.command?.args;
+  if (
+    typeof cmd !== "string" ||
+    !Array.isArray(args) ||
+    args.some((arg) => typeof arg !== "string")
+  ) {
+    fail("loopo init did not emit a runnable new_quest.command");
+  }
+
+  const routeProc = runCommand(cmd, args, {
+    cwd: fixture.repo,
+    env: fixture.env,
+    timeoutMs: 60_000,
+  });
+  logChunks.push(
+    [
+      "# route",
+      `$ ${[cmd, ...args].join(" ")}`,
+      "",
+      "STDOUT",
+      routeProc.stdout,
+      "",
+      "STDERR",
+      routeProc.stderr,
+      "",
+    ].join("\n"),
+  );
+  if (routeProc.status !== 0) {
+    fail(routeProc.stderr || routeProc.stdout || "new_quest.command failed");
+  }
+  return routeProc;
+}
+
 export function runLiveRuntime(
   runtime: Runtime,
   timeoutMs: number,
@@ -771,7 +838,7 @@ export function runLiveRuntime(
       return proc;
     };
 
-    let lastProc = runCliTurn(livePrompt(runtime), "initial");
+    let lastProc = routeInitQuest(fixture, logChunks);
     for (let guard = 0; guard < 20; guard += 1) {
       const summary = summarizeQuest(fixture);
       if (summary.stage === "archived") break;
