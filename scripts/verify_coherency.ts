@@ -102,8 +102,8 @@ function main(): number {
     ["plan step", join(PACKAGE_ROOT, "assets", "steps", "plan.yaml")],
     ["executing step", join(PACKAGE_ROOT, "assets", "steps", "executing.yaml")],
     [
-      "controller contract",
-      join(PACKAGE_ROOT, "references", "core", "controller-contract.md"),
+      "architecture reference",
+      join(PACKAGE_ROOT, "references", "core", "architecture.md"),
     ],
     [
       "child integration test",
@@ -322,26 +322,50 @@ function main(): number {
   );
   assertNotContains(repoAgents, "loopo-stage-", "repo AGENTS.md");
 
-  const controller = readText(
-    join(PACKAGE_ROOT, "references", "core", "controller-contract.md"),
+  const architecture = readText(
+    join(PACKAGE_ROOT, "references", "core", "architecture.md"),
   );
-  assertContains(controller, ".loopo/system.yaml", "controller contract");
-  assertContains(controller, "system_update_pending", "controller contract");
+  assertContains(architecture, ".loopo/system.yaml", "architecture reference");
+  assertContains(architecture, "system_update_pending", "architecture reference");
   assertContains(
-    controller,
+    architecture,
     "Child CLI agents are senior developer agents",
-    "controller contract",
+    "architecture reference",
   );
-  assertContains(controller, "merge_target", "controller contract");
-  assertContains(controller, "unauthorized/tampered", "controller contract");
+  assertContains(architecture, "merge_target", "architecture reference");
+  assertContains(architecture, "unauthorized/tampered", "architecture reference");
   assertContains(
-    controller,
+    architecture,
     "Do not add separate lifecycle stage specs",
-    "controller contract",
+    "architecture reference",
   );
-  assertNotContains(controller, "compatibility-only", "controller contract");
-  assertNotContains(controller, "tasks.md", "controller contract");
-  assertNotContains(controller, "stage specs may exist", "controller contract");
+  assertContains(
+    architecture,
+    "Continue only when the latest `stop_reason` is exactly `none`.",
+    "architecture reference",
+  );
+  assertContains(
+    architecture,
+    "Limit each automatic continuation chain to 12 non-terminal hook-triggered",
+    "architecture reference",
+  );
+  assertContains(
+    architecture,
+    "When agent narration, terminal chatter, and Loopo state disagree",
+    "architecture reference",
+  );
+  assertContains(
+    architecture,
+    "bun scripts/verify_runtime_hooks.ts",
+    "architecture reference",
+  );
+  assertNotContains(architecture, "compatibility-only", "architecture reference");
+  assertNotContains(architecture, "tasks.md", "architecture reference");
+  assertNotContains(
+    architecture,
+    "stage specs may exist",
+    "architecture reference",
+  );
 
   for (const file of [
     join("assets", "specs", "index.json"),
@@ -351,6 +375,9 @@ function main(): number {
     join("assets", "steps", "plan-intake.yaml"),
     join("schemas", "steps", "plan-intake-input.v3.json"),
     join("references", "core", "intake-protocol.md"),
+    join("references", "core", "controller-contract.md"),
+    join("references", "runtime-hooks.md"),
+    join("references", "runtime-hook-ops.md"),
   ]) {
     assertNotContains(
       existsSync(join(PACKAGE_ROOT, file)) ? "present" : "",

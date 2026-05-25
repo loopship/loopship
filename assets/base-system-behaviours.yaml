@@ -56,7 +56,7 @@ behaviours:
     source_refs:
       - /Volumes/Projects/business/AstronLab/omar391/ai-rules/skills/loopo/SKILL.md
       - agents/openai.yaml
-      - references/core/controller-contract.md
+      - references/core/architecture.md
 
   - id: v3-command-surface
     statement: >-
@@ -199,7 +199,7 @@ behaviours:
     source_refs:
       - assets/steps/plan.yaml
       - assets/steps/executing.yaml
-      - references/core/controller-contract.md
+      - references/core/architecture.md
 
   - id: step-instructions-self-scoped
     statement: >-
@@ -241,7 +241,7 @@ behaviours:
       - scripts/verify_child_agent_integration.test.ts
     source_refs:
       - assets/flows/swe.yaml
-      - references/core/controller-contract.md
+      - references/core/architecture.md
 
   - id: step-output-shape
     statement: >-
@@ -387,7 +387,7 @@ behaviours:
       - scripts/verify_child_agent_integration.test.ts
     source_refs:
       - assets/steps/executing.yaml
-      - references/core/controller-contract.md
+      - references/core/architecture.md
 
   - id: ready-child-selection
     statement: >-
@@ -459,7 +459,7 @@ behaviours:
 
   - id: child-lifecycle-status-model
     statement: >-
-      The controller contract models child task progress as child_received,
+      The central architecture reference models child task progress as child_received,
       child_executing, child_validating, child_verification_pending,
       child_landing_ready, child_merged, and child_archived, while the runtime
       accepts child_result statuses passed, blocked, and failed from children.
@@ -467,7 +467,7 @@ behaviours:
       - scripts/verify_child_agent_integration.test.ts
       - scripts/verify_flow_schema.test.ts
     source_refs:
-      - references/core/controller-contract.md
+      - references/core/architecture.md
       - schemas/steps/child-result-input.v3.json
 
   - id: validation-transition
@@ -601,7 +601,7 @@ behaviours:
       - scripts/verify_runtime_hooks.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hooks.md
+      - references/core/architecture.md
 
   - id: hook-manifest-guard
     statement: >-
@@ -612,7 +612,7 @@ behaviours:
       - scripts/verify_runtime_hooks.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hooks.md
+      - references/core/architecture.md
 
   - id: hook-snapshot-duplicate-suppression
     statement: >-
@@ -624,7 +624,7 @@ behaviours:
       - scripts/verify_runtime_hooks.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hooks.md
+      - references/core/architecture.md
 
   - id: hook-continuation-rules
     statement: >-
@@ -636,7 +636,7 @@ behaviours:
       - scripts/verify_runtime_hooks.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hooks.md
+      - references/core/architecture.md
 
   - id: hook-continuation-budget
     statement: >-
@@ -648,7 +648,7 @@ behaviours:
       - scripts/verify_runtime_hooks.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hooks.md
+      - references/core/architecture.md
 
   - id: hook-runtime-output-mapping
     statement: >-
@@ -659,7 +659,7 @@ behaviours:
       - scripts/verify_runtime_hooks.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hooks.md
+      - references/core/architecture.md
 
   - id: hook-event-audit
     statement: >-
@@ -703,7 +703,7 @@ behaviours:
       - scripts/verify_coherency.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hook-ops.md
+      - references/core/architecture.md
 
   - id: hook-command-portability
     statement: >-
@@ -716,7 +716,7 @@ behaviours:
       - scripts/verify_coherency.ts
     source_refs:
       - scripts/loopo.ts
-      - references/runtime-hooks.md
+      - references/core/architecture.md
 
   - id: global-shim-resolution
     statement: >-

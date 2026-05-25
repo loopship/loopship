@@ -1236,6 +1236,8 @@ export function renderMinimalSkillMd(): string {
     "",
     "# Loopo",
     "",
+    "Package source lives in `/Volumes/Projects/business/AstronLab/omar391/loopo`.",
+    "",
     'When user prompt is `loopo: {request}`, invoke `loopo init "{request}" --cwd <cwd> --runtime <runtime>` and follow the instructions from output.',
     "",
     "```bash",
