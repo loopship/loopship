@@ -2,12 +2,6 @@
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  commandOutcome,
-  createRuntimeFromFile,
-  runCli,
-  type HandlerMap,
-} from "cmdproto";
 import { runSimCli } from "./loopo_sim.ts";
 import { readStdinText } from "./loopo_utils.ts";
 
@@ -15,6 +9,37 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(SCRIPT_DIR, "..");
 const SCHEMA_PATH = resolve(ROOT_DIR, "assets", "cmdproto", "schema.binpb");
 const MANIFEST_PATH = resolve(ROOT_DIR, "assets", "cmdproto", "runtime.binpb");
+const CMDPROTO_HELP_COMMANDS = [
+  {
+    path: "doctor",
+    summary: "Run the existing doctor command through the transparent cmdproto wrapper.",
+  },
+  {
+    path: "hook",
+    summary: "Invoke the existing hook command with a structured JSON payload.",
+  },
+  {
+    path: "init",
+    summary: "Run the existing Loopo init command through the transparent cmdproto wrapper.",
+  },
+  {
+    path: "quest help",
+    summary: "Read structured quest help through the existing Loopo help output.",
+  },
+  {
+    path: "quest next",
+    summary: "Advance one quest lifecycle step through the existing quest-next command.",
+  },
+  {
+    path: "sim",
+    summary: "Run the existing simulation surface through the transparent cmdproto wrapper.",
+  },
+] as const;
+const CMDPROTO_HELP_EXECJSON = {
+  name: "cmdproto execjson",
+  summary: "Execute a machine JSON payload for a command path.",
+  usage: "cmdproto execjson <path> <json|@file|@->",
+} as const;
 
 const METHOD = {
   doctor: "loopo.v1.LoopoService.Doctor",
@@ -30,6 +55,10 @@ type CapturedCommand = {
   stdout: string;
   stderr: string;
 };
+type CmdprotoModule = typeof import("cmdproto");
+type HandlerMap = import("cmdproto").HandlerMap;
+
+let cmdprotoModulePromise: Promise<CmdprotoModule> | null = null;
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -43,6 +72,78 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 async function loadLoopoCommands() {
   return await import("./loopo.ts");
+}
+
+function isHelpFlag(value: string): boolean {
+  return value === "--help" || value === "-h";
+}
+
+function isJsonFlag(value: string): boolean {
+  return value === "--json";
+}
+
+function isHelpOnlyArgv(argv: string[]): boolean {
+  return argv.some(isHelpFlag) && argv.every((token) => isHelpFlag(token) || isJsonFlag(token));
+}
+
+function cmdprotoHelpPayload(control: boolean): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    execjson: CMDPROTO_HELP_EXECJSON,
+  };
+  if (!control) {
+    payload.commands = [...CMDPROTO_HELP_COMMANDS];
+  }
+  return payload;
+}
+
+function cmdprotoHelpText(): string {
+  return [
+    "Machine control:",
+    "",
+    `  ${CMDPROTO_HELP_EXECJSON.usage} ${CMDPROTO_HELP_EXECJSON.summary}`,
+    "",
+  ].join("\n");
+}
+
+function writeCmdprotoHelp(argv: string[], control: boolean): number {
+  if (argv.includes("--json")) {
+    process.stdout.write(`${JSON.stringify(cmdprotoHelpPayload(control))}\n`);
+  } else {
+    process.stdout.write(cmdprotoHelpText());
+  }
+  return 0;
+}
+
+function isCmdprotoMissingPackage(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    message.includes("Cannot find package 'cmdproto'") ||
+    message.includes('Cannot find module "cmdproto"') ||
+    message.includes("Cannot find module 'cmdproto'")
+  );
+}
+
+async function loadCmdprotoModule(): Promise<CmdprotoModule> {
+  if (!cmdprotoModulePromise) {
+    cmdprotoModulePromise = import("cmdproto").catch((error) => {
+      cmdprotoModulePromise = null;
+      if (isCmdprotoMissingPackage(error)) {
+        throw new Error(
+          `cmdproto runtime is unavailable. Run \`bun install\` in ${ROOT_DIR} to install the sidecar dependency.`,
+        );
+      }
+      throw error;
+    });
+  }
+  return await cmdprotoModulePromise;
+}
+
+async function toCommandOutcome(
+  result: Record<string, unknown>,
+  statusCode: number,
+) {
+  const { commandOutcome } = await loadCmdprotoModule();
+  return commandOutcome(result, { statusCode });
 }
 
 function pushFlag(args: string[], flag: string, value: unknown): void {
@@ -187,7 +288,7 @@ async function invokeInit(params: Record<string, unknown>) {
   const result = output.stdout.trim().startsWith("{")
     ? parseJsonOutput(output, "loopo init")
     : parseInstallerOutput(output);
-  return commandOutcome(result, { statusCode: output.statusCode });
+  return await toCommandOutcome(result, output.statusCode);
 }
 
 async function invokeQuestNext(params: Record<string, unknown>) {
@@ -197,9 +298,10 @@ async function invokeQuestNext(params: Record<string, unknown>) {
   pushFlag(args, "--cwd", params.cwd);
   pushJsonArg(args, params.payload);
   const output = withCapturedOutput(() => runQuestNextV3(args));
-  return commandOutcome(parseJsonOutput(output, "loopo quest next"), {
-    statusCode: output.statusCode,
-  });
+  return await toCommandOutcome(
+    parseJsonOutput(output, "loopo quest next"),
+    output.statusCode,
+  );
 }
 
 async function invokeQuestHelp(params: Record<string, unknown>) {
@@ -210,9 +312,10 @@ async function invokeQuestHelp(params: Record<string, unknown>) {
     args.push(query);
   }
   const output = withCapturedOutput(() => runQuestHelpV3(args));
-  return commandOutcome(parseJsonOutput(output, "loopo quest help"), {
-    statusCode: output.statusCode,
-  });
+  return await toCommandOutcome(
+    parseJsonOutput(output, "loopo quest help"),
+    output.statusCode,
+  );
 }
 
 async function invokeHook(params: Record<string, unknown>) {
@@ -224,9 +327,10 @@ async function invokeHook(params: Record<string, unknown>) {
   pushFlag(args, "--slug", params.slug);
   pushJsonArg(args, params.payload);
   const output = withCapturedOutput(() => runHook(args));
-  return commandOutcome(parseJsonOutput(output, "loopo hook"), {
-    statusCode: output.statusCode,
-  });
+  return await toCommandOutcome(
+    parseJsonOutput(output, "loopo hook"),
+    output.statusCode,
+  );
 }
 
 async function invokeDoctor(params: Record<string, unknown>) {
@@ -238,9 +342,7 @@ async function invokeDoctor(params: Record<string, unknown>) {
     args.push("--fix");
   }
   const output = withCapturedOutput(() => runDoctor(args));
-  return commandOutcome(parseDoctorOutput(output), {
-    statusCode: output.statusCode,
-  });
+  return await toCommandOutcome(parseDoctorOutput(output), output.statusCode);
 }
 
 async function invokeSim(params: Record<string, unknown>) {
@@ -255,9 +357,7 @@ async function invokeSim(params: Record<string, unknown>) {
   pushFlag(args, "--flow", params.flow);
   pushJsonArg(args, params.payload);
   const output = withCapturedOutput(() => runSimCli(args));
-  return commandOutcome(parseJsonOutput(output, "loopo sim"), {
-    statusCode: output.statusCode,
-  });
+  return await toCommandOutcome(parseJsonOutput(output, "loopo sim"), output.statusCode);
 }
 
 export const handlers: HandlerMap = {
@@ -281,7 +381,8 @@ export const handlers: HandlerMap = {
   },
 };
 
-export function createLoopoCmdprotoRuntime() {
+async function createLoopoCmdprotoRuntime() {
+  const { createRuntimeFromFile } = await loadCmdprotoModule();
   return createRuntimeFromFile(handlers, SCHEMA_PATH, MANIFEST_PATH);
 }
 
@@ -289,9 +390,14 @@ export async function runLoopoCmdproto(
   argv: string[],
   options: { control?: boolean } = {},
 ): Promise<number> {
-  const runtime = createLoopoCmdprotoRuntime();
+  const control = options.control !== false;
+  if (isHelpOnlyArgv(argv)) {
+    return writeCmdprotoHelp(argv, control);
+  }
+  const runtime = await createLoopoCmdprotoRuntime();
+  const { runCli } = await loadCmdprotoModule();
   const stdin = process.stdin.isTTY ? "" : readStdinText();
-  const effectiveArgv = options.control === false ? argv : ["cmdproto", ...argv];
+  const effectiveArgv = control ? ["cmdproto", ...argv] : argv;
   const result = await runCli(runtime, effectiveArgv, stdin);
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);

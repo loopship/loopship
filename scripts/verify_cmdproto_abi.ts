@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createLoopoShim } from "./loopo_core.ts";
 import { runCommand } from "./loopo_utils.ts";
 import { validateSchemaId, v3SchemaId } from "./loopo_schema.ts";
 
@@ -123,9 +124,32 @@ function main(): number {
   if (controlHelpJson.execjson?.usage !== "cmdproto execjson <path> <json|@file|@->") {
     fail(`unexpected cmdproto control help: ${JSON.stringify(controlHelpJson.execjson)}`);
   }
+  const controlHelpText = runLoopo(
+    process.cwd(),
+    ["cmdproto", "--help"],
+    undefined,
+    process.env as Record<string, string>,
+  );
+  if (controlHelpText.status !== 0) fail(controlHelpText.stderr || controlHelpText.stdout);
+  if (!controlHelpText.stdout.includes("cmdproto execjson <path> <json|@file|@->")) {
+    fail(`unexpected cmdproto text help: ${JSON.stringify(controlHelpText.stdout)}`);
+  }
 
   const fixture = createFixture("loopo-cmdproto-");
   try {
+    createLoopoShim(fixture.env.LOOPO_GLOBAL_BIN, SCRIPT);
+    const shimUsage = runCommand(fixture.env.LOOPO_GLOBAL_BIN, [], {
+      cwd: fixture.repo,
+      env: fixture.env,
+      timeoutMs: 120_000,
+    });
+    if (shimUsage.status !== 1) {
+      fail(`loopo shim without args must exit 1; got ${shimUsage.status}`);
+    }
+    if (!shimUsage.stdout.includes("Usage:")) {
+      fail(`loopo shim without args must print usage; got ${JSON.stringify(shimUsage.stdout)}`);
+    }
+
     const directHelp = runLoopo(
       fixture.repo,
       ["quest", "help"],
