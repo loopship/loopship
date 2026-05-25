@@ -77,9 +77,10 @@ import {
   v3SchemaId,
   v3SchemaRef,
 } from "./loopo_schema.ts";
+import { runLoopoCmdproto } from "./loopo_cmdproto.ts";
 import { runSimCli } from "./loopo_sim.ts";
 
-type Command = "init" | "doctor" | "quest" | "hook" | "sim";
+type Command = "init" | "doctor" | "quest" | "hook" | "sim" | "cmdproto";
 
 type ParentQuestAssignment = {
   parent_quest_slug: string;
@@ -113,16 +114,21 @@ function usage(): void {
 Usage:
   loopo init "loopo: <request>" --cwd <path> --runtime <codex|gemini|copilot|all> [--flow swe]
   loopo quest next --slug <slug> --json <json|@file|@->
-  loopo quest help [--json]
+  loopo quest help [query]
   loopo hook --runtime <codex|gemini|copilot>
   loopo sim <start|next|status|hook|callback> [--repo <path>] [--runtime <codex|gemini|copilot>] [--request <text>] [--flow <id>] [--json <json|@file|@->]
   loopo doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
+  loopo cmdproto --help [--json]
+  loopo cmdproto execjson <path> <json|@file|@->
 `);
 }
 
 function parseCommand(argv: string[]): Command {
   const cmd = argv[0] as Command | undefined;
-  if (!cmd || !["init", "doctor", "quest", "hook", "sim"].includes(cmd)) {
+  if (
+    !cmd ||
+    !["init", "doctor", "quest", "hook", "sim", "cmdproto"].includes(cmd)
+  ) {
     usage();
     process.exit(1);
   }
@@ -527,7 +533,7 @@ function installCopilotHook(repoRoot: string, cmd: string): string {
   return path;
 }
 
-function runDoctor(argv: string[]): number {
+export function runDoctor(argv: string[]): number {
   const args = parseDoctorArgs(argv);
   const wrapperScript = resolve(SCRIPT_DIR, "loopo.ts");
   const globalBin = resolveGlobalLoopoBinPath();
@@ -943,7 +949,7 @@ function v3InitRoute(input: {
       callback_schema: embeddedCallbackSchema("next-input"),
       input: createQuestInput,
     },
-    help: compactCommand("loopo", ["quest", "help", "--json"]),
+    help: compactCommand("loopo", ["quest", "help"]),
   };
 }
 
@@ -1201,7 +1207,7 @@ function v3StepOutput(input: {
     };
     output.commands = {
       next: compactCommand("loopo", nextArgs),
-      help: compactCommand("loopo", ["quest", "help", "--json"]),
+      help: compactCommand("loopo", ["quest", "help"]),
     };
     output.docs = {
       state_yaml: input.files.tasks,
@@ -2152,7 +2158,7 @@ function createV3Quest(input: {
   return { files, state };
 }
 
-function runQuestNextV3(argv: string[]): number {
+export function runQuestNextV3(argv: string[]): number {
   const args = parseQuestRepoArg(argv);
   const payload = readJsonArg(args.json);
   const context = resolveRepoContext({
@@ -2371,8 +2377,16 @@ function runQuestNextV3(argv: string[]): number {
   }
 }
 
-function runQuestHelpV3(argv: string[]): number {
+export function runQuestHelpV3(argv: string[]): number {
   const args = parseQuestRepoArg(argv);
+  if (args.json !== null) {
+    questResponse(
+      v3Error("quest help no longer accepts --json; run loopo quest help", {
+        schema: v3SchemaRef("help-output"),
+      }),
+    );
+    return 1;
+  }
   const requested = args.rest[0] || null;
   const yamlSchemas = ["flow.v1", "step-definition.v1"]
     .filter((name) => {
@@ -2412,7 +2426,7 @@ function runQuestHelpV3(argv: string[]): number {
       "--json",
       "@-",
     ]),
-    help: compactCommand("loopo", ["quest", "help", "--json"]),
+    help: compactCommand("loopo", ["quest", "help"]),
     hook: compactCommand("loopo", ["hook", "--runtime", "codex"]),
   };
   questResponse({
@@ -2450,7 +2464,7 @@ function runQuestHelpV3(argv: string[]): number {
         },
         {
           name: "quest help",
-          command: "loopo quest help --json",
+          command: "loopo quest help",
           use: "Read this runtime manual and schema catalog when unsure how to continue a quest.",
         },
         {
@@ -2467,7 +2481,7 @@ function runQuestHelpV3(argv: string[]): number {
   return 0;
 }
 
-function runHook(argv: string[]): number {
+export function runHook(argv: string[]): number {
   const args = parseQuestRepoArg(argv);
   const raw = readHookJsonArg(args.json);
   const envelopeLike = raw.command === "hook";
@@ -2630,7 +2644,7 @@ function runQuest(argv: string[]): number {
   return 1;
 }
 
-function runInit(argv: string[]): number {
+export function runInit(argv: string[]): number {
   const args = parseInitArgs(argv);
   if (args.objective) {
     ensureV3Runtime({
@@ -2667,8 +2681,19 @@ function runInit(argv: string[]): number {
   return 0;
 }
 
-function runCliCommand(argv: string[]): number {
-  if (argv.includes("--help") || argv.includes("-h")) {
+export async function runCliCommand(argv: string[]): Promise<number> {
+  if (
+    argv[0] !== "cmdproto" &&
+    argv.includes("--help") &&
+    argv.includes("--json") &&
+    argv.every((token) => token === "--help" || token === "--json")
+  ) {
+    return runLoopoCmdproto(argv, { control: false });
+  }
+  if (
+    argv[0] !== "cmdproto" &&
+    (argv.includes("--help") || argv.includes("-h"))
+  ) {
     usage();
     return 0;
   }
@@ -2678,20 +2703,27 @@ function runCliCommand(argv: string[]): number {
   if (cmd === "hook") return runHook(rest);
   if (cmd === "quest") return runQuest(rest);
   if (cmd === "sim") return runSimCli(rest);
+  if (cmd === "cmdproto") return runLoopoCmdproto(rest);
   return runDoctor(rest);
 }
 
-function maybeRunSelfWrapper(argv: string[]): number {
+async function maybeRunSelfWrapper(argv: string[]): Promise<number> {
   if (argv.length === 0) {
     usage();
     return 1;
   }
-  return runCliCommand(argv);
+  return await runCliCommand(argv);
 }
 
-try {
-  process.exit(maybeRunSelfWrapper(process.argv.slice(2)));
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+export async function main(argv = process.argv.slice(2)): Promise<number> {
+  try {
+    return await maybeRunSelfWrapper(argv);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+if (import.meta.main) {
+  process.exit(await main());
 }

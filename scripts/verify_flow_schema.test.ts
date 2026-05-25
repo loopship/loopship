@@ -17,8 +17,8 @@ import {
 
 const command = {
   cmd: "loopo",
-  args: ["quest", "help", "--json"],
-  display: "loopo quest help --json",
+  args: ["quest", "help"],
+  display: "loopo quest help",
 };
 
 const schemaRef = {

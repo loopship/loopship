@@ -148,7 +148,7 @@ describe("loopo v3 child slug integration", () => {
 
       const help = runLoopo(
         fixture.repo,
-        ["quest", "help", "--json"],
+        ["quest", "help"],
         undefined,
         fixture.env,
       );

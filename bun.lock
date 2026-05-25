@@ -6,6 +6,7 @@
       "name": "@omar391/loopo",
       "dependencies": {
         "ajv": "^8.20.0",
+        "cmdproto": "git+https://github.com/omar391/cmdproto.git",
         "yaml": "^2.8.3",
       },
       "devDependencies": {
@@ -17,7 +18,12 @@
       },
     },
   },
+  "trustedDependencies": [
+    "cmdproto",
+  ],
   "packages": {
+    "@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.0", "", {}, "sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA=="],
+
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
     "@types/node": ["@types/node@25.7.0", "", { "dependencies": { "undici-types": "~7.21.0" } }, "sha512-z+pdZyxE+RTQE9AcboAZCb4otwcrvgHD+GlBpPgn0emDVt0ohrTMhAwlr2Wd9nZ+nihhYFxO2pThz3C5qSu2Eg=="],
@@ -25,6 +31,8 @@
     "ajv": ["ajv@8.20.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+
+    "cmdproto": ["cmdproto@github:omar391/cmdproto#b855f4b", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "bin": { "cmdproto-setup": "./scripts/bootstrap.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-b855f4b", "sha512-/NDez1b39ILUzM5JaOkwGsnwnyb46+Fvj47W8+b4n0StV/DfRAzNK30coxw6kUegGguiQTOE5PjHLMy6IYGhUw=="],
 
     "fast-deep-equal": ["fast-deep-equal@3.1.3", "", {}, "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q=="],
 

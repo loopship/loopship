@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { readText } from "./loopo_utils.ts";
@@ -9,7 +9,10 @@ import { loadFlowDefinition } from "./loopo_flow.ts";
 import { validateSchemaId } from "./loopo_schema.ts";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const WORKSPACE_ROOT = resolve(PACKAGE_ROOT, "..");
+const WORKSPACE_ROOT =
+  basename(resolve(PACKAGE_ROOT, "..")) === "worktrees"
+    ? resolve(PACKAGE_ROOT, "..", "..", "..")
+    : resolve(PACKAGE_ROOT, "..");
 const AI_RULES_ROOT = resolve(
   process.env.AI_RULES_ROOT ?? join(WORKSPACE_ROOT, "ai-rules"),
 );
@@ -357,6 +360,16 @@ function main(): number {
   assertContains(
     architecture,
     "bun scripts/verify_runtime_hooks.ts",
+    "architecture reference",
+  );
+  assertContains(
+    architecture,
+    "loopo cmdproto execjson <path> <payload>",
+    "architecture reference",
+  );
+  assertContains(
+    architecture,
+    "delegates back to the direct",
     "architecture reference",
   );
   assertNotContains(architecture, "compatibility-only", "architecture reference");

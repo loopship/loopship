@@ -1,0 +1,291 @@
+edition = "2024";
+
+package loopo.v1;
+
+import "cmdproto/v1/options.proto";
+import "google/protobuf/struct.proto";
+
+service LoopoService {
+  rpc Init(InitRequest) returns (InitResponse) {
+    option (cmdproto.v1.command) = {
+      path: "init"
+      summary: "Run the existing Loopo init command through the transparent cmdproto wrapper."
+      example: {
+        command: "init loopo:build-the-app --cwd /repo --runtime codex --flow swe"
+        description: "Route a loopo request through the existing init surface."
+        request_json: "{\"request\":\"loopo:build-the-app\",\"cwd\":\"/repo\",\"runtime\":\"codex\",\"flow\":\"swe\"}"
+      }
+    };
+  }
+
+  rpc QuestNext(QuestNextRequest) returns (QuestNextResponse) {
+    option (cmdproto.v1.command) = {
+      path: "quest next"
+      summary: "Advance one quest lifecycle step through the existing quest-next command."
+      example: {
+        command: "quest next --slug build-the-app --cwd /repo --json {\"step\":\"select_quest\",\"action\":\"create_quest\",\"slug\":\"build-the-app\",\"flow_id\":\"swe\",\"request\":\"loopo:build-the-app\"}"
+        description: "Create a quest by forwarding a structured next payload."
+        request_json: "{\"slug\":\"build-the-app\",\"cwd\":\"/repo\",\"payload\":{\"step\":\"select_quest\",\"action\":\"create_quest\",\"slug\":\"build-the-app\",\"flow_id\":\"swe\",\"request\":\"loopo:build-the-app\"}}"
+      }
+    };
+  }
+
+  rpc QuestHelp(QuestHelpRequest) returns (QuestHelpResponse) {
+    option (cmdproto.v1.command) = {
+      path: "quest help"
+      summary: "Read structured quest help through the existing Loopo help output."
+      example: {
+        command: "quest help"
+        description: "Fetch the runtime help catalog as JSON."
+        request_json: "{}"
+      }
+    };
+  }
+
+  rpc Hook(HookRequest) returns (HookResponse) {
+    option (cmdproto.v1.command) = {
+      path: "hook"
+      summary: "Invoke the existing hook command with a structured JSON payload."
+      example: {
+        command: "hook --runtime codex --json {\"event\":\"Stop\",\"stop_reason\":\"none\"}"
+        description: "Send a hook payload through the wrapper."
+        request_json: "{\"runtime\":\"codex\",\"payload\":{\"event\":\"Stop\",\"stop_reason\":\"none\"}}"
+      }
+    };
+  }
+
+  rpc Doctor(DoctorRequest) returns (DoctorResponse) {
+    option (cmdproto.v1.command) = {
+      path: "doctor"
+      summary: "Run the existing doctor command through the transparent cmdproto wrapper."
+      example: {
+        command: "doctor --repo /repo --runtime all --fix"
+        description: "Repair Loopo runtime scaffolding in a repo."
+        request_json: "{\"repo\":\"/repo\",\"runtime\":\"all\",\"fix\":true}"
+      }
+    };
+  }
+
+  rpc Sim(SimRequest) returns (SimResponse) {
+    option (cmdproto.v1.command) = {
+      path: "sim"
+      summary: "Run the existing simulation surface through the transparent cmdproto wrapper."
+      example: {
+        command: "sim start --repo /tmp/loopo-sim --runtime codex --request loopo:build-the-app --flow swe"
+        description: "Start a simulated Loopo lifecycle run."
+        request_json: "{\"mode\":\"start\",\"repo\":\"/tmp/loopo-sim\",\"runtime\":\"codex\",\"request\":\"loopo:build-the-app\",\"flow\":\"swe\"}"
+      }
+    };
+  }
+}
+
+message InitRequest {
+  string request = 1 [
+    (cmdproto.v1.param) = {
+      positional: { index: 1 }
+      help: "Loopo objective text, usually prefixed with loopo:."
+    }
+  ];
+
+  string cwd = 2 [
+    (cmdproto.v1.param) = {
+      flag: { long: "cwd" }
+      help: "Working directory used for repo resolution."
+    }
+  ];
+
+  string runtime = 3 [
+    (cmdproto.v1.param) = {
+      flag: { long: "runtime" }
+      help: "Runtime name: codex, gemini, copilot, or all."
+    }
+  ];
+
+  string flow = 4 [
+    (cmdproto.v1.param) = {
+      flag: { long: "flow" }
+      help: "Flow id forwarded to loopo init, default swe."
+    }
+  ];
+
+  string slug = 5 [
+    (cmdproto.v1.param) = {
+      flag: { long: "slug" }
+      help: "Explicit quest slug override."
+    }
+  ];
+}
+
+message QuestNextRequest {
+  string slug = 1 [
+    (cmdproto.v1.param) = {
+      flag: { long: "slug" }
+      help: "Quest slug to advance."
+    }
+  ];
+
+  string cwd = 2 [
+    (cmdproto.v1.param) = {
+      flag: { long: "cwd" }
+      help: "Repo or worktree path for quest resolution."
+    }
+  ];
+
+  google.protobuf.Struct payload = 3 [
+    (cmdproto.v1.param) = {
+      json: { enabled: true }
+      help: "Quest callback payload matching the current callback_schema."
+    },
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"https://loopo.dev/schemas/steps/next-input.v3.json\"}"
+    }
+  ];
+}
+
+message QuestHelpRequest {
+  string query = 1;
+}
+
+message HookRequest {
+  string runtime = 1 [
+    (cmdproto.v1.param) = {
+      flag: { long: "runtime" }
+      help: "Runtime lane for hook handling."
+    }
+  ];
+
+  string cwd = 2 [
+    (cmdproto.v1.param) = {
+      help: "Optional hook working directory override."
+      hidden: true
+    }
+  ];
+
+  google.protobuf.Struct payload = 3 [
+    (cmdproto.v1.param) = {
+      json: { enabled: true }
+      help: "Hook payload object forwarded to loopo hook."
+    },
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
+    }
+  ];
+}
+
+message DoctorRequest {
+  string repo = 1 [
+    (cmdproto.v1.param) = {
+      flag: { long: "repo" }
+      help: "Repo root to inspect or repair."
+    }
+  ];
+
+  string runtime = 2 [
+    (cmdproto.v1.param) = {
+      flag: { long: "runtime" }
+      help: "Runtime name: codex, gemini, copilot, or all."
+    }
+  ];
+
+  bool fix = 3 [
+    (cmdproto.v1.param) = {
+      flag: { long: "fix" }
+      help: "Apply doctor repairs instead of reporting only."
+    }
+  ];
+}
+
+message SimRequest {
+  string mode = 1 [
+    (cmdproto.v1.param) = {
+      positional: { index: 1 }
+      help: "Simulation mode: start, next, status, hook, or callback."
+    }
+  ];
+
+  string repo = 2 [
+    (cmdproto.v1.param) = {
+      flag: { long: "repo" }
+      help: "Simulation repo root."
+    }
+  ];
+
+  string runtime = 3 [
+    (cmdproto.v1.param) = {
+      flag: { long: "runtime" }
+      help: "Simulation runtime lane."
+    }
+  ];
+
+  string request = 4 [
+    (cmdproto.v1.param) = {
+      flag: { long: "request" }
+      help: "Request text forwarded to sim start."
+    }
+  ];
+
+  string flow = 5 [
+    (cmdproto.v1.param) = {
+      flag: { long: "flow" }
+      help: "Flow id forwarded to sim start."
+    }
+  ];
+
+  google.protobuf.Struct payload = 6 [
+    (cmdproto.v1.param) = {
+      json: { enabled: true }
+      help: "Optional simulation payload for hook or callback modes."
+    },
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
+    }
+  ];
+}
+
+message InitResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"https://loopo.dev/schemas/steps/init-output.v3.json\"},{\"type\":\"object\",\"required\":[\"mode\",\"files\"],\"properties\":{\"mode\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"additionalProperties\":true}]}"
+    }
+  ];
+}
+
+message QuestNextResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"https://loopo.dev/schemas/steps/step-output.v3.json\"},{\"$ref\":\"https://loopo.dev/schemas/steps/error-output.v3.json\"},{\"$ref\":\"https://loopo.dev/schemas/steps/lock-error.v3.json\"}]}"
+    }
+  ];
+}
+
+message QuestHelpResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"https://loopo.dev/schemas/steps/help-output.v3.json\"}"
+    }
+  ];
+}
+
+message HookResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"https://loopo.dev/schemas/steps/hook-output.v3.json\"},{\"type\":\"object\",\"maxProperties\":0}]}"
+    }
+  ];
+}
+
+message DoctorResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"required\":[\"status\"],\"properties\":{\"status\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"rerun_with_fix\":{\"type\":\"boolean\"}},\"additionalProperties\":true}"
+    }
+  ];
+}
+
+message SimResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
+    }
+  ];
+}

@@ -38,3 +38,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 !.trunk/trunk.yaml
 !.trunk/configs/
 !.trunk/configs/**
+
+# repo-owned worktrees
+/worktrees/*

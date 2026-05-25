@@ -117,7 +117,7 @@ function main(): number {
       fail("tasks.yaml must not persist public session_id");
     }
 
-    const help = runLoopo(repo, ["quest", "help", "--json"]);
+    const help = runLoopo(repo, ["quest", "help"]);
     if (help.status !== 0) fail(help.stderr || help.stdout);
     const helpJson = parseJson(help.stdout);
     if (!Array.isArray(helpJson.schemas) || helpJson.schemas.length < 10) {

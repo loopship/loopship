@@ -17,13 +17,16 @@ loopo init "{request}" --cwd <cwd> --runtime <runtime>
 - Quest identity is the slug; session ids are not part of the user contract.
 - `loopo quest next --slug <slug> --json <json|@file|@->` is the only
   state-mutating quest command after init.
-- `loopo quest help --json` exposes command metadata, flows, schemas, and guide
+- `loopo quest help` exposes command metadata, flows, schemas, and guide
   text.
 - `loopo hook --runtime <runtime>` reads hook payload JSON from stdin and
   decides runtime continuation.
 - `loopo doctor --fix` repairs system scaffolding, hook installation, shims,
   manifests, and managed drift.
 - `loopo sim` provides deterministic lifecycle stepping for local simulation.
+- `loopo cmdproto execjson <path> <payload>` mirrors the current public CLI as
+  a machine wrapper and introspection surface; it delegates back to the direct
+  Loopo command logic and does not replace the V3 quest lifecycle.
 - Agents must never edit `.loopo/**` directly. Root and child state changes must
   go through schema-valid `quest next` payloads for the current step.
 

@@ -71,15 +71,31 @@ behaviours:
 
   - id: public-usage-surface
     statement: >-
-      CLI usage exposes only init, quest next, quest help, hook, and doctor
-      entrypoints for public operation, including flow selection on init and a
-      compact hook command without spec or V2 command surfaces.
+      CLI usage exposes init, quest next, quest help, hook, doctor, and sim
+      entrypoints for direct public operation; cmdproto mirrors that same
+      command set through loopo cmdproto execjson as a transparent wrapper
+      without replacing the direct CLI or V3 payload authority.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
       - scripts/verify_coherency.ts
     source_refs:
       - scripts/loopo.ts
       - README.md
+
+  - id: cmdproto-transparent-wrapper
+    statement: >-
+      The cmdproto wrapper exposes the current public Loopo command paths
+      through loopo cmdproto execjson and cmdproto help surfaces, while
+      delegating execution back to the direct command logic instead of
+      mutating Loopo state through a second runtime implementation.
+    test_refs:
+      - scripts/verify_cmdproto_abi.ts
+      - scripts/verify_coherency.ts
+    source_refs:
+      - scripts/loopo.ts
+      - scripts/loopo_cmdproto.ts
+      - proto/loopo/v1/loopo.proto
+      - references/core/architecture.md
 
   - id: init-installer-mode
     statement: >-

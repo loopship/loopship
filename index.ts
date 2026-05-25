@@ -1,3 +1,7 @@
 #!/usr/bin/env node
 
-import "./scripts/loopo.ts";
+import { main } from "./scripts/loopo.ts";
+
+if (import.meta.main) {
+  process.exit(await main(process.argv.slice(2)));
+}
