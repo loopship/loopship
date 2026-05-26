@@ -37,8 +37,8 @@
     "bun": ">=1.1.0"
   },
   "scripts": {
-    "cmdproto:gen": "buf generate --template buf.gen.yaml --config buf.yaml proto",
-    "cmdproto:schema": "buf lint --config buf.yaml && mkdir -p assets/cmdproto && buf build --config buf.yaml proto --as-file-descriptor-set -o assets/cmdproto/schema.binpb && node ./node_modules/cmdproto/scripts/runtime-manifest.mjs --app-name loopo --schema assets/cmdproto/schema.binpb --out assets/cmdproto/runtime.binpb",
+    "cmdproto:gen": "cmdproto-build --generate-only",
+    "cmdproto:schema": "cmdproto-build --app-name loopo --out-dir assets/cmdproto",
     "test": "bun test scripts/verify_flow_schema.test.ts scripts/verify_child_agent_integration.test.ts scripts/verify_lifecycle_matrix.test.ts scripts/verify_runtime_live.test.ts",
     "verify": "bun run scripts/verify_coherency.ts && bun run cmdproto:schema && bun run scripts/verify_cmdproto_abi.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts && bun run scripts/report_lifecycle_matrix.ts",
     "verify:lifecycle": "bun run scripts/report_lifecycle_matrix.ts",

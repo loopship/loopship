@@ -32,7 +32,7 @@
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
-    "cmdproto": ["cmdproto@github:omar391/cmdproto#9e97d37", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "bin": { "cmdproto-setup": "./scripts/bootstrap.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-9e97d37", "sha512-ablfUULUEONILKbTOqsP66uq7jm+IKyiifXPMsQKS2WDw/5PEzJX1MGD6BElbaJIewP85RdClmqRUcKw+w78JQ=="],
+    "cmdproto": ["cmdproto@github:omar391/cmdproto#9d90613", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "bin": { "cmdproto-setup": "./scripts/bootstrap.mjs", "cmdproto-build": "./scripts/build.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-9d90613", "sha512-mYPWKUSElvO/dsmH0P8f+p8aC/qwRiI56ROhCy++F/gkfmLqWBpkmbVKdnBmyfZk0dTZoIyof8ct2HMiGuaNwg=="],
 
     "fast-deep-equal": ["fast-deep-equal@3.1.3", "", {}, "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q=="],
 

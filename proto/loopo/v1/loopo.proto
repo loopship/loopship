@@ -9,10 +9,10 @@ service LoopoService {
   rpc Init(InitRequest) returns (InitResponse) {
     option (cmdproto.v1.command) = {
       path: "init"
-      summary: "Run the existing Loopo init command through the transparent cmdproto wrapper."
+      summary: "Start or resume a Loopo quest from an objective."
       example: {
         command: "init loopo:build-the-app --cwd /repo --runtime codex --flow swe"
-        description: "Route a loopo request through the existing init surface."
+        description: "Start routing for a Loopo request."
         request_json: "{\"request\":\"loopo:build-the-app\",\"cwd\":\"/repo\",\"runtime\":\"codex\",\"flow\":\"swe\"}"
       }
     };
@@ -21,10 +21,10 @@ service LoopoService {
   rpc QuestNext(QuestNextRequest) returns (QuestNextResponse) {
     option (cmdproto.v1.command) = {
       path: "quest next"
-      summary: "Advance one quest lifecycle step through the existing quest-next command."
+      summary: "Advance a quest with the next lifecycle payload."
       example: {
         command: "quest next --slug build-the-app --cwd /repo --json {\"step\":\"select_quest\",\"action\":\"create_quest\",\"slug\":\"build-the-app\",\"flow_id\":\"swe\",\"request\":\"loopo:build-the-app\"}"
-        description: "Create a quest by forwarding a structured next payload through the direct JSON shortcut."
+        description: "Create or advance a quest with a structured lifecycle payload."
         request_json: "{\"slug\":\"build-the-app\",\"cwd\":\"/repo\",\"payload\":{\"step\":\"select_quest\",\"action\":\"create_quest\",\"slug\":\"build-the-app\",\"flow_id\":\"swe\",\"request\":\"loopo:build-the-app\"}}"
       }
     };
@@ -33,7 +33,7 @@ service LoopoService {
   rpc QuestHelp(QuestHelpRequest) returns (QuestHelpResponse) {
     option (cmdproto.v1.command) = {
       path: "quest help"
-      summary: "Read structured quest help through the existing Loopo help output."
+      summary: "Read the Loopo quest help catalog."
       example: {
         command: "quest help"
         description: "Fetch the runtime help catalog as JSON."
@@ -45,10 +45,10 @@ service LoopoService {
   rpc Hook(HookRequest) returns (HookResponse) {
     option (cmdproto.v1.command) = {
       path: "hook"
-      summary: "Invoke the existing hook command with a structured JSON payload."
+      summary: "Handle a runtime hook event payload."
       example: {
         command: "hook --runtime codex --json {\"event\":\"Stop\",\"stop_reason\":\"none\"}"
-        description: "Send a hook payload through the direct JSON shortcut."
+        description: "Handle a runtime hook event."
         request_json: "{\"runtime\":\"codex\",\"payload\":{\"event\":\"Stop\",\"stop_reason\":\"none\"}}"
       }
     };
@@ -57,7 +57,7 @@ service LoopoService {
   rpc Doctor(DoctorRequest) returns (DoctorResponse) {
     option (cmdproto.v1.command) = {
       path: "doctor"
-      summary: "Run the existing doctor command through the transparent cmdproto wrapper."
+      summary: "Inspect or repair Loopo runtime scaffolding."
       example: {
         command: "doctor --repo /repo --runtime all --fix"
         description: "Repair Loopo runtime scaffolding in a repo."
@@ -69,7 +69,7 @@ service LoopoService {
   rpc Sim(SimRequest) returns (SimResponse) {
     option (cmdproto.v1.command) = {
       path: "sim"
-      summary: "Run the existing simulation surface through the transparent cmdproto wrapper."
+      summary: "Run a simulated Loopo lifecycle step."
       example: {
         command: "sim start --repo /tmp/loopo-sim --runtime codex --request loopo:build-the-app --flow swe"
         description: "Start a simulated Loopo lifecycle run."
@@ -104,7 +104,7 @@ message InitRequest {
   string flow = 4 [
     (cmdproto.v1.param) = {
       flag: { long: "flow" }
-      help: "Flow id forwarded to loopo init, default swe."
+      help: "Flow id for init, default swe."
     }
   ];
 
@@ -164,7 +164,7 @@ message HookRequest {
   google.protobuf.Struct payload = 3 [
     (cmdproto.v1.param) = {
       json: { enabled: true }
-      help: "Hook payload object forwarded to loopo hook."
+      help: "Runtime hook payload object."
     },
     (cmdproto.v1.field_json_schema) = {
       json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
@@ -220,14 +220,14 @@ message SimRequest {
   string request = 4 [
     (cmdproto.v1.param) = {
       flag: { long: "request" }
-      help: "Request text forwarded to sim start."
+      help: "Request text for sim start."
     }
   ];
 
   string flow = 5 [
     (cmdproto.v1.param) = {
       flag: { long: "flow" }
-      help: "Flow id forwarded to sim start."
+      help: "Flow id for sim start."
     }
   ];
 

@@ -7,27 +7,27 @@ import { expandHome, readStdinText, readText } from "./loopo_utils.ts";
 const CMDPROTO_HELP_COMMANDS = [
   {
     path: "doctor",
-    summary: "Run the existing doctor command through the transparent cmdproto wrapper.",
+    summary: "Inspect or repair Loopo runtime scaffolding.",
   },
   {
     path: "hook",
-    summary: "Invoke the existing hook command with a structured JSON payload.",
+    summary: "Handle a runtime hook event payload.",
   },
   {
     path: "init",
-    summary: "Run the existing Loopo init command through the transparent cmdproto wrapper.",
+    summary: "Start or resume a Loopo quest from an objective.",
   },
   {
     path: "quest help",
-    summary: "Read structured quest help through the existing Loopo help output.",
+    summary: "Read the Loopo quest help catalog.",
   },
   {
     path: "quest next",
-    summary: "Advance one quest lifecycle step through the existing quest-next command.",
+    summary: "Advance a quest with the next lifecycle payload.",
   },
   {
     path: "sim",
-    summary: "Run the existing simulation surface through the transparent cmdproto wrapper.",
+    summary: "Run a simulated Loopo lifecycle step.",
   },
 ] as const;
 const CMDPROTO_HELP_EXECJSON = {
