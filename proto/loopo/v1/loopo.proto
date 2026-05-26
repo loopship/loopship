@@ -23,9 +23,9 @@ service LoopoService {
       path: "quest next"
       summary: "Advance a quest with the next lifecycle payload."
       example: {
-        command: "quest next --slug build-the-app --cwd /repo --json {\"step\":\"select_quest\",\"action\":\"create_quest\",\"slug\":\"build-the-app\",\"flow_id\":\"swe\",\"request\":\"loopo:build-the-app\"}"
-        description: "Create or advance a quest with a structured lifecycle payload."
-        request_json: "{\"slug\":\"build-the-app\",\"cwd\":\"/repo\",\"payload\":{\"step\":\"select_quest\",\"action\":\"create_quest\",\"slug\":\"build-the-app\",\"flow_id\":\"swe\",\"request\":\"loopo:build-the-app\"}}"
+        command: "quest next --slug build-the-app --cwd /repo --json {\"step\":\"<current_step>\",\"<callback_schema_fields>\":\"...\"}"
+        description: "Send the payload required by the current response's callback_schema; the response returns the next step instructions, callback_schema, and commands.next."
+        request_json: "{\"slug\":\"build-the-app\",\"cwd\":\"/repo\",\"payload\":{\"step\":\"<current_step>\",\"<callback_schema_fields>\":\"...\"}}"
       }
     };
   }
