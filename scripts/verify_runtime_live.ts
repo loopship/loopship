@@ -18,6 +18,12 @@ import {
   questFiles,
 } from "./loopo_core.ts";
 import {
+  DEFAULT_RUNTIME_REQUEST,
+  readHookDecision as readSupervisorHookDecision,
+  routeQuestInit,
+  type Runtime,
+} from "./runtime_supervisor.ts";
+import {
   commandExists,
   readText,
   runCommand,
@@ -28,10 +34,7 @@ import {
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const LOOPO_SCRIPT = resolve(SCRIPT_DIR, "loopo.ts");
 const DEFAULT_TIMEOUT_MS = 20 * 60_000;
-const USER_REQUEST =
-  "loopo: build a tiny python cli named greet using argparse. Accept a required --name flag, print exactly 'hello, <name>!', add one pytest test, keep files minimal, and finish the full lifecycle without asking questions unless a safety-critical ambiguity blocks progress.";
 
-type Runtime = "codex" | "gemini" | "copilot";
 type ResultStatus = "passed" | "skipped" | "failed";
 
 type Fixture = {
@@ -336,22 +339,6 @@ print(json.dumps(result))
   }
 }
 
-function livePrompt(runtime: Runtime): string {
-  return [
-    "Loopo runtime contract:",
-    `- You are using the ${runtime} CLI in a repository that uses Loopo v3.`,
-    '- When the user request begins with `loopo:`, first run `loopo init "{request}" --cwd <cwd> --runtime <runtime>` from the repo root.',
-    "- After init, advance exactly one lifecycle step using the returned payload and commands.next, then stop.",
-    "- Do not try to complete the whole quest in one long CLI session; the harness will continue the quest by reinvoking you.",
-    "- Do not bypass Loopo by implementing the work directly unless Loopo itself tells you to.",
-    "- Make low-risk defaults only when no clarification round is needed.",
-    "- If Loopo emits a clarification round, stop after asking it and wait for a human answer instead of auto-accepting defaults after asking.",
-    "",
-    "User request:",
-    USER_REQUEST,
-  ].join("\n");
-}
-
 export function cliInvocation(
   fixture: Fixture,
   prompt: string,
@@ -412,10 +399,6 @@ export function emptyQuestSummary(): QuestSummary {
     commit_count: 0,
     python_files: [],
   };
-}
-
-function hookEventName(runtime: Runtime): string {
-  return runtime === "gemini" ? "AfterAgent" : "Stop";
 }
 
 function continuationPrompt(reason: string): string {
@@ -694,103 +677,16 @@ function evaluateResult(
   };
 }
 
-function parseJson(text: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object"
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function readHookDecision(fixture: Fixture): {
   reason: string | null;
   raw: Record<string, unknown>;
 } {
-  const proc = runLoopo(fixture, ["hook", "--runtime", fixture.runtime], {
-    cwd: fixture.repo,
-    hook_event_name: hookEventName(fixture.runtime),
-  });
-  if (proc.status !== 0) {
-    fail(
-      proc.stderr || proc.stdout || `loopo hook failed for ${fixture.runtime}`,
-    );
-  }
-  const payload = parseJson(proc.stdout || "{}") ?? {};
-  const reason =
-    typeof payload.reason === "string" && payload.reason.trim()
-      ? payload.reason.trim()
-      : null;
-  return { reason, raw: payload };
-}
-
-function routeInitQuest(
-  fixture: Fixture,
-  logChunks: string[],
-): ReturnType<typeof runCommand> {
-  const initProc = runLoopo(fixture, [
-    "init",
-    USER_REQUEST,
-    "--cwd",
-    fixture.repo,
-    "--runtime",
-    fixture.runtime,
-  ]);
-  logChunks.push(
-    [
-      "# init",
-      `$ loopo init ${JSON.stringify(USER_REQUEST)} --cwd ${fixture.repo} --runtime ${fixture.runtime}`,
-      "",
-      "STDOUT",
-      initProc.stdout,
-      "",
-      "STDERR",
-      initProc.stderr,
-      "",
-    ].join("\n"),
-  );
-  if (initProc.status !== 0) {
-    fail(initProc.stderr || initProc.stdout || "loopo init failed");
-  }
-
-  const initPayload = parseJson(initProc.stdout);
-  const route = initPayload?.new_quest as
-    | { command?: { cmd?: string; args?: string[] } }
-    | undefined;
-  const cmd = route?.command?.cmd;
-  const args = route?.command?.args;
-  if (
-    typeof cmd !== "string" ||
-    !Array.isArray(args) ||
-    args.some((arg) => typeof arg !== "string")
-  ) {
-    fail("loopo init did not emit a runnable new_quest.command");
-  }
-
-  const routeProc = runCommand(cmd, args, {
-    cwd: fixture.repo,
+  const hook = readSupervisorHookDecision({
+    repoRoot: fixture.repo,
     env: fixture.env,
-    timeoutMs: 60_000,
+    runtime: fixture.runtime,
   });
-  logChunks.push(
-    [
-      "# route",
-      `$ ${[cmd, ...args].join(" ")}`,
-      "",
-      "STDOUT",
-      routeProc.stdout,
-      "",
-      "STDERR",
-      routeProc.stderr,
-      "",
-    ].join("\n"),
-  );
-  if (routeProc.status !== 0) {
-    fail(routeProc.stderr || routeProc.stdout || "new_quest.command failed");
-  }
-  return routeProc;
+  return { reason: hook.reason, raw: hook.output };
 }
 
 export function runLiveRuntime(
@@ -838,7 +734,46 @@ export function runLiveRuntime(
       return proc;
     };
 
-    let lastProc = routeInitQuest(fixture, logChunks);
+    const started = routeQuestInit({
+      repoRoot: fixture.repo,
+      env: fixture.env,
+      runtime: fixture.runtime,
+      request: DEFAULT_RUNTIME_REQUEST,
+    });
+    logChunks.push(
+      [
+        "# init",
+        `$ loopo init ${JSON.stringify(DEFAULT_RUNTIME_REQUEST)} --cwd ${fixture.repo} --runtime ${fixture.runtime}`,
+        "",
+        "STDOUT",
+        started.init.stdout,
+        "",
+        "STDERR",
+        started.init.stderr,
+        "",
+      ].join("\n"),
+    );
+    const routed = started.route.new_quest as
+      | { command?: { cmd?: string; args?: string[] } }
+      | undefined;
+    const routeCmd = routed?.command?.cmd ?? "loopo";
+    const routeArgs = Array.isArray(routed?.command?.args)
+      ? routed.command.args
+      : [];
+    logChunks.push(
+      [
+        "# route",
+        `$ ${[routeCmd, ...routeArgs].join(" ")}`,
+        "",
+        "STDOUT",
+        started.routeProc.stdout,
+        "",
+        "STDERR",
+        started.routeProc.stderr,
+        "",
+      ].join("\n"),
+    );
+    let lastProc = started.routeProc;
     for (let guard = 0; guard < 20; guard += 1) {
       const summary = summarizeQuest(fixture);
       if (summary.stage === "archived") break;

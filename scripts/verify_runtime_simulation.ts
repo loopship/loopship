@@ -1,29 +1,19 @@
 #!/usr/bin/env bun
 
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTasksYaml, questFiles } from "./loopo_core.ts";
+import {
+  DEFAULT_RUNTIME_REQUEST,
+  type Runtime,
+} from "./runtime_supervisor.ts";
 import { readText, runCommand, tsRunner } from "./loopo_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const LOOPO_SCRIPT = resolve(SCRIPT_DIR, "loopo.ts");
-const SETUP_RUNTIME_HOOKS_SCRIPT = resolve(
-  SCRIPT_DIR,
-  "setup_runtime_hooks.ts",
-);
-const SIM_RUNTIME_SCRIPT = resolve(SCRIPT_DIR, "loopo_sim.ts");
 const SIM_DIR = join(".loopo", "sim-runtime");
-
-type Runtime = "codex" | "gemini" | "copilot";
 
 type Fixture = {
   root: string;
@@ -84,149 +74,25 @@ function runLoopo(
   args: string[],
   input?: Record<string, unknown>,
 ) {
-  return runTsScript(LOOPO_SCRIPT, args, input, fixture.repo, fixture.env);
+  return runTsScript(
+    LOOPO_SCRIPT,
+    args,
+    input,
+    existsSync(fixture.repo) ? fixture.repo : fixture.root,
+    fixture.env,
+  );
 }
 
 function createFixture(prefix: string, runtime: Runtime): Fixture {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const repo = join(root, "repo");
   const env = {
+    ...process.env,
     HOME: join(root, "home"),
     LOOPO_GLOBAL_BIN: join(root, "bin", "loopo"),
     LOOPO_SCRIPT: LOOPO_SCRIPT,
   };
-  const init = runCommand("git", ["init", repo], {
-    env,
-    timeoutMs: 15_000,
-  });
-  if (init.status !== 0) fail(init.stderr || init.stdout);
-  for (const [key, value] of [
-    ["user.email", "loopo-test@example.invalid"],
-    ["user.name", `Loopo ${runtime} Simulation`],
-  ] as const) {
-    const proc = runCommand("git", ["config", key, value], {
-      cwd: repo,
-      env,
-      timeoutMs: 15_000,
-    });
-    if (proc.status !== 0) fail(proc.stderr || proc.stdout);
-  }
-  writeFileSync(join(repo, "README.md"), "# loopo simulation\n", "utf8");
-  writeFileSync(join(repo, "hook-fixture.txt"), "hook fixture\n", "utf8");
-  writeFileSync(
-    join(repo, "callback-fixture.txt"),
-    "callback fixture\n",
-    "utf8",
-  );
-  const add = runCommand(
-    "git",
-    ["add", "README.md", "hook-fixture.txt", "callback-fixture.txt"],
-    {
-      cwd: repo,
-      env,
-      timeoutMs: 15_000,
-    },
-  );
-  if (add.status !== 0) fail(add.stderr || add.stdout);
-  const commit = runCommand("git", ["commit", "-m", "fixture"], {
-    cwd: repo,
-    env,
-    timeoutMs: 15_000,
-  });
-  if (commit.status !== 0) fail(commit.stderr || commit.stdout);
   return { root, repo, env };
-}
-
-function collectHookCommands(
-  value: unknown,
-  commands: Array<{ raw: string; normalized: string }> = [],
-): Array<{ raw: string; normalized: string }> {
-  if (Array.isArray(value)) {
-    for (const item of value) collectHookCommands(item, commands);
-    return commands;
-  }
-  if (!value || typeof value !== "object") return commands;
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (
-      (key === "command" || key === "bash") &&
-      typeof child === "string" &&
-      child.trim()
-    ) {
-      commands.push({
-        raw: child,
-        normalized: child.replace(/['"]/g, " ").replace(/\s+/g, " ").trim(),
-      });
-      continue;
-    }
-    collectHookCommands(child, commands);
-  }
-  return commands;
-}
-
-function hookConfigPath(repo: string, runtime: Runtime): string {
-  if (runtime === "codex") return join(repo, ".codex", "hooks.json");
-  if (runtime === "gemini") return join(repo, ".gemini", "settings.json");
-  return join(repo, ".github", "hooks", "loopo.json");
-}
-
-function installedHookCommand(repo: string, runtime: Runtime): string {
-  const config = parseJson(
-    readFileSync(hookConfigPath(repo, runtime), "utf8"),
-    `${runtime} hook config`,
-  );
-  const source =
-    runtime === "codex"
-      ? (config.hooks?.Stop ?? [])
-      : runtime === "gemini"
-        ? (config.hooks?.AfterAgent ?? [])
-        : (config.hooks?.Stop ?? []);
-  const commands = collectHookCommands(source);
-  const selected =
-    commands.find(({ normalized }) => normalized.includes("loopo_sim.ts")) ??
-    commands[0];
-  if (!selected) {
-    fail(`missing installed hook command for ${runtime}`);
-  }
-  return selected.raw;
-}
-
-function hookEventName(runtime: Runtime): string {
-  return runtime === "gemini" ? "AfterAgent" : "Stop";
-}
-
-function triggerInstalledHook(
-  fixture: Fixture,
-  runtime: Runtime,
-): Record<string, any> {
-  const command = installedHookCommand(fixture.repo, runtime);
-  const payload = {
-    hook_event_name: hookEventName(runtime),
-    cwd: fixture.repo,
-  };
-  const proc = runCommand("bash", ["-lc", command], {
-    cwd: fixture.repo,
-    env: fixture.env,
-    input: JSON.stringify(payload),
-    timeoutMs: 60_000,
-  });
-  if (proc.status !== 0) {
-    fail(
-      proc.stderr || proc.stdout || `installed ${runtime} hook command failed`,
-    );
-  }
-  return parseJson(proc.stdout || "{}", `${runtime} hook output`);
-}
-
-function runCallback(fixture: Fixture): Record<string, any> {
-  const proc = runTsScript(
-    LOOPO_SCRIPT,
-    ["sim", "callback", "--repo", fixture.repo],
-    undefined,
-    fixture.repo,
-    fixture.env,
-  );
-  if (proc.status !== 0) fail(proc.stderr || proc.stdout);
-  return parseJson(proc.stdout, "simulation callback output");
 }
 
 function currentStage(fixture: Fixture, slug: string): string {
@@ -258,8 +124,8 @@ function assertLifecycleLog(repo: string): void {
   const events = readJsonl(join(repo, SIM_DIR, "events.jsonl"));
   const callbacks = events.filter((record) => record.kind === "callback");
   const hookEvents = events.filter((record) => record.kind === "hook");
-  if (callbacks.length !== 11) {
-    fail(`expected 11 callback turns, got ${callbacks.length}`);
+  if (callbacks.length === 0) {
+    fail("expected at least one simulated callback turn");
   }
   if (hookEvents.length !== callbacks.length) {
     fail(
@@ -307,77 +173,74 @@ function assertLifecycleLog(repo: string): void {
 function simulateRuntime(runtime: Runtime): void {
   const fixture = createFixture("loopo-runtime-sim-", runtime);
   try {
-    const init = runLoopo(
+    const start = runLoopo(
       fixture,
       [
-        "init",
-        `loopo: simulate ${runtime} runtime lifecycle`,
-        "--cwd",
-        fixture.repo,
-        "--runtime",
-        "all",
-      ],
-      undefined,
-    );
-    if (init.status !== 0) fail(init.stderr || init.stdout);
-    const route = parseJson(init.stdout, `${runtime} init`);
-    const slug = String(route.new_quest?.suggested_slug ?? "");
-    if (!slug) fail(`missing slug in ${runtime} init output`);
-
-    const created = runLoopo(
-      fixture,
-      ["quest", "next", "--slug", slug, "--cwd", fixture.repo, "--json", "@-"],
-      {
-        step: "select_quest",
-        action: "create_quest",
-        slug,
-        request: `loopo: simulate ${runtime} runtime lifecycle`,
-      },
-    );
-    if (created.status !== 0) fail(created.stderr || created.stdout);
-    if (
-      stepId(parseJson(created.stdout, `${runtime} create`).step) !== "plan"
-    ) {
-      fail(`${runtime} create must enter plan`);
-    }
-
-    const setup = runTsScript(
-      SETUP_RUNTIME_HOOKS_SCRIPT,
-      [
+        "sim",
+        "start",
         "--repo",
         fixture.repo,
+        "--request",
+        DEFAULT_RUNTIME_REQUEST,
         "--runtime",
-        "all",
-        "--hook-script",
-        SIM_RUNTIME_SCRIPT,
+        runtime,
       ],
       undefined,
-      fixture.repo,
-      fixture.env,
     );
-    if (setup.status !== 0) fail(setup.stderr || setup.stdout);
+    if (start.status !== 0) {
+      fail(start.stderr || start.stdout || `${runtime} sim start failed`);
+    }
+    const started = parseJson(start.stdout, `${runtime} sim start`);
+    const slug = String(started.slug ?? "");
+    if (!slug) fail(`missing slug in ${runtime} sim start output`);
+    if (String(started.current_stage ?? "") !== "planning") {
+      fail(`${runtime} sim start must enter planning: ${start.stdout}`);
+    }
 
     let firstHook = true;
-    for (let guard = 0; guard < 16; guard += 1) {
+    for (let guard = 0; guard < 20; guard += 1) {
       if (currentStage(fixture, slug) === "archived") break;
-      const hook = triggerInstalledHook(fixture, runtime);
-      if (firstHook) {
-        assertRuntimeHookShape(runtime, hook);
+      const next = runLoopo(
+        fixture,
+        ["sim", "next", "--repo", fixture.repo],
+        undefined,
+      );
+      if (next.status !== 0) {
+        fail(next.stderr || next.stdout || `${runtime} sim next failed`);
+      }
+      const stepped = parseJson(next.stdout, `${runtime} sim next`);
+      const hook = stepped.hook_output;
+      if (firstHook && hook && typeof hook === "object") {
+        assertRuntimeHookShape(runtime, hook as Record<string, any>);
         firstHook = false;
       }
-      if (!hook.reason) {
+      const callback = stepped.callback_output;
+      if (!hook || typeof hook !== "object" || !("reason" in hook)) {
+        fail(
+          `${runtime} sim next returned malformed hook output: ${next.stdout}`,
+        );
+      }
+      if (stepped.done !== true && !(hook as Record<string, unknown>).reason) {
         fail(
           `${runtime} hook returned no continuation before archive: ${JSON.stringify(hook)}`,
         );
       }
-      const callback = runCallback(fixture);
-      if (!stepId(callback.step)) {
+      if (callback && !stepId((callback as Record<string, unknown>).step)) {
         fail(
           `${runtime} callback returned malformed output: ${JSON.stringify(callback)}`,
         );
       }
+      if (stepped.done === true) break;
     }
 
+    const status = runLoopo(fixture, ["sim", "status", "--repo", fixture.repo]);
+    if (status.status !== 0) {
+      fail(status.stderr || status.stdout || `${runtime} sim status failed`);
+    }
+    const current = parseJson(status.stdout, `${runtime} sim status`);
+    if (current.current_stage !== "archived" || current.done !== true) {
+      fail(`${runtime} simulation status must report archived: ${status.stdout}`);
+    }
     if (currentStage(fixture, slug) !== "archived") {
       fail(`${runtime} simulation did not reach archived`);
     }

@@ -49,6 +49,9 @@ import {
   LOOPO_ROOT_MANIFEST_FILE,
   parseTasksYaml,
   saveState,
+  taskAssignmentBranchRef,
+  taskAssignmentChildSlug,
+  taskAssignmentWorktreePath,
   type QuestFiles,
   type QuestTask,
   questFiles,
@@ -796,6 +799,7 @@ function findParentQuestAssignment(
     const matched = parentTasks.find(
       (task) =>
         String(task.child_slug ?? "").trim() === childSlug ||
+        taskAssignmentChildSlug(parentSlug, String(task.id)) === childSlug ||
         `${parentSlug}-${task.id}` === childSlug,
     );
     if (!matched) continue;
@@ -1056,11 +1060,16 @@ function readyChildrenForV3(
   const flowId = flowIdForState(state as Partial<{ [key: string]: any }>);
   const runtime = inferRepoRuntime(repoRoot);
   return readyChildTasks(state).map((task) => {
-    const childSlug = `${slug}-${task.id}`;
+    const childSlug =
+      String(task.child_slug || "").trim() ||
+      taskAssignmentChildSlug(slug, String(task.id));
     const workspace = ensureTaskWorkspace(
       repoRoot,
-      String(task.branch_ref || `codex/${childSlug}`),
-      String(task.worktree_path || resolve(repoRoot, "worktrees", childSlug)),
+      String(task.branch_ref || taskAssignmentBranchRef(slug, String(task.id))),
+      String(
+        task.worktree_path ||
+          taskAssignmentWorktreePath(repoRoot, slug, String(task.id)),
+      ),
     );
     const request = `loopo: execute child task ${task.id}: ${task.title}`;
     return {

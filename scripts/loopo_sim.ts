@@ -17,6 +17,10 @@ import {
   questFiles,
 } from "./loopo_core.ts";
 import {
+  readHookDecision as readSupervisorHookDecision,
+  routeQuestInit,
+} from "./runtime_supervisor.ts";
+import {
   expandHome,
   readJson,
   readStdinJson,
@@ -398,25 +402,6 @@ function currentCompactOutput(
   );
   if (proc.status !== 0) fail(proc.stderr || proc.stdout);
   return parseJsonText(proc.stdout, "current compact output");
-}
-
-function normalizeEnvelope(
-  raw: Record<string, unknown>,
-  runtime: string | null,
-  repoRoot: string,
-): Record<string, unknown> {
-  if (raw.command === "hook") return raw;
-  return {
-    version: "2",
-    request_id: `hook-${Date.now().toString(36)}`,
-    command: "hook",
-    context: {
-      runtime: runtime ?? "codex",
-      cwd: repoRoot,
-    },
-    metadata: {},
-    payload: raw,
-  };
 }
 
 function questState(repoRoot: string, slug: string): QuestLikeState {
@@ -862,14 +847,15 @@ function executeHook(
   output: Record<string, unknown>;
   reason: CommandReason | null;
 } {
-  const envelope = normalizeEnvelope(raw, runtime, repoRoot);
-  const proc = runLoopo(repoRoot, ["hook", "--json", "@-"], envelope);
-  if (proc.status !== 0) {
-    throw new Error(proc.stderr || proc.stdout || "loopo hook failed");
-  }
-  const output = parseJsonText(proc.stdout || "{}", "hook output");
-  const reasonText =
-    typeof output.reason === "string" ? output.reason.trim() : "";
+  const hook = readSupervisorHookDecision({
+    repoRoot,
+    env: simEnv(repoRoot),
+    runtime,
+    raw,
+  });
+  const envelope = hook.envelope;
+  const output = hook.output;
+  const reasonText = hook.reason ?? "";
   if (reasonText) {
     const reason = parseJsonText(reasonText, "hook reason") as CommandReason;
     savePendingCallback(repoRoot, {
@@ -939,6 +925,18 @@ function executeCallback(
   return { reason, payload, output };
 }
 
+export function runSimulatedAssistantTurn(
+  repoRoot: string,
+  reasonText: string,
+): {
+  reason: CommandReason;
+  payload: Record<string, unknown>;
+  output: Record<string, unknown>;
+} {
+  const reason = parseJsonText(reasonText, "hook reason");
+  return executeCallback(repoRoot, reason);
+}
+
 function runHookMode(args: SimArgs): number {
   const raw = readJsonArg(args.json);
   const repoRoot = resolveRepoRoot(args.repo, raw);
@@ -962,33 +960,13 @@ function runStartMode(args: SimArgs): number {
   const request = normalizeRequestText(args.request);
   const flowId = String(args.flow ?? "swe").trim() || "swe";
   ensureFixtureRepo(repoRoot, runtime);
-  const init = runLoopo(repoRoot, [
-    "init",
-    request,
-    "--cwd",
+  const started = routeQuestInit({
     repoRoot,
-    "--runtime",
+    env: simEnv(repoRoot),
     runtime,
-    "--flow",
+    request,
     flowId,
-  ]);
-  if (init.status !== 0) fail(init.stderr || init.stdout);
-  const route = parseJsonText(init.stdout, "start init output");
-  const slug = String(route.new_quest?.suggested_slug ?? "").trim();
-  if (!slug) fail(`missing slug in start output: ${init.stdout}`);
-  const createInput = route.new_quest?.input as
-    | Record<string, unknown>
-    | undefined;
-  if (!createInput || typeof createInput !== "object") {
-    fail(`missing create input in start output: ${init.stdout}`);
-  }
-  const create = runLoopo(
-    repoRoot,
-    ["quest", "next", "--slug", slug, "--cwd", repoRoot, "--json", "@-"],
-    createInput,
-  );
-  if (create.status !== 0) fail(create.stderr || create.stdout);
-  const createOutput = parseJsonText(create.stdout, "start create output");
+  });
   setupSimulationHooks(repoRoot);
   saveSession(repoRoot, {
     schema_version: 1,
@@ -997,7 +975,7 @@ function runStartMode(args: SimArgs): number {
     runtime,
     request,
     flow_id: flowId,
-    slug,
+    slug: started.slug,
     started_at: new Date().toISOString(),
   });
   process.stdout.write(
@@ -1008,11 +986,11 @@ function runStartMode(args: SimArgs): number {
         runtime,
         request,
         flow_id: flowId,
-        slug,
-        current_stage: currentStage(repoRoot, slug),
-        init_route: route,
-        create_input: createInput,
-        create_output: createOutput,
+        slug: started.slug,
+        current_stage: currentStage(repoRoot, started.slug),
+        init_route: started.route,
+        create_input: started.createInput,
+        create_output: started.createOutput,
         files: {
           session_json: simPath(repoRoot, SESSION_FILE),
           events_jsonl: simPath(repoRoot, EVENT_LOG_FILE),

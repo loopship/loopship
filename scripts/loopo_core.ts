@@ -347,8 +347,32 @@ function normalizeTaskPathSegment(value: string): string {
   return cleaned || "task";
 }
 
+function compactTaskAssignmentKey(slug: string, taskId: string): string {
+  const normalizedSlug = normalizeTaskPathSegment(slug);
+  const normalizedTaskId = normalizeTaskPathSegment(taskId);
+  const full = `${normalizedSlug}-${normalizedTaskId}`;
+  if (full.length <= 72) return full;
+  const digest = hashText(full).slice(0, 12);
+  const taskPart = normalizedTaskId.slice(0, 20).replace(/-+$/g, "") || "task";
+  const slugBudget = Math.max(16, 72 - taskPart.length - digest.length - 2);
+  const slugPart =
+    normalizedSlug.slice(0, slugBudget).replace(/-+$/g, "") || "quest";
+  return `${slugPart}-${taskPart}-${digest}`;
+}
+
 export function taskAssignmentBranchRef(slug: string, taskId: string): string {
-  return `${slug}-${normalizeTaskPathSegment(taskId)}`;
+  return `codex/${compactTaskAssignmentKey(slug, taskId)}`;
+}
+
+export function taskAssignmentChildSlug(slug: string, taskId: string): string {
+  return compactTaskAssignmentKey(slug, taskId);
+}
+
+export function taskAssignmentMergeLeaseId(
+  slug: string,
+  taskId: string,
+): string {
+  return `lease-${compactTaskAssignmentKey(slug, taskId)}`;
 }
 
 export function taskAssignmentWorktreePath(
@@ -356,7 +380,11 @@ export function taskAssignmentWorktreePath(
   slug: string,
   taskId: string,
 ): string {
-  return resolve(repoRoot, "worktrees", taskAssignmentBranchRef(slug, taskId));
+  return resolve(
+    repoRoot,
+    "worktrees",
+    compactTaskAssignmentKey(slug, taskId),
+  );
 }
 
 function evaluateTaskFallback(
@@ -1579,19 +1607,23 @@ function normalizePlanTask(
     spec_refs: asStringList(input.spec_refs ?? input.specs),
     context_refs: asStringList(input.context_refs ?? input.context),
     branch_ref: String(
-      input.branch_ref ?? (leafChild ? coordinatorBranch : `codex/${slug}-${id}`),
+      input.branch_ref ??
+        (leafChild ? coordinatorBranch : taskAssignmentBranchRef(slug, id)),
     ),
     worktree_path: String(
       input.worktree_path ??
         (leafChild
           ? coordinatorWorktree
-          : resolve(contextRoot, "worktrees", `${slug}-${id}`)),
+          : taskAssignmentWorktreePath(contextRoot, slug, id)),
     ),
-    child_slug: String(input.child_slug ?? (leafChild ? "" : `${slug}-${id}`)),
+    child_slug: String(
+      input.child_slug ?? (leafChild ? "" : taskAssignmentChildSlug(slug, id)),
+    ),
     concurrency_group: String(input.concurrency_group ?? ""),
     merge_target: String(input.merge_target ?? coordinatorBranch),
     merge_lease_id: String(
-      input.merge_lease_id ?? (leafChild ? "" : `lease-${slug}-${id}`),
+      input.merge_lease_id ??
+        (leafChild ? "" : taskAssignmentMergeLeaseId(slug, id)),
     ),
     merge_commit: String(input.merge_commit ?? ""),
     system_impact_ref: String(
