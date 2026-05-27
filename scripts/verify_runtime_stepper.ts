@@ -4,7 +4,9 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand } from "./loopo_utils.ts";
+import { parseTasksYaml, questFiles } from "./loopo_core.ts";
+import { scenarioPayloadForStep } from "./sim_product_quest_scenarios.ts";
+import { readText, runCommand } from "./loopo_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
 
@@ -24,8 +26,27 @@ function parseJson(text: string): Record<string, any> {
   }
 }
 
+function stepId(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const id = (value as Record<string, unknown>).id;
+    return typeof id === "string" ? id : "";
+  }
+  return "";
+}
+
 function runSim(args: string[]) {
   return runCommand("bun", [SCRIPT, "sim", ...args], {
+    timeoutMs: 120_000,
+  });
+}
+
+function runSimWithInput(
+  args: string[],
+  input: Record<string, unknown>,
+) {
+  return runCommand("bun", [SCRIPT, "sim", ...args], {
+    input: JSON.stringify(input),
     timeoutMs: 120_000,
   });
 }
@@ -54,20 +75,58 @@ function main(): number {
 
     const seenOutputs: string[] = [];
     let sawExecutingChildren = false;
+    let planRound = 0;
+    let landingRound = 0;
     for (let i = 0; i < 20; i += 1) {
       const next = runSim(["next", "--repo", repo]);
       if (next.status !== 0) fail(next.stderr || next.stdout);
       const step = parseJson(next.stdout);
-      const outputStep = String(step.callback_output?.step?.id ?? "");
+      const reasonPayload =
+        step.reason_payload && typeof step.reason_payload === "object"
+          ? (step.reason_payload as Record<string, any>)
+          : null;
+      if (!reasonPayload) {
+        if (step.done === true) break;
+        fail(`stepper missing continuation reason: ${next.stdout}`);
+      }
+      const requestedStep = stepId(reasonPayload.step);
+      if (!requestedStep) {
+        fail(`stepper missing requested step id: ${next.stdout}`);
+      }
+      const quest = parseTasksYaml(readText(questFiles(repo, started.slug).tasks));
+      const callbackInput = scenarioPayloadForStep({
+        request: "loopo: a fullstack app",
+        step: requestedStep,
+        quest,
+        planRound,
+        landingRound,
+      });
+      if (requestedStep === "plan") planRound += 1;
+      if (requestedStep === "landing") landingRound += 1;
+      const callbackRun = runSimWithInput(
+        ["callback", "--repo", repo, "--json", "@-"],
+        callbackInput,
+      );
+      if (callbackRun.status !== 0) fail(callbackRun.stderr || callbackRun.stdout);
+      const callbackOutput = parseJson(callbackRun.stdout);
+      const outputStep = stepId(callbackOutput.step);
       if (outputStep) seenOutputs.push(outputStep);
       if (
         outputStep === "executing" &&
-        Array.isArray(step.callback_output?.children) &&
-        step.callback_output.children.length >= 1
+        Array.isArray(callbackOutput.children) &&
+        callbackOutput.children.length >= 1
       ) {
         sawExecutingChildren = true;
       }
-      if (step.done === true) break;
+      if (
+        String(
+          parseTasksYaml(readText(questFiles(repo, started.slug).tasks)).stage ??
+            "",
+        ) === "archived"
+      ) {
+        seenOutputs.push("archived");
+        break;
+      }
     }
 
     const expected = [

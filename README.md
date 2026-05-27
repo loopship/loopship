@@ -34,6 +34,7 @@ stage spec files for the same instructions.
 
 For mocked runtime lifecycle stepping, `loopo sim` supports:
 
-- `start`: create an isolated simulated repo, install simulated hooks, and emit the first quest step plus embedded callback schemas
-- `next`: execute exactly one simulated hook/callback cycle and print `hook_input`, `hook_output`, `callback_input`, and `callback_output`
+- `start`: create an isolated simulated repo, install simulated hooks, and emit the first real quest step output
+- `next`: execute exactly one simulated hook turn, print the runtime hook output, and stop so a human or assistant can submit the next `quest next` payload
+- `callback`: submit an explicit `quest next` payload through the real lifecycle path while keeping simulator event logs in sync
 - `status`: inspect the current simulated quest stage and current compact output without advancing it

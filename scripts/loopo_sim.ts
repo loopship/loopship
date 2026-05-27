@@ -21,10 +21,6 @@ import {
   routeQuestInit,
 } from "./runtime_supervisor.ts";
 import {
-  selectSimProductQuestScenario,
-  type SimPlanPayload,
-} from "./sim_product_quest_scenarios.ts";
-import {
   expandHome,
   readJson,
   readStdinJson,
@@ -42,12 +38,11 @@ const SETUP_RUNTIME_HOOKS_SCRIPT = resolve(
 );
 const SIM_DIR = join(".loopo", "sim-runtime");
 const PENDING_CALLBACK_FILE = join(SIM_DIR, "pending-callback.json");
-const DRIVER_STATE_FILE = join(SIM_DIR, "driver-state.json");
 const EVENT_LOG_FILE = join(SIM_DIR, "events.jsonl");
 const SESSION_FILE = join(SIM_DIR, "session.json");
 
 type Runtime = "codex" | "gemini" | "copilot";
-type SimProfile = "runtime_lifecycle" | "product_quest";
+type SimProfile = "interactive";
 
 type SimArgs = {
   mode: "hook" | "callback" | "start" | "next" | "status";
@@ -56,12 +51,6 @@ type SimArgs = {
   json: string | null;
   request: string | null;
   flow: string | null;
-};
-
-type SimState = {
-  callback_count: number;
-  plan_round: number;
-  landing_round: number;
 };
 
 type CommandReason = {
@@ -97,22 +86,6 @@ type QuestLikeState = Partial<{
     acceptance: string;
   }>;
 }>;
-
-const CHILD_DONE_STATUSES = new Set([
-  "child_archived",
-  "child_merged",
-  "done",
-  "merged",
-]);
-
-function stepId(value: unknown): string {
-  if (typeof value === "string") return value.trim();
-  if (value && typeof value === "object") {
-    const id = (value as Record<string, unknown>).id;
-    return typeof id === "string" ? id.trim() : "";
-  }
-  return "";
-}
 
 function reasonSlug(repoRoot: string, reason: CommandReason): string {
   const explicit = String(reason.slug ?? "").trim();
@@ -193,9 +166,14 @@ function defaultRepoRoot(explicit: string | null): string {
   return join(mkdtempSync(join(tmpdir(), "loopo-sim-")), "repo");
 }
 
+function simBinPath(repoRoot: string): string {
+  return resolve(repoRoot, SIM_DIR, "bin", "loopo");
+}
+
 function simEnv(repoRoot: string): Record<string, string> {
   return {
-    LOOPO_GLOBAL_BIN: resolve(repoRoot, SIM_DIR, "bin", "loopo"),
+    PATH: `${dirname(simBinPath(repoRoot))}:${process.env.PATH ?? ""}`,
+    LOOPO_GLOBAL_BIN: simBinPath(repoRoot),
     LOOPO_SCRIPT: LOOPO_SCRIPT,
   };
 }
@@ -268,22 +246,6 @@ function saveSession(repoRoot: string, session: SimSession): void {
   writeJson(simPath(repoRoot, SESSION_FILE), session);
 }
 
-function loadSimState(repoRoot: string): SimState {
-  const parsed = readJson(simPath(repoRoot, DRIVER_STATE_FILE));
-  if (!parsed || typeof parsed !== "object") {
-    return { callback_count: 0, plan_round: 0, landing_round: 0 };
-  }
-  return {
-    callback_count: Number(parsed.callback_count ?? 0) || 0,
-    plan_round: Number(parsed.plan_round ?? 0) || 0,
-    landing_round: Number(parsed.landing_round ?? 0) || 0,
-  };
-}
-
-function saveSimState(repoRoot: string, state: SimState): void {
-  writeJson(simPath(repoRoot, DRIVER_STATE_FILE), state);
-}
-
 function logEvent(repoRoot: string, record: Record<string, unknown>): void {
   appendJsonl(simPath(repoRoot, EVENT_LOG_FILE), record);
 }
@@ -304,6 +266,11 @@ function savePendingCallback(
   record: Record<string, unknown>,
 ): void {
   writeJson(simPath(repoRoot, PENDING_CALLBACK_FILE), record);
+}
+
+function resetSimulationArtifacts(repoRoot: string): void {
+  clearPendingCallback(repoRoot);
+  writeFileSync(simPath(repoRoot, EVENT_LOG_FILE), "", "utf8");
 }
 
 function ensureFixtureRepo(repoRoot: string, runtime: Runtime): void {
@@ -413,315 +380,23 @@ function questState(repoRoot: string, slug: string): QuestLikeState {
   return parseTasksYaml(readText(files.tasks)) as QuestLikeState;
 }
 
-function readyTask(state: QuestLikeState) {
-  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
-  const done = new Set(
-    tasks
-      .filter((task) => CHILD_DONE_STATUSES.has(String(task.status ?? "")))
-      .map((task) => String(task.id)),
-  );
-  return (
-    tasks.find((task) => {
-      const status = String(task.status ?? "child_received");
-      if (!["child_received", "pending", "ready"].includes(status)) {
-        return false;
-      }
-      const deps = Array.isArray(task.dependencies) ? task.dependencies : [];
-      return deps.every((dep) => done.has(String(dep)));
-    }) ?? null
-  );
-}
-
-function questRequest(repoRoot: string, quest: QuestLikeState): string {
-  const session = loadSession(repoRoot);
-  const request = String(session?.request ?? quest.prompt ?? "").trim();
-  return request || "loopo: build me a python app";
-}
-
-function planPayload(plan: SimPlanPayload): Record<string, unknown> {
-  return {
-    step: "plan",
-    classification: plan.classification,
-    scope: plan.scope,
-    summary: plan.summary,
-    ...(plan.high_impact_unknowns?.length
-      ? { high_impact_unknowns: plan.high_impact_unknowns }
-      : {}),
-    ...(plan.defaulted_unknowns?.length
-      ? { defaulted_unknowns: plan.defaulted_unknowns }
-      : {}),
-    ...(plan.assumptions?.length ? { assumptions: plan.assumptions } : {}),
-    ...(plan.constraints?.length ? { constraints: plan.constraints } : {}),
-    ...(plan.questions?.length ? { questions: plan.questions } : {}),
-    af: plan.af,
-    of: plan.of,
-    verification_targets: plan.verification_targets,
-    task_graph: { tasks: plan.tasks },
-  };
-}
-
-function buildProductQuestPayload(
+function callbackSlug(
   repoRoot: string,
-  slug: string,
-  quest: QuestLikeState,
-  step: string,
-  state: SimState,
-): Record<string, unknown> {
-  const request = questRequest(repoRoot, quest);
-  const scenario = selectSimProductQuestScenario(request);
-  switch (step) {
-    case "plan":
-      state.plan_round += 1;
-      if (state.plan_round === 1 || !scenario.resolved_plan) {
-        return planPayload(scenario.initial_plan);
-      }
-      return planPayload(scenario.resolved_plan);
-    case "questions":
-      if (!scenario.answers.length) {
-        fail(`scenario ${scenario.id} has no recorded answers`);
-      }
-      return {
-        step: "questions",
-        answers: scenario.answers,
-      };
-    case "task_graph":
-      return { step: "task_graph", approved: true };
-    case "executing": {
-      const task = readyTask(quest);
-      if (!task) fail(`no ready child task for slug ${slug}`);
-      return {
-        step: "child_result",
-        task_id: task.id,
-        child_slug: task.child_slug,
-        status: "passed",
-        evidence: [
-          {
-            type: "summary",
-            ref: task.scope_files[0] || `${task.id}.txt`,
-            summary: `${task.title} simulated successfully`,
-          },
-        ],
-        merge_commit: `sim-${task.id.toLowerCase()}`,
-      };
-    }
-    case "validation":
-      return {
-        step: "validation",
-        status: "passed",
-        checks: scenario.validation_checks,
-      };
-    case "verification":
-      return {
-        step: "verification",
-        status: "passed",
-        acceptance_trace: (Array.isArray(quest.tasks) ? quest.tasks : []).map(
-          (task) => ({
-            acceptance: task.acceptance || task.title || task.id,
-            status: "passed",
-          }),
-        ),
-        risks: [],
-      };
-    case "system_update":
-      return {
-        step: "system_update",
-        system_update: {
-          schema_version: 1,
-          updates: [
-            {
-              doc_id: "architecture",
-              summary: scenario.system_summary,
-            },
-          ],
-        },
-      };
-    case "landing":
-      if (state.landing_round === 0) {
-        state.landing_round += 1;
-        return {
-          step: "landing",
-          status: "blocked",
-          summary: "waiting for simulated final merge",
-        };
-      }
-      state.landing_round += 1;
-      return {
-        step: "landing",
-        status: "landed",
-        summary: scenario.landing_summary,
-      };
-    default:
-      fail(`unsupported callback step: ${step || "(empty)"}`);
-  }
-}
-
-function buildCallbackPayload(
-  repoRoot: string,
-  reason: CommandReason,
-  state: SimState,
-): Record<string, unknown> {
-  const slug = reasonSlug(repoRoot, reason);
-  if (!slug) fail("callback reason is missing slug");
-  const quest = questState(repoRoot, slug);
-  const step = stepId(reason.step);
-  const session = loadSession(repoRoot);
-  if (session?.profile === "product_quest") {
-    return buildProductQuestPayload(repoRoot, slug, quest, step, state);
-  }
-  switch (step) {
-    case "plan":
-      if (state.plan_round === 0) {
-        state.plan_round += 1;
-        return {
-          step: "plan",
-          classification: "greenfield_app",
-          scope: "runtime simulation environment",
-          high_impact_unknowns: ["runtime callback policy"],
-          questions: [
-            {
-              id: "runtime_callback_policy",
-              question: "How should hook continuations be simulated?",
-              impact:
-                "Determines whether the fake runtime auto-drives callbacks.",
-            },
-          ],
-          af: {
-            hidden_assumptions: [
-              "A deterministic callback driver is enough for integration coverage.",
-            ],
-          },
-          of: { procedure: ["clarify", "decompose", "verify", "land"] },
-          verification_targets: ["callback policy is explicit"],
-          task_graph: { tasks: [] },
-        };
-      }
-      state.plan_round += 1;
-      return {
-        step: "plan",
-        classification: "greenfield_app",
-        scope: "runtime simulation environment",
-        defaulted_unknowns: [
-          "Callbacks are auto-driven by the fake runtime during tests.",
-        ],
-        af: {
-          hidden_assumptions: [
-            "Two child fixtures are enough to cover hook and callback behavior.",
-          ],
-        },
-        of: {
-          procedure: [
-            "dispatch hook fixture",
-            "dispatch callback fixture",
-            "verify lifecycle",
-            "land",
-          ],
-        },
-        verification_targets: [
-          "hook lifecycle reaches archive",
-          "callback lifecycle reaches archive",
-        ],
-        task_graph: {
-          tasks: [
-            {
-              id: "T001",
-              title: "Build runtime hook fixture",
-              type: "coding",
-              acceptance: ["runtime hook fixture works"],
-              scope_files: ["hook-fixture.txt"],
-              spec_refs: ["coding"],
-              concurrency_group: "hook",
-            },
-            {
-              id: "T002",
-              title: "Build runtime callback fixture",
-              type: "coding",
-              acceptance: ["runtime callback fixture works"],
-              scope_files: ["callback-fixture.txt"],
-              spec_refs: ["coding"],
-              concurrency_group: "callback",
-            },
-          ],
-        },
-      };
-    case "questions":
-      return {
-        step: "questions",
-        answers: [
-          {
-            question_id: "runtime_callback_policy",
-            answer: "Drive callbacks automatically inside the simulation CLI.",
-          },
-        ],
-      };
-    case "task_graph":
-      return { step: "task_graph", approved: true };
-    case "executing": {
-      const task = readyTask(quest);
-      if (!task) fail(`no ready child task for slug ${slug}`);
-      return {
-        step: "child_result",
-        task_id: task.id,
-        child_slug: task.child_slug,
-        status: "passed",
-        merge_commit: `sim-${task.id}-merge`,
-        evidence: [
-          {
-            type: "summary",
-            ref: task.scope_files[0] || `${task.id}.txt`,
-          },
-        ],
-        merge_commit: `sim-${task.id}`,
-      };
-    }
-    case "validation":
-      return {
-        step: "validation",
-        status: "passed",
-        checks: [{ name: "simulated-lifecycle", status: "passed" }],
-      };
-    case "verification":
-      return {
-        step: "verification",
-        status: "passed",
-        acceptance_trace: (Array.isArray(quest.tasks) ? quest.tasks : []).map(
-          (task) => ({
-            acceptance: task.acceptance || task.title || task.id,
-            status: "passed",
-          }),
-        ),
-        risks: [],
-      };
-    case "system_update":
-      return {
-        step: "system_update",
-        system_update: {
-          schema_version: 1,
-          updates: [
-            {
-              doc_id: "architecture",
-              summary: "runtime simulator completed the full hook lifecycle",
-            },
-          ],
-        },
-      };
-    case "landing":
-      if (state.landing_round === 0) {
-        state.landing_round += 1;
-        return {
-          step: "landing",
-          status: "blocked",
-          summary: "waiting for simulated final merge",
-        };
-      }
-      state.landing_round += 1;
-      return {
-        step: "landing",
-        status: "landed",
-        summary: "simulated runtime landed the quest",
-      };
-    default:
-      fail(`unsupported callback step: ${step || "(empty)"}`);
-  }
+  pending: Record<string, unknown> | null,
+  payload: Record<string, unknown>,
+): string {
+  const payloadSlug = String(payload.slug ?? "").trim();
+  if (payloadSlug) return payloadSlug;
+  const pendingReason =
+    pending?.reason && typeof pending.reason === "object"
+      ? (pending.reason as CommandReason)
+      : null;
+  const pendingSlug = pendingReason ? reasonSlug(repoRoot, pendingReason) : "";
+  if (pendingSlug) return pendingSlug;
+  const sessionSlug = String(loadSession(repoRoot)?.slug ?? "").trim();
+  if (sessionSlug) return sessionSlug;
+  const latest = findLatestQuest(repoRoot);
+  return latest?.files.slug ?? "";
 }
 
 function executeHook(
@@ -773,23 +448,21 @@ function executeCallback(
   repoRoot: string,
   raw: Record<string, unknown>,
 ): {
-  reason: CommandReason;
+  reason: CommandReason | null;
   payload: Record<string, unknown>;
   output: Record<string, unknown>;
 } {
-  const pending =
-    Object.keys(raw).length > 0 ? raw : (loadPendingCallback(repoRoot) ?? {});
-  const reason = (() => {
-    const candidate =
-      pending.reason && typeof pending.reason === "object"
-        ? (pending.reason as Record<string, unknown>)
-        : pending;
-    return candidate as CommandReason;
-  })();
-  const slug = reasonSlug(repoRoot, reason);
-  if (!slug) fail("callback requires a pending reason with slug");
-  const state = loadSimState(repoRoot);
-  const payload = buildCallbackPayload(repoRoot, reason, state);
+  if (Object.keys(raw).length === 0) {
+    fail("callback requires an explicit quest-next payload via --json or stdin");
+  }
+  const pending = loadPendingCallback(repoRoot);
+  const reason =
+    pending?.reason && typeof pending.reason === "object"
+      ? (pending.reason as CommandReason)
+      : null;
+  const slug = callbackSlug(repoRoot, pending, raw);
+  if (!slug) fail("callback requires a quest slug or a pending hook reason");
+  const payload = raw;
   const proc = runLoopo(
     repoRoot,
     ["quest", "next", "--slug", slug, "--cwd", repoRoot, "--json", "@-"],
@@ -799,8 +472,6 @@ function executeCallback(
     throw new Error(proc.stderr || proc.stdout || "loopo quest next failed");
   }
   const output = parseJsonText(proc.stdout, "callback output");
-  state.callback_count += 1;
-  saveSimState(repoRoot, state);
   clearPendingCallback(repoRoot);
   logEvent(repoRoot, {
     kind: "callback",
@@ -809,18 +480,6 @@ function executeCallback(
     response: output,
   });
   return { reason, payload, output };
-}
-
-export function runSimulatedAssistantTurn(
-  repoRoot: string,
-  reasonText: string,
-): {
-  reason: CommandReason;
-  payload: Record<string, unknown>;
-  output: Record<string, unknown>;
-} {
-  const reason = parseJsonText(reasonText, "hook reason");
-  return executeCallback(repoRoot, reason);
 }
 
 function runHookMode(args: SimArgs): number {
@@ -846,6 +505,8 @@ function runStartMode(args: SimArgs): number {
   const request = normalizeRequestText(args.request);
   const flowId = String(args.flow ?? "swe").trim() || "swe";
   ensureFixtureRepo(repoRoot, runtime);
+  setupSimulationHooks(repoRoot);
+  resetSimulationArtifacts(repoRoot);
   const started = routeQuestInit({
     repoRoot,
     env: simEnv(repoRoot),
@@ -853,10 +514,9 @@ function runStartMode(args: SimArgs): number {
     request,
     flowId,
   });
-  setupSimulationHooks(repoRoot);
   saveSession(repoRoot, {
     schema_version: 1,
-    profile: "product_quest",
+    profile: "interactive",
     repo_root: repoRoot,
     runtime,
     request,
@@ -877,6 +537,7 @@ function runStartMode(args: SimArgs): number {
         init_route: started.route,
         create_input: started.createInput,
         create_output: started.createOutput,
+        current_output: started.createOutput,
         files: {
           session_json: simPath(repoRoot, SESSION_FILE),
           events_jsonl: simPath(repoRoot, EVENT_LOG_FILE),
@@ -904,7 +565,6 @@ function runStatusMode(args: SimArgs): number {
         request: session.request,
         slug: session.slug,
         current_stage: currentStage(repoRoot, session.slug),
-        callback_count: loadSimState(repoRoot).callback_count,
         pending_callback: loadPendingCallback(repoRoot),
         current_output: current,
         done: currentStage(repoRoot, session.slug) === "archived",
@@ -927,14 +587,8 @@ function runNextMode(args: SimArgs): number {
     cwd: repoRoot,
   };
   const hook = executeHook(repoRoot, session.runtime, hookInput);
-  let callbackInput: Record<string, unknown> | null = null;
-  let callbackOutput: Record<string, unknown> | null = null;
-  if (hook.reason) {
-    const callback = executeCallback(repoRoot, {});
-    callbackInput = callback.payload;
-    callbackOutput = callback.output;
-  }
   const afterStage = currentStage(repoRoot, session.slug);
+  const currentOutput = currentCompactOutput(repoRoot, session.slug);
   process.stdout.write(
     JSON.stringify(
       {
@@ -946,11 +600,11 @@ function runNextMode(args: SimArgs): number {
         before_stage: beforeStage,
         hook_input: hookInput,
         hook_output: hook.output,
-        callback_input: callbackInput,
-        callback_output: callbackOutput,
+        reason_payload: hook.reason,
+        requires_input: Boolean(hook.reason),
         after_stage: afterStage,
+        current_output: currentOutput,
         done: afterStage === "archived",
-        callback_count: loadSimState(repoRoot).callback_count,
       },
       null,
       2,

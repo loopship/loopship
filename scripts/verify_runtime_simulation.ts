@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parseTasksYaml, questFiles } from "./loopo_core.ts";
 import {
   CONCRETE_REACT_HABIT_TRACKER_REQUEST,
+  scenarioPayloadForStep,
   selectSimProductQuestScenario,
 } from "./sim_product_quest_scenarios.ts";
 import {
@@ -71,6 +72,15 @@ function readJsonl(path: string): Array<Record<string, any>> {
     .split(/\r?\n/)
     .filter((line) => line.trim())
     .map((line) => parseJson(line, path));
+}
+
+function hookReasonPayload(
+  hookOutput: Record<string, any>,
+  label: string,
+): Record<string, any> | null {
+  const reason = hookOutput.reason;
+  if (typeof reason !== "string" || !reason.trim()) return null;
+  return parseJson(reason, `${label} hook reason`);
 }
 
 function runTsScript(
@@ -331,6 +341,8 @@ function simulateRuntime(
     }
 
     let firstHook = true;
+    let planRound = 0;
+    let landingRound = 0;
     for (let guard = 0; guard < 20; guard += 1) {
       if (currentStage(fixture, slug) === "archived") break;
       const next = runLoopo(
@@ -350,13 +362,48 @@ function simulateRuntime(
       if (!hook || typeof hook !== "object" || !("reason" in hook)) {
         fail(`${label}: sim next returned malformed hook output: ${next.stdout}`);
       }
-      const callback = stepped.callback_output;
-      if (callback && !stepId((callback as Record<string, unknown>).step)) {
+      const reasonPayload =
+        hook && typeof hook === "object"
+          ? hookReasonPayload(hook as Record<string, any>, label)
+          : null;
+      if (!reasonPayload) {
+        if (stepped.done === true) break;
+        fail(`${label}: sim next did not provide a continuation reason`);
+      }
+      const requestedStep = stepId(reasonPayload.step);
+      if (!requestedStep) {
+        fail(`${label}: missing requested step in hook reason: ${next.stdout}`);
+      }
+      const quest = parseTasksYaml(
+        readText(questFiles(fixture.repo, slug).tasks),
+      ) as Record<string, any>;
+      const callbackInput = scenarioPayloadForStep({
+        request: simulationCase.request,
+        step: requestedStep,
+        quest,
+        planRound,
+        landingRound,
+      });
+      if (requestedStep === "plan") planRound += 1;
+      if (requestedStep === "landing") landingRound += 1;
+      const callbackProc = runLoopo(
+        fixture,
+        ["sim", "callback", "--repo", fixture.repo, "--json", "@-"],
+        callbackInput,
+      );
+      if (callbackProc.status !== 0) {
+        fail(
+          callbackProc.stderr ||
+            callbackProc.stdout ||
+            `${label}: sim callback failed`,
+        );
+      }
+      const callback = parseJson(callbackProc.stdout, `${label} sim callback`);
+      if (!stepId((callback as Record<string, unknown>).step)) {
         fail(
           `${label}: callback returned malformed output: ${JSON.stringify(callback)}`,
         );
       }
-      if (stepped.done === true) break;
     }
 
     const status = runLoopo(fixture, ["sim", "status", "--repo", fixture.repo]);
