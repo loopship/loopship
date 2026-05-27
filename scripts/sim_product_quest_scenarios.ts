@@ -35,6 +35,25 @@ export type SimProductQuestScenario = {
   expect_question_round: boolean;
 };
 
+export type SimQuestLikeState = Partial<{
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    dependencies: string[];
+    scope_files: string[];
+    child_slug: string;
+    acceptance: string;
+  }>;
+}>;
+
+const CHILD_DONE_STATUSES = new Set([
+  "child_archived",
+  "child_merged",
+  "done",
+  "merged",
+]);
+
 function normalizedRequest(request: string): string {
   return request.replace(/^loopo:\s*/i, "").trim().toLowerCase();
 }
@@ -264,4 +283,140 @@ export function selectSimProductQuestScenario(
     landing_summary: "simulated generic greenfield quest landed successfully",
     expect_question_round: true,
   };
+}
+
+function scenarioPlanPayload(plan: SimPlanPayload): Record<string, unknown> {
+  return {
+    step: "plan",
+    classification: plan.classification,
+    scope: plan.scope,
+    summary: plan.summary,
+    ...(plan.high_impact_unknowns?.length
+      ? { high_impact_unknowns: plan.high_impact_unknowns }
+      : {}),
+    ...(plan.defaulted_unknowns?.length
+      ? { defaulted_unknowns: plan.defaulted_unknowns }
+      : {}),
+    ...(plan.assumptions?.length ? { assumptions: plan.assumptions } : {}),
+    ...(plan.constraints?.length ? { constraints: plan.constraints } : {}),
+    ...(plan.questions?.length ? { questions: plan.questions } : {}),
+    af: plan.af,
+    of: plan.of,
+    verification_targets: plan.verification_targets,
+    task_graph: { tasks: plan.tasks },
+  };
+}
+
+function readyTask(quest: SimQuestLikeState) {
+  const tasks = Array.isArray(quest.tasks) ? quest.tasks : [];
+  const done = new Set(
+    tasks
+      .filter((task) => CHILD_DONE_STATUSES.has(String(task.status ?? "")))
+      .map((task) => String(task.id)),
+  );
+  return (
+    tasks.find((task) => {
+      const status = String(task.status ?? "child_received");
+      if (!["child_received", "pending", "ready"].includes(status)) {
+        return false;
+      }
+      const deps = Array.isArray(task.dependencies) ? task.dependencies : [];
+      return deps.every((dep) => done.has(String(dep)));
+    }) ?? null
+  );
+}
+
+export function scenarioPayloadForStep(input: {
+  request: string;
+  step: string;
+  quest: SimQuestLikeState;
+  planRound: number;
+  landingRound: number;
+}): Record<string, unknown> {
+  const scenario = selectSimProductQuestScenario(input.request);
+  switch (input.step) {
+    case "plan":
+      return scenarioPlanPayload(
+        input.planRound === 0 || !scenario.resolved_plan
+          ? scenario.initial_plan
+          : scenario.resolved_plan,
+      );
+    case "questions":
+      if (!scenario.answers.length) {
+        throw new Error(`scenario ${scenario.id} has no recorded answers`);
+      }
+      return {
+        step: "questions",
+        answers: scenario.answers,
+      };
+    case "task_graph":
+      return { step: "task_graph", approved: true };
+    case "executing": {
+      const task = readyTask(input.quest);
+      if (!task) {
+        throw new Error(`scenario ${scenario.id} has no ready task to report`);
+      }
+      return {
+        step: "child_result",
+        task_id: task.id,
+        child_slug: task.child_slug,
+        status: "passed",
+        evidence: [
+          {
+            type: "summary",
+            ref: task.scope_files[0] || `${task.id}.txt`,
+            summary: `${task.title} simulated successfully`,
+          },
+        ],
+        merge_commit: `sim-${String(task.id).toLowerCase()}`,
+      };
+    }
+    case "validation":
+      return {
+        step: "validation",
+        status: "passed",
+        checks: scenario.validation_checks,
+      };
+    case "verification":
+      return {
+        step: "verification",
+        status: "passed",
+        acceptance_trace: (Array.isArray(input.quest.tasks)
+          ? input.quest.tasks
+          : []
+        ).map((task) => ({
+          acceptance: task.acceptance || task.title || task.id,
+          status: "passed",
+        })),
+        risks: [],
+      };
+    case "system_update":
+      return {
+        step: "system_update",
+        system_update: {
+          schema_version: 1,
+          updates: [
+            {
+              doc_id: "architecture",
+              summary: scenario.system_summary,
+            },
+          ],
+        },
+      };
+    case "landing":
+      if (input.landingRound === 0) {
+        return {
+          step: "landing",
+          status: "blocked",
+          summary: "waiting for simulated final merge",
+        };
+      }
+      return {
+        step: "landing",
+        status: "landed",
+        summary: scenario.landing_summary,
+      };
+    default:
+      throw new Error(`unsupported simulated callback step: ${input.step || "(empty)"}`);
+  }
 }

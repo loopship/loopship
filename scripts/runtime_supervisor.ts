@@ -170,8 +170,14 @@ export function routeQuestInit(params: {
   ) {
     fail("loopo init did not emit a runnable new_quest.command");
   }
+  const routeCmd =
+    cmd === "loopo" &&
+    typeof params.env.LOOPO_GLOBAL_BIN === "string" &&
+    params.env.LOOPO_GLOBAL_BIN.trim()
+      ? resolve(params.env.LOOPO_GLOBAL_BIN)
+      : cmd;
 
-  const routeProc = runCommand(cmd, args, {
+  const routeProc = runCommand(routeCmd, args, {
     cwd: params.repoRoot,
     env: params.env,
     timeoutMs: params.timeoutMs ?? 60_000,
