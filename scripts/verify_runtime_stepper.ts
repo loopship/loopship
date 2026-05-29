@@ -81,6 +81,9 @@ function main(): number {
       const next = runSim(["next", "--repo", repo]);
       if (next.status !== 0) fail(next.stderr || next.stdout);
       const step = parseJson(next.stdout);
+      if ("current_output" in step) {
+        fail(`sim next must stop at the hook boundary: ${next.stdout}`);
+      }
       const reasonPayload =
         step.reason_payload && typeof step.reason_payload === "object"
           ? (step.reason_payload as Record<string, any>)
@@ -154,6 +157,9 @@ function main(): number {
     const status = runSim(["status", "--repo", repo]);
     if (status.status !== 0) fail(status.stderr || status.stdout);
     const current = parseJson(status.stdout);
+    if ("current_output" in current) {
+      fail(`sim status must not call quest next: ${status.stdout}`);
+    }
     if (current.current_stage !== "archived" || current.done !== true) {
       fail(
         `status must report archived after the stepped run: ${status.stdout}`,

@@ -388,6 +388,9 @@ function simulateRuntime(
         fail(next.stderr || next.stdout || `${label}: sim next failed`);
       }
       const stepped = parseJson(next.stdout, `${label} sim next`);
+      if ("current_output" in stepped) {
+        fail(`${label}: sim next must stop at the hook boundary`);
+      }
       const hook = stepped.hook_output;
       if (firstHook && hook && typeof hook === "object") {
         assertRuntimeHookShape(runtime, hook as Record<string, any>, label);
@@ -451,6 +454,9 @@ function simulateRuntime(
       fail(status.stderr || status.stdout || `${label}: sim status failed`);
     }
     const current = parseJson(status.stdout, `${label} sim status`);
+    if ("current_output" in current) {
+      fail(`${label}: sim status must not call quest next`);
+    }
     if (current.current_stage !== "archived" || current.done !== true) {
       fail(
         `${label}: simulation status must report archived: ${status.stdout}`,

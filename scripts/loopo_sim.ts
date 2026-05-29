@@ -362,19 +362,6 @@ function currentStage(repoRoot: string, slug: string): string {
   return String(questState(repoRoot, slug).stage ?? "");
 }
 
-function currentCompactOutput(
-  repoRoot: string,
-  slug: string,
-): Record<string, unknown> {
-  const proc = runLoopo(
-    repoRoot,
-    ["quest", "next", "--slug", slug, "--cwd", repoRoot, "--json", "@-"],
-    {},
-  );
-  if (proc.status !== 0) fail(proc.stderr || proc.stdout);
-  return parseJsonText(proc.stdout, "current compact output");
-}
-
 function questState(repoRoot: string, slug: string): QuestLikeState {
   const files = questFiles(repoRoot, slug);
   return parseTasksYaml(readText(files.tasks)) as QuestLikeState;
@@ -557,7 +544,7 @@ function runStatusMode(args: SimArgs): number {
   const session = loadSession(repoRoot);
   if (!session)
     fail(`missing simulation session in ${simPath(repoRoot, SESSION_FILE)}`);
-  const current = currentCompactOutput(repoRoot, session.slug);
+  const stage = currentStage(repoRoot, session.slug);
   process.stdout.write(
     JSON.stringify(
       {
@@ -566,10 +553,9 @@ function runStatusMode(args: SimArgs): number {
         runtime: session.runtime,
         request: session.request,
         slug: session.slug,
-        current_stage: currentStage(repoRoot, session.slug),
+        current_stage: stage,
         pending_callback: loadPendingCallback(repoRoot),
-        current_output: current,
-        done: currentStage(repoRoot, session.slug) === "archived",
+        done: stage === "archived",
       },
       null,
       2,
@@ -590,7 +576,6 @@ function runNextMode(args: SimArgs): number {
   };
   const hook = executeHook(repoRoot, session.runtime, hookInput);
   const afterStage = currentStage(repoRoot, session.slug);
-  const currentOutput = currentCompactOutput(repoRoot, session.slug);
   process.stdout.write(
     JSON.stringify(
       {
@@ -605,7 +590,6 @@ function runNextMode(args: SimArgs): number {
         reason_payload: hook.reason,
         requires_input: Boolean(hook.reason),
         after_stage: afterStage,
-        current_output: currentOutput,
         done: afterStage === "archived",
       },
       null,
