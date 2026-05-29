@@ -23,7 +23,9 @@ loopo init "{request}" --cwd <cwd> --runtime <runtime>
   decides runtime continuation.
 - `loopo doctor --fix` repairs system scaffolding, hook installation, shims,
   manifests, and managed drift.
-- `loopo sim` provides deterministic lifecycle stepping for local simulation.
+- `loopo sim` provides deterministic selected-flow lifecycle stepping for local
+  simulation, while `loopo sim hook` is the explicit passthrough lane for hook
+  behavior.
 - `loopo cmdproto execjson <path> <payload>` mirrors the current public CLI as
   a machine wrapper and introspection surface; it delegates back to the direct
   Loopo command logic and does not replace the V3 quest lifecycle.
@@ -176,7 +178,7 @@ hook behavior:
 bun index.ts init "loopo: build" --cwd /path/to/repo --runtime all
 bun index.ts quest next --slug build --json @request.json
 bun index.ts hook --runtime codex
-bun index.ts sim start --request "build me a python app" --runtime codex
+bun index.ts sim "loopo: build me a python app" --runtime codex --flow swe
 bun index.ts doctor --fix
 bun scripts/setup_runtime_hooks.ts --repo /path/to/repo --runtime all --hook-script /abs/path/to/scripts/loopo_sim.ts
 ```

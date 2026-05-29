@@ -10,12 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  appendJsonl,
-  findLatestQuest,
-  parseTasksYaml,
-  questFiles,
-} from "./loopo_core.ts";
+import { appendJsonl, parseTasksYaml, questFiles } from "./loopo_core.ts";
+import { DEFAULT_FLOW_ID, flowStep, loadFlowDefinition } from "./loopo_flow.ts";
 import {
   readHookDecision as readSupervisorHookDecision,
   routeQuestInit,
@@ -26,6 +22,7 @@ import {
   readStdinJson,
   readText,
   runCommand,
+  shellQuote,
   tsRunner,
   writeJson,
 } from "./loopo_utils.ts";
@@ -43,23 +40,16 @@ const SESSION_FILE = join(SIM_DIR, "session.json");
 
 type Runtime = "codex" | "gemini" | "copilot";
 type SimProfile = "interactive";
+type SimMode = "guided" | "hook";
 
 type SimArgs = {
-  mode: "hook" | "callback" | "start" | "next" | "status";
+  mode: SimMode;
+  legacyMode: string | null;
   repo: string | null;
   runtime: string | null;
   json: string | null;
   request: string | null;
   flow: string | null;
-};
-
-type CommandReason = {
-  loopo?: boolean;
-  command?: string;
-  slug?: string;
-  step?: string;
-  state?: string;
-  [key: string]: unknown;
 };
 
 type SimSession = {
@@ -76,6 +66,7 @@ type SimSession = {
 type QuestLikeState = Partial<{
   stage: string;
   prompt: string;
+  flow_id: string;
   tasks: Array<{
     id: string;
     title: string;
@@ -87,23 +78,17 @@ type QuestLikeState = Partial<{
   }>;
 }>;
 
-function reasonSlug(repoRoot: string, reason: CommandReason): string {
-  const explicit = String(reason.slug ?? "").trim();
-  if (explicit) return explicit;
-  const latest = findLatestQuest(repoRoot);
-  return latest?.files.slug ?? "";
-}
+const LEGACY_MODES = new Set(["start", "next", "status", "callback"]);
 
 function usage(exitCode = 1): number {
-  if (exitCode === 0) {
-    console.log(
-      "Usage: loopo sim <start|next|status|hook|callback> [--repo <path>] [--runtime <codex|gemini|copilot>] [--request <text>] [--flow <id>] [--json <json|@file|@->]",
-    );
-  } else {
-    console.error(
-      "Usage: loopo sim <start|next|status|hook|callback> [--repo <path>] [--runtime <codex|gemini|copilot>] [--request <text>] [--flow <id>] [--json <json|@file|@->]",
-    );
-  }
+  const text = [
+    "Usage:",
+    '  loopo sim "loopo: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>]',
+    "  loopo sim --repo <path> --json <json|@file|@->",
+    "  loopo sim hook [--repo <path>] [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]",
+  ].join("\n");
+  if (exitCode === 0) console.log(text);
+  else console.error(text);
   return exitCode;
 }
 
@@ -112,19 +97,31 @@ function fail(message: string): never {
 }
 
 function parseArgs(argv: string[]): SimArgs {
-  let mode: SimArgs["mode"] = "hook";
+  let mode: SimMode = "guided";
+  let legacyMode: string | null = null;
   let repo: string | null = null;
   let runtime: string | null = null;
   let json: string | null = null;
-  let request: string | null = null;
   let flow: string | null = null;
+  const requestParts: string[] = [];
   const rest = [...argv];
-  if (
-    rest[0] &&
-    ["hook", "callback", "start", "next", "status"].includes(rest[0])
-  ) {
-    mode = rest.shift() as SimArgs["mode"];
+
+  if (rest[0] === "hook") {
+    mode = "hook";
+    rest.shift();
+  } else if (rest[0] && LEGACY_MODES.has(rest[0])) {
+    legacyMode = rest.shift() ?? null;
+    return {
+      mode,
+      legacyMode,
+      repo,
+      runtime,
+      json,
+      request: null,
+      flow,
+    };
   }
+
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === "--repo") repo = rest[++i] ?? null;
@@ -134,15 +131,31 @@ function parseArgs(argv: string[]): SimArgs {
       runtime = arg.slice("--runtime=".length);
     else if (arg === "--json") json = rest[++i] ?? "@-";
     else if (arg?.startsWith("--json=")) json = arg.slice("--json=".length);
-    else if (arg === "--request") request = rest[++i] ?? null;
-    else if (arg?.startsWith("--request="))
-      request = arg.slice("--request=".length);
     else if (arg === "--flow") flow = rest[++i] ?? null;
     else if (arg?.startsWith("--flow=")) flow = arg.slice("--flow=".length);
     else if (arg === "--help" || arg === "-h") throw new Error("__SIM_HELP__");
-    else throw new Error(`unknown sim argument: ${arg}`);
+    else if (arg?.startsWith("-")) throw new Error(`unknown sim argument: ${arg}`);
+    else if (arg !== undefined) requestParts.push(arg);
   }
-  return { mode, repo, runtime, json, request, flow };
+
+  return {
+    mode,
+    legacyMode,
+    repo,
+    runtime,
+    json,
+    request: requestParts.join(" ").trim() || null,
+    flow,
+  };
+}
+
+function legacyModeError(mode: string): string {
+  return [
+    `loopo sim ${mode} has been replaced by the guided sim flow.`,
+    'Start with: loopo sim "loopo: <request>" --flow swe --runtime codex',
+    "Continue with the returned commands.next, usually: loopo sim --repo <repo> --json @-",
+    "Use loopo sim hook only for explicit runtime hook passthrough testing.",
+  ].join("\n");
 }
 
 function resolveRuntime(
@@ -156,9 +169,16 @@ function resolveRuntime(
   throw new Error(`unsupported runtime: ${value}`);
 }
 
-function normalizeRequestText(request: string | null): string {
-  const raw = String(request ?? "build me a python app").trim();
+function normalizeRequestText(request: string): string {
+  const raw = request.trim();
+  if (!raw) fail("guided sim start requires a request");
   return /^loopo:/i.test(raw) ? raw : `loopo: ${raw}`;
+}
+
+function resolveFlowId(value: string | null | undefined): string {
+  const flowId = String(value ?? DEFAULT_FLOW_ID).trim() || DEFAULT_FLOW_ID;
+  loadFlowDefinition(flowId);
+  return flowId;
 }
 
 function defaultRepoRoot(explicit: string | null): string {
@@ -252,13 +272,6 @@ function logEvent(repoRoot: string, record: Record<string, unknown>): void {
 
 function clearPendingCallback(repoRoot: string): void {
   rmSync(simPath(repoRoot, PENDING_CALLBACK_FILE), { force: true });
-}
-
-function loadPendingCallback(repoRoot: string): Record<string, unknown> | null {
-  const pending = readJson(simPath(repoRoot, PENDING_CALLBACK_FILE));
-  return pending && typeof pending === "object"
-    ? (pending as Record<string, unknown>)
-    : null;
 }
 
 function savePendingCallback(
@@ -358,32 +371,60 @@ function runLoopo(
   });
 }
 
-function currentStage(repoRoot: string, slug: string): string {
-  return String(questState(repoRoot, slug).stage ?? "");
-}
-
 function questState(repoRoot: string, slug: string): QuestLikeState {
   const files = questFiles(repoRoot, slug);
   return parseTasksYaml(readText(files.tasks)) as QuestLikeState;
 }
 
-function callbackSlug(
-  repoRoot: string,
-  pending: Record<string, unknown> | null,
-  payload: Record<string, unknown>,
-): string {
-  const payloadSlug = String(payload.slug ?? "").trim();
-  if (payloadSlug) return payloadSlug;
-  const pendingReason =
-    pending?.reason && typeof pending.reason === "object"
-      ? (pending.reason as CommandReason)
-      : null;
-  const pendingSlug = pendingReason ? reasonSlug(repoRoot, pendingReason) : "";
-  if (pendingSlug) return pendingSlug;
-  const sessionSlug = String(loadSession(repoRoot)?.slug ?? "").trim();
-  if (sessionSlug) return sessionSlug;
-  const latest = findLatestQuest(repoRoot);
-  return latest?.files.slug ?? "";
+function currentFlowStepId(repoRoot: string, session: SimSession): string {
+  const state = questState(repoRoot, session.slug);
+  const flowId =
+    String(state.flow_id ?? session.flow_id).trim() || session.flow_id;
+  return flowStep(loadFlowDefinition(flowId), String(state.stage ?? "")).id;
+}
+
+function simCommand(args: string[]): Record<string, unknown> {
+  return {
+    cmd: "loopo",
+    args,
+    display: ["loopo", ...args.map(shellQuote)].join(" "),
+  };
+}
+
+function simNextCommand(repoRoot: string): Record<string, unknown> {
+  return simCommand(["sim", "--repo", repoRoot, "--json", "@-"]);
+}
+
+function withGuidedEnvelope(input: {
+  repoRoot: string;
+  session: SimSession;
+  output: Record<string, unknown>;
+}): Record<string, unknown> {
+  const state = questState(input.repoRoot, input.session.slug);
+  const stage = String(state.stage ?? "");
+  const flowId =
+    String(state.flow_id ?? input.session.flow_id).trim() ||
+    input.session.flow_id;
+  const originalCommands =
+    input.output.commands &&
+    typeof input.output.commands === "object" &&
+    !Array.isArray(input.output.commands)
+      ? (input.output.commands as Record<string, unknown>)
+      : {};
+  return {
+    repo: input.repoRoot,
+    runtime: input.session.runtime,
+    request: input.session.request,
+    flow_id: flowId,
+    slug: input.session.slug,
+    current_stage: stage,
+    done: stage === "archived",
+    ...input.output,
+    commands: {
+      ...originalCommands,
+      next: simNextCommand(input.repoRoot),
+    },
+  };
 }
 
 function executeHook(
@@ -393,7 +434,7 @@ function executeHook(
 ): {
   envelope: Record<string, unknown>;
   output: Record<string, unknown>;
-  reason: CommandReason | null;
+  reason: Record<string, unknown> | null;
 } {
   const hook = readSupervisorHookDecision({
     repoRoot,
@@ -403,22 +444,16 @@ function executeHook(
   });
   const envelope = hook.envelope;
   const output = hook.output;
-  const reasonText = hook.reason ?? "";
-  if (reasonText) {
-    const reason = parseJsonText(reasonText, "hook reason") as CommandReason;
+  const reason = hook.reason
+    ? (parseJsonText(hook.reason, "hook reason") as Record<string, unknown>)
+    : null;
+  if (reason) {
     savePendingCallback(repoRoot, {
       runtime,
       envelope,
       hook_output: output,
       reason,
     });
-    logEvent(repoRoot, {
-      kind: "hook",
-      runtime,
-      envelope,
-      hook_output: output,
-    });
-    return { envelope, output, reason };
   } else {
     clearPendingCallback(repoRoot);
   }
@@ -428,47 +463,7 @@ function executeHook(
     envelope,
     hook_output: output,
   });
-  return { envelope, output, reason: null };
-}
-
-function executeCallback(
-  repoRoot: string,
-  raw: Record<string, unknown>,
-): {
-  reason: CommandReason | null;
-  payload: Record<string, unknown>;
-  output: Record<string, unknown>;
-} {
-  if (Object.keys(raw).length === 0) {
-    fail(
-      "callback requires an explicit quest-next payload via --json or stdin",
-    );
-  }
-  const pending = loadPendingCallback(repoRoot);
-  const reason =
-    pending?.reason && typeof pending.reason === "object"
-      ? (pending.reason as CommandReason)
-      : null;
-  const slug = callbackSlug(repoRoot, pending, raw);
-  if (!slug) fail("callback requires a quest slug or a pending hook reason");
-  const payload = raw;
-  const proc = runLoopo(
-    repoRoot,
-    ["quest", "next", "--slug", slug, "--cwd", repoRoot, "--json", "@-"],
-    payload,
-  );
-  if (proc.status !== 0) {
-    throw new Error(proc.stderr || proc.stdout || "loopo quest next failed");
-  }
-  const output = parseJsonText(proc.stdout, "callback output");
-  clearPendingCallback(repoRoot);
-  logEvent(repoRoot, {
-    kind: "callback",
-    request: reason,
-    payload,
-    response: output,
-  });
-  return { reason, payload, output };
+  return { envelope, output, reason };
 }
 
 function runHookMode(args: SimArgs): number {
@@ -480,19 +475,16 @@ function runHookMode(args: SimArgs): number {
   return 0;
 }
 
-function runCallbackMode(args: SimArgs): number {
-  const raw = readJsonArg(args.json);
-  const repoRoot = resolveRepoRoot(args.repo, raw);
-  const result = executeCallback(repoRoot, raw);
-  process.stdout.write(JSON.stringify(result.output, null, 2));
-  return 0;
-}
-
-function runStartMode(args: SimArgs): number {
+function runGuidedStart(args: SimArgs): number {
+  if (!args.request) {
+    throw new Error(
+      'guided sim start requires a request, for example: loopo sim "loopo: build the app" --flow swe --runtime codex',
+    );
+  }
   const repoRoot = defaultRepoRoot(args.repo);
   const runtime = resolveRuntime(args.runtime);
   const request = normalizeRequestText(args.request);
-  const flowId = String(args.flow ?? "swe").trim() || "swe";
+  const flowId = resolveFlowId(args.flow);
   ensureFixtureRepo(repoRoot, runtime);
   setupSimulationHooks(repoRoot, runtime);
   resetSimulationArtifacts(repoRoot);
@@ -503,7 +495,7 @@ function runStartMode(args: SimArgs): number {
     request,
     flowId,
   });
-  saveSession(repoRoot, {
+  const session: SimSession = {
     schema_version: 1,
     profile: "interactive",
     repo_root: repoRoot,
@@ -512,26 +504,22 @@ function runStartMode(args: SimArgs): number {
     flow_id: flowId,
     slug: started.slug,
     started_at: new Date().toISOString(),
+  };
+  saveSession(repoRoot, session);
+  logEvent(repoRoot, {
+    kind: "start",
+    runtime,
+    request,
+    flow_id: flowId,
+    slug: started.slug,
   });
   process.stdout.write(
     JSON.stringify(
-      {
-        action: "start",
-        repo: repoRoot,
-        runtime,
-        request,
-        flow_id: flowId,
-        slug: started.slug,
-        current_stage: currentStage(repoRoot, started.slug),
-        init_route: started.route,
-        create_input: started.createInput,
-        create_output: started.createOutput,
-        current_output: started.createOutput,
-        files: {
-          session_json: simPath(repoRoot, SESSION_FILE),
-          events_jsonl: simPath(repoRoot, EVENT_LOG_FILE),
-        },
-      },
+      withGuidedEnvelope({
+        repoRoot,
+        session,
+        output: started.createOutput,
+      }),
       null,
       2,
     ),
@@ -539,24 +527,43 @@ function runStartMode(args: SimArgs): number {
   return 0;
 }
 
-function runStatusMode(args: SimArgs): number {
-  const repoRoot = resolveRepoRoot(args.repo, null);
+function runGuidedContinuation(args: SimArgs): number {
+  if (!args.json) {
+    throw new Error("guided sim continuation requires --json <json|@file|@->");
+  }
+  const payload = readJsonArg(args.json);
+  if (Object.keys(payload).length === 0) {
+    throw new Error("guided sim continuation requires a non-empty JSON payload");
+  }
+  const repoRoot = resolveRepoRoot(args.repo, payload);
   const session = loadSession(repoRoot);
-  if (!session)
-    fail(`missing simulation session in ${simPath(repoRoot, SESSION_FILE)}`);
-  const stage = currentStage(repoRoot, session.slug);
+  if (!session) {
+    throw new Error(`missing simulation session in ${simPath(repoRoot, SESSION_FILE)}`);
+  }
+  const requestedStep = currentFlowStepId(repoRoot, session);
+  const proc = runLoopo(
+    repoRoot,
+    ["quest", "next", "--slug", session.slug, "--cwd", repoRoot, "--json", "@-"],
+    payload,
+  );
+  if (proc.status !== 0) {
+    throw new Error(proc.stderr || proc.stdout || "loopo quest next failed");
+  }
+  const output = parseJsonText(proc.stdout, "guided sim output");
+  logEvent(repoRoot, {
+    kind: "guided_step",
+    runtime: session.runtime,
+    requested_step: requestedStep,
+    payload,
+    response: output,
+  });
   process.stdout.write(
     JSON.stringify(
-      {
-        action: "status",
-        repo: repoRoot,
-        runtime: session.runtime,
-        request: session.request,
-        slug: session.slug,
-        current_stage: stage,
-        pending_callback: loadPendingCallback(repoRoot),
-        done: stage === "archived",
-      },
+      withGuidedEnvelope({
+        repoRoot,
+        session,
+        output,
+      }),
       null,
       2,
     ),
@@ -564,39 +571,9 @@ function runStatusMode(args: SimArgs): number {
   return 0;
 }
 
-function runNextMode(args: SimArgs): number {
-  const repoRoot = resolveRepoRoot(args.repo, null);
-  const session = loadSession(repoRoot);
-  if (!session)
-    fail(`missing simulation session in ${simPath(repoRoot, SESSION_FILE)}`);
-  const beforeStage = currentStage(repoRoot, session.slug);
-  const hookInput = {
-    hook_event_name: session.runtime === "gemini" ? "AfterAgent" : "Stop",
-    cwd: repoRoot,
-  };
-  const hook = executeHook(repoRoot, session.runtime, hookInput);
-  const afterStage = currentStage(repoRoot, session.slug);
-  process.stdout.write(
-    JSON.stringify(
-      {
-        action: "next",
-        repo: repoRoot,
-        runtime: session.runtime,
-        request: session.request,
-        slug: session.slug,
-        before_stage: beforeStage,
-        hook_input: hookInput,
-        hook_output: hook.output,
-        reason_payload: hook.reason,
-        requires_input: Boolean(hook.reason),
-        after_stage: afterStage,
-        done: afterStage === "archived",
-      },
-      null,
-      2,
-    ),
-  );
-  return 0;
+function runGuidedMode(args: SimArgs): number {
+  if (args.request) return runGuidedStart(args);
+  return runGuidedContinuation(args);
 }
 
 export function runSimCli(argv: string[]): number {
@@ -616,11 +593,12 @@ export function runSimCli(argv: string[]): number {
     }
     throw error;
   }
-  if (args.mode === "start") return runStartMode(args);
-  if (args.mode === "next") return runNextMode(args);
-  if (args.mode === "status") return runStatusMode(args);
-  if (args.mode === "callback") return runCallbackMode(args);
-  return runHookMode(args);
+  if (args.legacyMode) {
+    console.error(legacyModeError(args.legacyMode));
+    return 1;
+  }
+  if (args.mode === "hook") return runHookMode(args);
+  return runGuidedMode(args);
 }
 
 if (import.meta.main) {

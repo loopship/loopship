@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { createLoopoShim } from "./loopo_core.ts";
 import { runCommand } from "./loopo_utils.ts";
 import { validateSchemaId, v3SchemaId } from "./loopo_schema.ts";
+import { DEFAULT_RUNTIME_REQUEST } from "./runtime_supervisor.ts";
+import { scenarioPayloadForStep } from "./sim_product_quest_scenarios.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = resolve(ROOT, "scripts", "loopo.ts");
@@ -41,6 +43,15 @@ function expectSchema(payload: Record<string, any>, schemaId: string): void {
   if (errors.length) {
     fail(`${schemaId} validation failed: ${errors.join("; ")}`);
   }
+}
+
+function stepId(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const id = (value as Record<string, unknown>).id;
+    return typeof id === "string" ? id : "";
+  }
+  return "";
 }
 
 function runLoopo(
@@ -224,6 +235,63 @@ function main(): number {
     const questDir = join(fixture.repo, ".loopo", "quests", slug);
     if (!existsSync(join(questDir, "tasks.yaml"))) {
       fail("cmdproto quest next must still create the canonical quest state");
+    }
+
+    const simRepo = join(fixture.root, "sim-repo");
+    const simStart = runLoopo(
+      fixture.repo,
+      [
+        "cmdproto",
+        "execjson",
+        "sim",
+        JSON.stringify({
+          request: DEFAULT_RUNTIME_REQUEST,
+          repo: simRepo,
+          runtime: "codex",
+          flow: "swe",
+        }),
+      ],
+      undefined,
+      fixture.env,
+    );
+    if (simStart.status !== 0) fail(simStart.stderr || simStart.stdout);
+    const simStarted = parseJson(simStart.stdout);
+    if (stepId(simStarted.step) !== "plan") {
+      fail(`cmdproto sim start must return the guided plan step: ${simStart.stdout}`);
+    }
+    const simCommandArgs = simStarted.commands?.next?.args;
+    if (
+      JSON.stringify(simCommandArgs) !==
+      JSON.stringify(["sim", "--repo", simRepo, "--json", "@-"])
+    ) {
+      fail(`cmdproto sim must return guided sim continuation command: ${simStart.stdout}`);
+    }
+
+    const simPlanPayload = scenarioPayloadForStep({
+      request: DEFAULT_RUNTIME_REQUEST,
+      step: "plan",
+      quest: {},
+      planRound: 0,
+      landingRound: 0,
+    });
+    const simNext = runLoopo(
+      fixture.repo,
+      [
+        "cmdproto",
+        "execjson",
+        "sim",
+        JSON.stringify({
+          repo: simRepo,
+          payload: simPlanPayload,
+        }),
+      ],
+      undefined,
+      fixture.env,
+    );
+    if (simNext.status !== 0) fail(simNext.stderr || simNext.stdout);
+    const simAdvanced = parseJson(simNext.stdout);
+    if (stepId(simAdvanced.step) !== "task_graph") {
+      fail(`cmdproto sim payload must advance to task_graph: ${simNext.stdout}`);
     }
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });

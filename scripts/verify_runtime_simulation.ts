@@ -10,7 +10,11 @@ import {
   scenarioPayloadForStep,
   selectSimProductQuestScenario,
 } from "./sim_product_quest_scenarios.ts";
-import { DEFAULT_RUNTIME_REQUEST, type Runtime } from "./runtime_supervisor.ts";
+import {
+  DEFAULT_RUNTIME_REQUEST,
+  hookEventName,
+  type Runtime,
+} from "./runtime_supervisor.ts";
 import { readText, runCommand, tsRunner } from "./loopo_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -69,15 +73,6 @@ function readJsonl(path: string): Array<Record<string, any>> {
     .split(/\r?\n/)
     .filter((line) => line.trim())
     .map((line) => parseJson(line, path));
-}
-
-function hookReasonPayload(
-  hookOutput: Record<string, any>,
-  label: string,
-): Record<string, any> | null {
-  const reason = hookOutput.reason;
-  if (typeof reason !== "string" || !reason.trim()) return null;
-  return parseJson(reason, `${label} hook reason`);
 }
 
 function runTsScript(
@@ -150,6 +145,36 @@ function assertRuntimeHookShape(
   }
 }
 
+function assertGuidedStep(
+  step: Record<string, any>,
+  repo: string,
+  label: string,
+): void {
+  if ("hook_output" in step || "reason_payload" in step) {
+    fail(`${label}: guided sim must not expose hook internals`);
+  }
+  if ("current_output" in step) {
+    fail(`${label}: guided sim must expose the current step directly`);
+  }
+  const command = step.commands?.next;
+  if (!command || command.cmd !== "loopo") {
+    fail(`${label}: guided sim step must include commands.next`);
+  }
+  const args = Array.isArray(command.args) ? command.args : [];
+  const expected = ["sim", "--repo", repo, "--json", "@-"];
+  if (JSON.stringify(args) !== JSON.stringify(expected)) {
+    fail(`${label}: guided sim commands.next mismatch: ${JSON.stringify(args)}`);
+  }
+}
+
+function simCommandArgs(step: Record<string, any>, label: string): string[] {
+  const args = step.commands?.next?.args;
+  if (!Array.isArray(args) || args[0] !== "sim") {
+    fail(`${label}: missing runnable sim next command`);
+  }
+  return args.map(String);
+}
+
 function assertLifecycleLog(
   repo: string,
   request: string,
@@ -157,26 +182,19 @@ function assertLifecycleLog(
 ): void {
   const scenario = selectSimProductQuestScenario(request);
   const events = readJsonl(join(repo, SIM_DIR, "events.jsonl"));
-  const callbacks = events.filter((record) => record.kind === "callback");
-  const hookEvents = events.filter((record) => record.kind === "hook");
-  if (callbacks.length === 0) {
-    fail(`${label}: expected at least one simulated callback turn`);
-  }
-  if (hookEvents.length !== callbacks.length) {
-    fail(
-      `${label}: hook/callback turn count mismatch: ${hookEvents.length} vs ${callbacks.length}`,
-    );
+  const steps = events.filter((record) => record.kind === "guided_step");
+  if (steps.length === 0) {
+    fail(`${label}: expected at least one guided simulated step`);
   }
 
-  const requestSteps = callbacks.map((record) => stepId(record.request?.step));
-  const responseSteps = callbacks.map((record) =>
-    stepId(record.response?.step),
-  );
+  const requestSteps = steps.map((record) => stepId(record.requested_step));
+  const responseSteps = steps.map((record) => stepId(record.response?.step));
 
   const requiredRequestSteps = scenario.expect_question_round
     ? [
         "plan",
         "questions",
+        "plan",
         "task_graph",
         "executing",
         "validation",
@@ -339,6 +357,53 @@ function assertCanonicalArtifacts(
   }
 }
 
+function assertSimHookPassthrough(runtime: Runtime): void {
+  const fixture = createFixture(`loopo-runtime-sim-hook-${runtime}-`, runtime);
+  const label = `${runtime}/hook`;
+  try {
+    const start = runLoopo(
+      fixture,
+      [
+        "sim",
+        DEFAULT_RUNTIME_REQUEST,
+        "--repo",
+        fixture.repo,
+        "--runtime",
+        runtime,
+        "--flow",
+        "swe",
+      ],
+      undefined,
+    );
+    if (start.status !== 0) fail(start.stderr || start.stdout);
+    const hook = runLoopo(
+      fixture,
+      [
+        "sim",
+        "hook",
+        "--repo",
+        fixture.repo,
+        "--runtime",
+        runtime,
+        "--json",
+        JSON.stringify({
+          hook_event_name: hookEventName(runtime),
+          cwd: fixture.repo,
+        }),
+      ],
+      undefined,
+    );
+    if (hook.status !== 0) fail(hook.stderr || hook.stdout);
+    const output = parseJson(hook.stdout, `${label} sim hook`);
+    assertRuntimeHookShape(runtime, output, label);
+    if (typeof output.reason !== "string" || !output.reason.trim()) {
+      fail(`${label}: sim hook must expose hook reason payload`);
+    }
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
 function simulateRuntime(
   runtime: Runtime,
   simulationCase: SimulationCase,
@@ -353,65 +418,35 @@ function simulateRuntime(
       fixture,
       [
         "sim",
-        "start",
+        simulationCase.request,
         "--repo",
         fixture.repo,
-        "--request",
-        simulationCase.request,
         "--runtime",
         runtime,
+        "--flow",
+        "swe",
       ],
       undefined,
     );
     if (start.status !== 0) {
       fail(start.stderr || start.stdout || `${label}: sim start failed`);
     }
-    const started = parseJson(start.stdout, `${label} sim start`);
-    const slug = String(started.slug ?? "");
+    let current = parseJson(start.stdout, `${label} sim start`);
+    assertGuidedStep(current, fixture.repo, label);
+    const slug = String(current.slug ?? "");
     if (!slug) fail(`${label}: missing slug in sim start output`);
-    if (String(started.current_stage ?? "") !== "planning") {
+    if (String(current.current_stage ?? "") !== "planning") {
       fail(`${label}: sim start must enter planning: ${start.stdout}`);
     }
 
-    let firstHook = true;
     let planRound = 0;
     let landingRound = 0;
     let childInitRuntimeChecks = 0;
     for (let guard = 0; guard < 20; guard += 1) {
-      if (currentStage(fixture, slug) === "archived") break;
-      const next = runLoopo(
-        fixture,
-        ["sim", "next", "--repo", fixture.repo],
-        undefined,
-      );
-      if (next.status !== 0) {
-        fail(next.stderr || next.stdout || `${label}: sim next failed`);
-      }
-      const stepped = parseJson(next.stdout, `${label} sim next`);
-      if ("current_output" in stepped) {
-        fail(`${label}: sim next must stop at the hook boundary`);
-      }
-      const hook = stepped.hook_output;
-      if (firstHook && hook && typeof hook === "object") {
-        assertRuntimeHookShape(runtime, hook as Record<string, any>, label);
-        firstHook = false;
-      }
-      if (!hook || typeof hook !== "object" || !("reason" in hook)) {
-        fail(
-          `${label}: sim next returned malformed hook output: ${next.stdout}`,
-        );
-      }
-      const reasonPayload =
-        hook && typeof hook === "object"
-          ? hookReasonPayload(hook as Record<string, any>, label)
-          : null;
-      if (!reasonPayload) {
-        if (stepped.done === true) break;
-        fail(`${label}: sim next did not provide a continuation reason`);
-      }
-      const requestedStep = stepId(reasonPayload.step);
+      if (current.done === true || currentStage(fixture, slug) === "archived") break;
+      const requestedStep = stepId(current.step);
       if (!requestedStep) {
-        fail(`${label}: missing requested step in hook reason: ${next.stdout}`);
+        fail(`${label}: missing requested step in guided output`);
       }
       const quest = parseTasksYaml(
         readText(questFiles(fixture.repo, slug).tasks),
@@ -427,21 +462,22 @@ function simulateRuntime(
       if (requestedStep === "landing") landingRound += 1;
       const callbackProc = runLoopo(
         fixture,
-        ["sim", "callback", "--repo", fixture.repo, "--json", "@-"],
+        simCommandArgs(current, label),
         callbackInput,
       );
       if (callbackProc.status !== 0) {
         fail(
           callbackProc.stderr ||
             callbackProc.stdout ||
-            `${label}: sim callback failed`,
+            `${label}: guided sim continuation failed`,
         );
       }
-      const callback = parseJson(callbackProc.stdout, `${label} sim callback`);
-      childInitRuntimeChecks += assertChildInitRuntime(callback, runtime, label);
-      if (!stepId((callback as Record<string, unknown>).step)) {
+      current = parseJson(callbackProc.stdout, `${label} guided sim output`);
+      assertGuidedStep(current, fixture.repo, label);
+      childInitRuntimeChecks += assertChildInitRuntime(current, runtime, label);
+      if (!stepId((current as Record<string, unknown>).step)) {
         fail(
-          `${label}: callback returned malformed output: ${JSON.stringify(callback)}`,
+          `${label}: guided sim returned malformed output: ${JSON.stringify(current)}`,
         );
       }
     }
@@ -449,17 +485,9 @@ function simulateRuntime(
       fail(`${label}: simulation never exposed child init commands`);
     }
 
-    const status = runLoopo(fixture, ["sim", "status", "--repo", fixture.repo]);
-    if (status.status !== 0) {
-      fail(status.stderr || status.stdout || `${label}: sim status failed`);
-    }
-    const current = parseJson(status.stdout, `${label} sim status`);
-    if ("current_output" in current) {
-      fail(`${label}: sim status must not call quest next`);
-    }
     if (current.current_stage !== "archived" || current.done !== true) {
       fail(
-        `${label}: simulation status must report archived: ${status.stdout}`,
+        `${label}: simulation must report archived: ${JSON.stringify(current)}`,
       );
     }
     if (currentStage(fixture, slug) !== "archived") {
@@ -475,6 +503,7 @@ function simulateRuntime(
 
 function main(): number {
   for (const runtime of ["codex", "gemini", "copilot"] as const) {
+    assertSimHookPassthrough(runtime);
     for (const simulationCase of SIMULATION_CASES) {
       simulateRuntime(runtime, simulationCase);
     }

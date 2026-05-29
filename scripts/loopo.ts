@@ -119,7 +119,9 @@ Usage:
   loopo quest next --slug <slug> --json <json|@file|@->
   loopo quest help [query]
   loopo hook --runtime <codex|gemini|copilot>
-  loopo sim <start|next|status|hook|callback> [--repo <path>] [--runtime <codex|gemini|copilot>] [--request <text>] [--flow <id>] [--json <json|@file|@->]
+  loopo sim "loopo: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>]
+  loopo sim --repo <path> --json <json|@file|@->
+  loopo sim hook [--repo <path>] [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
   loopo doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
   loopo cmdproto --help [--json]
   loopo cmdproto execjson <path> <json|@file|@->
@@ -614,7 +616,7 @@ export function runDoctor(argv: string[]): number {
         "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{let p={};try{p=s.trim()?JSON.parse(s):{}}catch{};process.stdout.write(JSON.stringify({version:'2',request_id:'hook-'+Date.now(),command:'hook',context:{runtime:" +
         JSON.stringify(runtime) +
         ",cwd:process.cwd()},metadata:{},payload:p}))})";
-      return `node -e ${shellQuote(wrapJs)} | ${tsShellCommand(args.hookScript, ["--json", "@-"])}`;
+      return `node -e ${shellQuote(wrapJs)} | ${tsShellCommand(args.hookScript, ["hook", "--json", "@-"])}`;
     }
     return simpleHookCommand(globalBin, runtime);
   };

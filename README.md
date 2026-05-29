@@ -8,9 +8,9 @@ node index.ts init "loopo: build the app" --cwd "$PWD" --runtime codex --flow sw
 node index.ts quest next --slug build-the-app --json @request.json
 node index.ts quest help
 node index.ts hook --runtime codex
-node index.ts sim start --request "build me a python app" --runtime codex
-node index.ts sim next --repo /tmp/loopo-sim/repo
-node index.ts sim status --repo /tmp/loopo-sim/repo
+node index.ts sim "loopo: build me a python app" --runtime codex --flow swe
+node index.ts sim --repo /tmp/loopo-sim/repo --json @request.json
+node index.ts sim hook --repo /tmp/loopo-sim/repo --runtime codex
 node index.ts doctor --fix
 node index.ts cmdproto execjson init '{"request":"loopo:build-the-app","cwd":"/repo","runtime":"codex"}'
 ```
@@ -34,7 +34,6 @@ stage spec files for the same instructions.
 
 For mocked runtime lifecycle stepping, `loopo sim` supports:
 
-- `start`: create an isolated simulated repo, install simulated hooks, and emit the first real quest step output
-- `next`: execute exactly one simulated hook turn, print the runtime hook output, and stop before any `quest next` callback is submitted
-- `callback`: submit an explicit `quest next` payload through the real lifecycle path while keeping simulator event logs in sync
-- `status`: inspect the current simulated quest stage and pending callback without advancing it
+- `loopo sim "loopo: <request>" --flow swe --runtime codex`: create an isolated simulated repo and emit the first selected-flow step
+- `loopo sim --repo <repo> --json @-`: submit the next step payload and stop at the next selected-flow step
+- `loopo sim hook --repo <repo> --runtime codex --json @-`: explicitly exercise runtime hook passthrough behavior

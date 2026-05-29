@@ -363,11 +363,18 @@ async function invokeSim(params: Record<string, unknown>): Promise<CommandExecut
   const args: string[] = [];
   const mode = stringValue(params.mode);
   if (mode) {
+    if (mode !== "hook") {
+      throw new Error("cmdproto sim mode is only supported for explicit hook passthrough");
+    }
     args.push(mode);
+  } else {
+    const request = stringValue(params.request);
+    if (request) {
+      args.push(request);
+    }
   }
   pushFlag(args, "--repo", params.repo);
   pushFlag(args, "--runtime", params.runtime);
-  pushFlag(args, "--request", params.request);
   pushFlag(args, "--flow", params.flow);
   pushJsonArg(args, params.payload);
   const output = withCapturedOutput(() => runSimCli(args));
