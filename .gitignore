@@ -42,5 +42,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # repo-owned worktrees
 /worktrees/*
 
+# worktree-local agent state
+**/tmp/
+
 # generated cmdproto artifacts
 /assets/cmdproto/*.binpb

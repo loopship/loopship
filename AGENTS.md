@@ -10,21 +10,14 @@
 - One worktree = one coherent task.
 - Remove temporary worktrees and branches after landing.
 - Use per-worktree tool envs (`bin/`, `.venv/`, `.codex-rotate/bin/`).
-- Symlink any new or existing `temp`, `tmp`, `_temp`, `_tmp`, `.tmp`, or `.temp` folders to an OS-reclaimable temp location instead of keeping real directories in the repo.
+- Maintain a real, gitignored `<worktree>/tmp/` agent workspace; before editing, ensure `tmp/tasks.md` and `tmp/plan.md` exist and `git check-ignore tmp/tasks.md tmp/plan.md` passes.
+- Treat `tmp/tasks.md` as the canonical execution ledger for the current worktree; do not land while any item remains incomplete.
+- If `tmp/plan.md` is missing or empty, create or update it before implementation; use Codex Plan mode when available, otherwise write the plan directly.
+- Keep heavy/generated temporary assets outside the repo or inside ignored `tmp/`; never commit `temp`, `tmp`, `_temp`, `_tmp`, `.tmp`, or `.temp` paths.
 - Run relevant tests/builds/checks before landing.
 - **Token discipline:** no user-facing prose unless needed to complete the requested action. Avoid mid-task updates unless blocked or coordination-critical. Act from context; ask only when needed. End with compact `what changed / how / checks` when applicable. Omit logs, diffs, and repeated context unless requested.
 
 <!-- END rules:spec:common -->
-<!-- BEGIN rules:spec:task-ledger -->
-
-# Task Ledger
-
-- If the repo uses a root `tasks.md`, treat it as the canonical execution ledger for the current worktree.
-- For a new worktree, replace `tasks.md` with a concise ordered task list derived from the latest user request before editing.
-- For a continuation, update the same `tasks.md` in place so it reflects the remaining work accurately.
-- Do not land until every item in `tasks.md` is complete and the relevant checks are green.
-
-<!-- END rules:spec:task-ledger -->
 <!-- BEGIN rules:spec:coding -->
 
 # Coding Baseline
