@@ -124,7 +124,7 @@ function compactCurrent(
   return parseJson(proc.stdout);
 }
 
-describe("loopo v3 child slug integration", () => {
+describe("loopo v3 child wtree integration", () => {
   it("documents the v3 command flow in public usage", () => {
     const fixture = createFixture("loopo-v3-help-");
     try {
@@ -476,7 +476,7 @@ describe("loopo v3 child slug integration", () => {
       const serialNext = next(fixture, serialSlug, {
         step: "child_result",
         task_id: "scaffold-and-auth",
-        child_slug: `${serialSlug}-scaffold-and-auth`,
+        child_wtree: `${serialSlug}-scaffold-and-auth`,
         status: "passed",
         evidence: [{ type: "summary", ref: "scaffold.txt" }],
         merge_commit: "serial123",
@@ -520,12 +520,12 @@ describe("loopo v3 child slug integration", () => {
       expectValidSchema(executing, "child-dispatch-output");
       expect(executing.step).toBe("executing");
       expect(executing.state).toBe("task_graph_ready");
-      expect((executing.children as any[])[0].child_slug).toBe(`${slug}-t001`);
+      expect((executing.children as any[])[0].child_wtree).toBe(`${slug}-t001`);
 
       const validating = next(fixture, slug, {
         step: "child_result",
         task_id: "T001",
-        child_slug: `${slug}-t001`,
+        child_wtree: `${slug}-t001`,
         status: "passed",
         evidence: [{ type: "summary", ref: "index.html" }],
         merge_commit: "abc123",
@@ -866,7 +866,7 @@ describe("loopo v3 child slug integration", () => {
           "a-fullstack-app-build-mvp-task-tracker",
         ),
       );
-      expect(childTask.child_slug).toBe("");
+      expect(childTask.child_wtree).toBe("");
       expect(childTask.merge_lease_id).toBe("");
       expect(childTask.system_impact_ref).toBe("");
 
@@ -1057,7 +1057,7 @@ describe("loopo v3 child slug integration", () => {
       const partial = next(fixture, slug, {
         step: "child_result",
         task_id: "t001",
-        child_slug: `${slug}-t001`,
+        child_wtree: `${slug}-t001`,
         status: "passed",
         evidence: [{ type: "summary", ref: "root-fixture.txt" }],
         merge_commit: "partial123",
@@ -1071,7 +1071,7 @@ describe("loopo v3 child slug integration", () => {
       const validating = next(fixture, slug, {
         step: "child_result",
         task_id: "t002",
-        child_slug: `${slug}-t002`,
+        child_wtree: `${slug}-t002`,
         status: "passed",
         evidence: [{ type: "summary", ref: "child-fixture.txt" }],
         merge_commit: "valid123",
@@ -1209,12 +1209,12 @@ describe("loopo v3 child slug integration", () => {
       );
       expect(childInit.status, childInit.stderr || childInit.stdout).toBe(0);
       const childRoute = parseJson(childInit.stdout);
-      expect(String(childRoute.new_quest.suggested_wtree)).toBe(child.child_slug);
+      expect(String(childRoute.new_quest.suggested_wtree)).toBe(child.child_wtree);
       expect(child.commands.init.args).toEqual(
         expect.arrayContaining(["--runtime", "codex"]),
       );
 
-      next(fixture, child.child_slug, childRoute.new_quest.input);
+      next(fixture, child.child_wtree, childRoute.new_quest.input);
 
       const premature = runLoopo(
         fixture.repo,
@@ -1229,7 +1229,7 @@ describe("loopo v3 child slug integration", () => {
         {
           step: "child_result",
           task_id: "t001",
-          child_slug: child.child_slug,
+          child_wtree: child.child_wtree,
           status: "passed",
           merge_commit: "guard123",
           evidence: [{ type: "summary", ref: "guard.txt" }],
@@ -1297,7 +1297,7 @@ describe("loopo v3 child slug integration", () => {
       next(fixture, slug, {
         step: "child_result",
         task_id: "t001",
-        child_slug: `${slug}-t001`,
+        child_wtree: `${slug}-t001`,
         status: "passed",
         merge_commit: "landing123",
         evidence: [{ type: "summary", ref: "done.txt" }],
@@ -1443,7 +1443,7 @@ describe("loopo v3 child slug integration", () => {
         expect(childInit.status, childInit.stderr || childInit.stdout).toBe(0);
         const childRoute = parseJson(childInit.stdout);
         const childSlug = String(childRoute.new_quest.suggested_wtree);
-        expect(childSlug).toBe(String(child.child_slug));
+        expect(childSlug).toBe(String(child.child_wtree));
 
         next(fixture, childSlug, childRoute.new_quest.input);
 
@@ -1538,7 +1538,7 @@ describe("loopo v3 child slug integration", () => {
       next(fixture, slug, {
         step: "child_result",
         task_id: String(children[0].task_id),
-        child_slug: String(children[0].child_slug),
+        child_wtree: String(children[0].child_wtree),
         status: "passed",
         merge_commit: String((alphaArchived as any).landing.landed_commit),
         evidence: [{ type: "summary", ref: "alpha.txt" }],
@@ -1550,7 +1550,7 @@ describe("loopo v3 child slug integration", () => {
       const validating = next(fixture, slug, {
         step: "child_result",
         task_id: String(children[1].task_id),
-        child_slug: String(children[1].child_slug),
+        child_wtree: String(children[1].child_wtree),
         status: "passed",
         merge_commit: String((betaArchived as any).landing.landed_commit),
         evidence: [{ type: "summary", ref: "beta.txt" }],

@@ -38,10 +38,10 @@ loopo init "{request}" --runtime <runtime>
   `.loopo/docs/low-level-design.yaml`, `.loopo/docs/architecture.yaml`,
   `.loopo/docs/system-behaviours.yaml`, and `.loopo/docs/design-system.yaml`
 - Root manifest: `.loopo/manifest.sign.json`
-- Quest state: `.loopo/quests/{slug}/tasks.yaml`,
-  `.loopo/quests/{slug}/plan.yaml`, JSONL sidecars,
-  `.loopo/quests/{slug}/children/*.yaml`, and
-  `.loopo/quests/{slug}/manifest.sign.json`
+- Quest state: `.loopo/quests/{wtree}/tasks.yaml`,
+  `.loopo/quests/{wtree}/plan.yaml`, JSONL sidecars,
+  `.loopo/quests/{wtree}/children/*.yaml`, and
+  `.loopo/quests/{wtree}/manifest.sign.json`
 - Runtime state: `.loopo/hook-state.json` and `.loopo/hook-events.jsonl`
 - `tasks.yaml` is authoritative for root quest stage and task state.
 - `plan.yaml` is authoritative for the current plan.
@@ -100,7 +100,7 @@ planning -> awaiting_user_answers -> plan_review -> task_graph_ready -> validati
 
 - Minimal task fields are `id`, `title`, `type`, `status`, `acceptance`,
   `dependencies`, `scope_files`, `spec_refs`, `context_refs`, `branch_ref`,
-  `worktree_path`, `child_slug`, `concurrency_group`, `merge_target`,
+  `worktree_path`, `child_wtree`, `concurrency_group`, `merge_target`,
   `merge_lease_id`, `merge_commit`, and `system_impact_ref`.
 - Parallel execution is allowed only when dependencies are satisfied,
   `scope_files` are disjoint, `concurrency_group` does not conflict, and merge
@@ -122,12 +122,12 @@ planning -> awaiting_user_answers -> plan_review -> task_graph_ready -> validati
 - Hook quest selection uses an explicit `--wtree`, payload `wtree`,
   payload `loopo_wtree`, or a cwd inside `<repo>/worktrees/<name>`. Repo-root
   hooks and missing, ambiguous, invalid, or conflicting selector signals no-op.
-- Archived quests under `.loopo/archieve/{slug}` use the historical directory
+- Archived quests under `.loopo/archieve/{wtree}` use the historical directory
   spelling and are inactive; they must not trigger continuation.
 - Decision source priority:
-  1. canonical V3 stage in `.loopo/quests/{slug}/tasks.yaml`
-  2. latest V3 event in `.loopo/quests/{slug}/handoffs.jsonl`
-  3. child slug state under `.loopo/quests/{slug}/children/*.yaml`
+  1. canonical V3 stage in `.loopo/quests/{wtree}/tasks.yaml`
+  2. latest V3 event in `.loopo/quests/{wtree}/handoffs.jsonl`
+  3. child wtree state under `.loopo/quests/{wtree}/children/*.yaml`
 - Continue only when the latest `stop_reason` is exactly `none`.
 - Continue as an automatic drain chain across hook-triggered turns until a
   terminal handoff appears, all work is stalled, or continuation budget is
@@ -185,10 +185,10 @@ Generated runtime files include:
 - `.loopo/system.yaml`
 - `.loopo/docs/*.yaml`
 - `.loopo/manifest.sign.json`
-- `.loopo/quests/{slug}/tasks.yaml`
-- `.loopo/quests/{slug}/plan.yaml`
-- `.loopo/quests/{slug}/children/*.yaml`
-- `.loopo/quests/{slug}/manifest.sign.json`
+- `.loopo/quests/{wtree}/tasks.yaml`
+- `.loopo/quests/{wtree}/plan.yaml`
+- `.loopo/quests/{wtree}/children/*.yaml`
+- `.loopo/quests/{wtree}/manifest.sign.json`
 
 Core verification commands:
 

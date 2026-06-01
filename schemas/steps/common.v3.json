@@ -142,7 +142,7 @@
         "context": { "$ref": "#/$defs/string_array" },
         "branch_ref": { "type": "string" },
         "worktree_path": { "type": "string" },
-        "child_slug": { "type": "string" },
+        "child_wtree": { "type": "string" },
         "concurrency_group": { "type": "string" },
         "merge_target": { "type": "string" },
         "merge_lease_id": { "type": "string" },
@@ -237,7 +237,7 @@
       "required": [
         "task_id",
         "title",
-        "child_slug",
+        "child_wtree",
         "branch_ref",
         "worktree_path",
         "acceptance",
@@ -247,7 +247,7 @@
       "properties": {
         "task_id": { "type": "string" },
         "title": { "type": "string" },
-        "child_slug": { "type": "string" },
+        "child_wtree": { "type": "string" },
         "branch_ref": { "type": "string" },
         "worktree_path": { "type": "string" },
         "acceptance": { "type": "string" },

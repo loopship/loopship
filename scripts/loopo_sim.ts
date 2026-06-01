@@ -49,7 +49,7 @@ type QuestLikeState = Partial<{
     status: string;
     dependencies: string[];
     scope_files: string[];
-    child_slug: string;
+    child_wtree: string;
     acceptance: string;
   }>;
 }>;

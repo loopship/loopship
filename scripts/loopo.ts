@@ -79,7 +79,7 @@ import { runSimCli } from "./loopo_sim.ts";
 type Command = "init" | "doctor" | "quest" | "hook" | "sim" | "cmdproto";
 
 type ParentQuestAssignment = {
-  parent_quest_slug: string;
+  parent_wtree: string;
   task_id: string;
   landing_target_branch: string;
   landing_target_worktree: string;
@@ -754,13 +754,13 @@ function findParentQuestAssignment(
       : [];
     const matched = parentTasks.find(
       (task) =>
-        String(task.child_slug ?? "").trim() === childSlug ||
+        String(task.child_wtree ?? "").trim() === childSlug ||
         taskAssignmentChildSlug(parentSlug, String(task.id)) === childSlug ||
         `${parentSlug}-${task.id}` === childSlug,
     );
     if (!matched) continue;
     return {
-      parent_quest_slug: parentSlug,
+      parent_wtree: parentSlug,
       task_id: matched.id,
       landing_target_branch: String(
         matched.merge_target || parentQuest?.state.coordinator_branch || "main",
@@ -1023,7 +1023,7 @@ function readyChildrenForV3(
   const runtime = inferRepoRuntime(repoRoot);
   return readyChildTasks(state).map((task) => {
     const childSlug =
-      String(task.child_slug || "").trim() ||
+      String(task.child_wtree || "").trim() ||
       taskAssignmentChildSlug(slug, String(task.id));
     const workspace = ensureTaskWorkspace(
       repoRoot,
@@ -1037,7 +1037,7 @@ function readyChildrenForV3(
     return {
       task_id: task.id,
       title: task.title,
-      child_slug: childSlug,
+      child_wtree: childSlug,
       branch_ref: workspace.branch_ref,
       worktree_path: workspace.worktree_path,
       acceptance: task.acceptance,
@@ -1541,7 +1541,7 @@ function resolveQuestLandingContext(input: {
   landingTargetBranch: string;
   landingTargetWorktree: string;
 } {
-  const parentQuestSlug = String(input.state.parent_quest_slug ?? "").trim();
+  const parentQuestSlug = String(input.state.parent_wtree ?? "").trim();
   const landingTargetBranch = String(
     input.state.landing_target_branch ?? "",
   ).trim();
@@ -1561,7 +1561,7 @@ function resolveQuestLandingContext(input: {
     const parent = findParentQuestAssignment(input.repoRoot, input.slug);
     if (parent) {
       return {
-        parentQuestSlug: parent.parent_quest_slug,
+        parentQuestSlug: parent.parent_wtree,
         landingTargetBranch: parent.landing_target_branch,
         landingTargetWorktree: parent.landing_target_worktree,
       };
@@ -1632,7 +1632,7 @@ function handleChildResult(input: {
   payload: Record<string, any>;
   requestId: string;
 }): Partial<{ [key: string]: any }> {
-  for (const key of ["task_id", "child_slug", "status", "evidence"]) {
+  for (const key of ["task_id", "child_wtree", "status", "evidence"]) {
     if (input.payload[key] == null) {
       throw new Error(`child_result missing required field: ${key}`);
     }
@@ -1657,29 +1657,29 @@ function handleChildResult(input: {
       `child_result cannot update already completed task: ${task.id}`,
     );
   }
-  const payloadChildSlug = String(input.payload.child_slug ?? "").trim();
-  if (task.child_slug.trim() && payloadChildSlug !== task.child_slug.trim()) {
+  const payloadChildSlug = String(input.payload.child_wtree ?? "").trim();
+  if (task.child_wtree.trim() && payloadChildSlug !== task.child_wtree.trim()) {
     throw new Error(
-      `child_result child_slug must match planned child slug ${task.child_slug}`,
+      `child_result child_wtree must match planned child wtree ${task.child_wtree}`,
     );
   }
   if (status === "passed") {
-    const childQuest = task.child_slug.trim()
-      ? questBySlug(input.repoRoot, task.child_slug.trim())
+    const childQuest = task.child_wtree.trim()
+      ? questBySlug(input.repoRoot, task.child_wtree.trim())
       : null;
     if (childQuest) {
       const childStage = String(childQuest.state.stage ?? "");
       if (childStage !== "archived") {
         throw new Error(
-          `child_result cannot pass until child quest ${task.child_slug} is archived; current stage=${childStage || "unknown"}`,
+          `child_result cannot pass until child quest ${task.child_wtree} is archived; current stage=${childStage || "unknown"}`,
         );
       }
     }
   }
   const taskUpdate = {
     id: String(input.payload.task_id),
-    child_slug: String(input.payload.child_slug),
-    branch_ref: String(input.payload.branch_ref ?? input.payload.child_slug),
+    child_wtree: String(input.payload.child_wtree),
+    branch_ref: String(input.payload.branch_ref ?? input.payload.child_wtree),
     worktree_path: String(input.payload.worktree_path ?? ""),
     merge_target: input.files.slug,
     merge_lease_id: String(
@@ -1813,14 +1813,14 @@ function handleLanding(input: {
     }
     const unresolvedChildren = tasks.filter((task) => {
       if (!CHILD_DONE_STATUSES.has(task.status)) return false;
-      const slug = String(task.child_slug ?? "").trim();
+      const slug = String(task.child_wtree ?? "").trim();
       if (!slug) return false;
       const childQuest = questBySlug(input.repoRoot, slug);
       return childQuest != null && String(childQuest.state.stage ?? "") !== "archived";
     });
     if (unresolvedChildren.length) {
       throw new Error(
-        `cannot land while child quests are unresolved: ${unresolvedChildren.map((task) => task.child_slug).join(", ")}`,
+        `cannot land while child quests are unresolved: ${unresolvedChildren.map((task) => task.child_wtree).join(", ")}`,
       );
     }
     const dirtyCoordinatorEntries = relevantGitDirtyEntries(
@@ -1859,7 +1859,7 @@ function handleLanding(input: {
       landingContext.landingTargetWorktree,
     );
     applyLandingReceipt(input.files, currentState, {
-      parent_quest_slug: landingContext.parentQuestSlug,
+      parent_wtree: landingContext.parentQuestSlug,
       landing_target_branch: landingReceipt.target_branch,
       landing_target_worktree: landingReceipt.target_worktree,
       landed_commit: landingReceipt.landed_commit,
@@ -2103,7 +2103,7 @@ function createV3Quest(input: {
     workspace,
     flowId: flow.id,
     flowVersion: flow.version,
-    parentQuestSlug: parentAssignment?.parent_quest_slug ?? "",
+    parentQuestSlug: parentAssignment?.parent_wtree ?? "",
     landingTargetBranch,
     landingTargetWorktree,
   });

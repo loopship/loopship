@@ -38,6 +38,34 @@ function parseJson(text: string): Record<string, any> {
   }
 }
 
+function assertHookNoop(label: string, hook: ReturnType<typeof runLoopo>): void {
+  if (hook.status !== 0) fail(hook.stderr || hook.stdout);
+  if (hook.stdout.trim() !== "{}") {
+    fail(`${label} must emit an empty object: ${hook.stdout}`);
+  }
+}
+
+function assertHookContinuation(
+  label: string,
+  hook: ReturnType<typeof runLoopo>,
+): Record<string, any> {
+  if (hook.status !== 0) fail(hook.stderr || hook.stdout);
+  const parsed = parseJson(hook.stdout);
+  const reason = parseJson(String(parsed.reason ?? ""));
+  const step =
+    typeof reason.step === "string"
+      ? reason.step
+      : String(reason.step?.id ?? "");
+  if (
+    parsed.decision !== "block" ||
+    reason.command !== "quest.next" ||
+    step !== "plan"
+  ) {
+    fail(`${label} must wrap quest next output: ${hook.stdout}`);
+  }
+  return { parsed, reason };
+}
+
 function collectHookCommands(
   value: unknown,
   commands: string[] = [],
@@ -121,6 +149,18 @@ function main(): number {
       },
     );
     if (create.status !== 0) fail(create.stderr || create.stdout);
+    const otherWtree = "hook-check-other";
+    const createOther = runLoopo(
+      repo,
+      ["quest", "next", "--wtree", otherWtree, "--json", "@-"],
+      {
+        step: "select_quest",
+        action: "create_quest",
+        wtree: otherWtree,
+        request: "loopo: other hook check",
+      },
+    );
+    if (createOther.status !== 0) fail(createOther.stderr || createOther.stdout);
 
     assertSimpleHookConfig(
       ".codex/hooks.json",
@@ -140,24 +180,45 @@ function main(): number {
       "copilot",
     );
 
+    assertHookNoop(
+      "repo-root hook with multiple quests",
+      runLoopo(repo, ["hook", "--runtime", "codex"], {
+        cwd: repo,
+        hook_event_name: "RootStop",
+      }),
+    );
+
+    const matching = assertHookContinuation(
+      "explicit wtree plus matching cwd hook",
+      runLoopo(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
+        cwd: join(repo, "worktrees", wtree),
+        hook_event_name: "ExplicitMatchStop",
+      }),
+    );
+    if (matching.reason.wtree) {
+      fail(`compact hook reason must omit full wtree metadata: ${JSON.stringify(matching.reason)}`);
+    }
+
+    assertHookNoop(
+      "explicit wtree plus conflicting cwd hook",
+      runLoopo(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
+        cwd: join(repo, "worktrees", otherWtree),
+        hook_event_name: "ExplicitConflictStop",
+      }),
+    );
+
+    assertHookNoop(
+      "missing selector hook",
+      runLoopo(repo, ["hook", "--runtime", "codex", "--repo", repo], {
+        hook_event_name: "MissingSelectorStop",
+      }),
+    );
+
     const hook = runLoopo(repo, ["hook", "--runtime", "codex"], {
       cwd: join(repo, "worktrees", wtree),
       hook_event_name: "Stop",
     });
-    if (hook.status !== 0) fail(hook.stderr || hook.stdout);
-    const parsed = parseJson(hook.stdout);
-    const reason = parseJson(String(parsed.reason ?? ""));
-    const step =
-      typeof reason.step === "string"
-        ? reason.step
-        : String(reason.step?.id ?? "");
-    if (
-      parsed.decision !== "block" ||
-      reason.command !== "quest.next" ||
-      step !== "plan"
-    ) {
-      fail(`hook must wrap quest next output: ${hook.stdout}`);
-    }
+    const { reason } = assertHookContinuation("cwd-derived hook", hook);
     if (
       "schema_version" in reason ||
       "kind" in reason ||

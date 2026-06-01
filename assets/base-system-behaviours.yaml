@@ -111,7 +111,7 @@ behaviours:
   - id: init-route-output
     statement: >-
       loopo init with an objective ensures runtime scaffolding, ranks candidate
-      quests, suggests a slug, and returns an init_route containing a
+      quests, suggests a wtree, and returns an init_route containing a
       select_quest create_quest payload instead of directly creating the quest.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
@@ -157,8 +157,8 @@ behaviours:
 
   - id: coordinator-workspace
     statement: >-
-      Coordinator workspaces live at worktrees/<slug>; Loopo reuses an existing
-      worktree by path or branch, creates a branch named after the slug from
+      Coordinator workspaces live at worktrees/<wtree>; Loopo reuses an existing
+      worktree by path or branch, creates a branch named after the wtree from
       HEAD when possible, creates a plain directory when no Git commit exists,
       and refuses a non-empty unmanaged target path.
     test_refs:
@@ -166,9 +166,9 @@ behaviours:
     source_refs:
       - scripts/loopo_core.ts
 
-  - id: slug-locking
+  - id: wtree-locking
     statement: >-
-      loopo quest next serializes mutations per slug with .loopo/locks, returns
+      loopo quest next serializes mutations per wtree with .loopo/locks, returns
       a lock_error response containing retry details when a live owner exists,
       reaps stale locks, and releases owned locks best effort after handling.
     test_refs:
@@ -261,10 +261,9 @@ behaviours:
 
   - id: step-output-shape
     statement: >-
-      Quest step output is compact by default and includes slug, flow id,
-      flow version, state, current step context, next command, transitions, and
-      a note to request --full; --full adds schema paths, schemas, docs, help,
-      summaries, and allowed transitions.
+      Quest step output is compact by default and includes wtree, current step
+      context, next command, and a callback schema; --full adds flow metadata,
+      schema paths, docs, summaries, and allowed transitions.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
       - scripts/verify_flow_schema.test.ts
@@ -334,7 +333,7 @@ behaviours:
   - id: questions-answer-round
     statement: >-
       The questions step requires an answers array, appends an answers event to
-      questions.jsonl, preserves the quest slug, and returns the quest to
+      questions.jsonl, preserves the quest wtree, and returns the quest to
       planning.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
@@ -356,8 +355,8 @@ behaviours:
 
   - id: task-normalization-defaults
     statement: >-
-      Planned tasks are normalized by slugifying ids and defaulting type,
-      child status, branch ref, worktree path, child slug, merge target,
+      Planned tasks are normalized by filesystem-safe ids and defaulting type,
+      child status, branch ref, worktree path, child wtree, merge target,
       merge lease id, system impact ref, acceptance, and list fields when
       the plan omits them.
     test_refs:
@@ -418,8 +417,8 @@ behaviours:
   - id: child-dispatch-output
     statement: >-
       Executing output emits one ready child command per selected task, with
-      child_slug <parent-slug>-<task-id>, loopo init and quest next commands,
-      init forced to that child slug and flow id, cwd set to the task worktree
+      child_wtree <parent-wtree>-<task-id>, loopo init and quest next commands,
+      init forced to that child wtree and flow id, cwd set to the task worktree
       or repo root, runtime all, and result schema child-result-input.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
@@ -430,7 +429,7 @@ behaviours:
 
   - id: child-result-required-fields
     statement: >-
-      child_result input requires task_id, child_slug, status, and evidence;
+      child_result input requires task_id, child_wtree, status, and evidence;
       missing any required field returns a V3 error without advancing the
       lifecycle.
     test_refs:
@@ -444,7 +443,7 @@ behaviours:
     statement: >-
       A passed child_result marks the task child_archived, a blocked result
       marks it blocked, and any other non-passed status marks it failed while
-      preserving child slug, branch, worktree, merge target, merge lease, and
+      preserving child wtree, branch, worktree, merge target, merge lease, and
       merge commit details.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
@@ -542,7 +541,7 @@ behaviours:
     statement: >-
       System updates to system-behaviours render explicit behaviours when
       provided, otherwise use the update summary as a behaviour statement,
-      slugify behaviour ids, and carry test_refs from update test_refs or refs.
+      normalize behaviour ids, and carry test_refs from update test_refs or refs.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
     source_refs:
@@ -588,7 +587,7 @@ behaviours:
 
   - id: canonical-ledger-detection
     statement: >-
-      Canonical quest state lives at `.loopo/quests/<slug>/tasks.yaml`; Loopo
+      Canonical quest state lives at `.loopo/quests/<wtree>/tasks.yaml`; Loopo
       does not read alternate markdown ledgers.
     test_refs:
       - scripts/verify_coherency.ts
@@ -599,8 +598,8 @@ behaviours:
   - id: explicit-wtree-resolution
     statement: >-
       Quest continuation requires an explicit base worktree selector from
-      --wtree or payload wtree; Loopo does not use active-session pointers or
-      .loopo/state.json for continuation.
+      --wtree or payload wtree; Loopo does not use active-session pointers for
+      continuation.
     test_refs:
       - scripts/verify_child_agent_integration.test.ts
       - scripts/verify_runtime_hooks.ts
@@ -633,7 +632,7 @@ behaviours:
   - id: hook-snapshot-duplicate-suppression
     statement: >-
       Hook duplicate suppression keys include runtime, hook event name,
-      context root, active quest slug, latest iteration, and a fingerprint of
+      context root, active quest wtree, latest iteration, and a fingerprint of
       tasks, plan, sidecars, and child files; duplicate same-state events emit
       no continuation.
     test_refs:

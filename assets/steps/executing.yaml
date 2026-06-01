@@ -4,7 +4,7 @@ handler: child_result
 input_step: child_result
 input_schema: child-result-input
 output_schema: child-dispatch-output
-summary: Start the ready child slug commands and submit child_result payloads as children finish.
+summary: Start the ready child wtree commands and submit child_result payloads as children finish.
 instructions: |-
   # Loopo Executing Step
 
@@ -13,14 +13,14 @@ instructions: |-
   the default.
 
   Each dispatched task gets one dedicated child CLI agent session, one child
-  quest slug, one child worktree, and no hidden task split.
+  quest wtree, one child worktree, and no hidden task split.
 
   Launch the emitted `children[].commands.init` command in a separate CLI agent
   session for that child. The root session stays coordinator-only: dispatch,
   monitor, and reconcile results, but do not impersonate child execution by
   doing the child's implementation work inline in the parent session.
 
-  Preserve the emitted child slug/worktree boundaries, and submit
+  Preserve the emitted child wtree/worktree boundaries, and submit
   `child_result` back to the parent only after the child quest reaches a
   terminal child state.
 

@@ -1,7 +1,7 @@
 interface:
   display_name: Loopo
-  short_description: V3 slug-based deterministic workflow launcher
-  default_prompt: 'For `loopo:` requests, call `loopo init "{request}" --cwd <cwd> --runtime <runtime>` and follow the compact JSON step output. Submit step results only with `loopo quest next --slug <slug> --json @-`; never edit `.loopo/**` directly.'
+  short_description: V3 worktree-based deterministic workflow launcher
+  default_prompt: 'For `loopo:` requests, call `loopo init "{request}" --runtime <runtime>` from the repo root and follow the compact JSON step output. Submit step results only with `loopo quest next --wtree <name> --json @-`; never edit `.loopo/**` directly.'
 
 policy:
   allow_implicit_invocation: true

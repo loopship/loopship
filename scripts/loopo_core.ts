@@ -5,10 +5,8 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
-  utimesSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import {
@@ -26,7 +24,6 @@ import {
 export const LOOPO_DIR = ".loopo";
 export const LOOPO_QUESTS_DIR = join(LOOPO_DIR, "quests");
 export const LOOPO_ARCHIEVE_DIR = join(LOOPO_DIR, "archieve");
-export const LOOPO_STATE_FILE = join(LOOPO_DIR, "state.json");
 export const LOOPO_SYSTEM_FILE = join(LOOPO_DIR, "system.yaml");
 export const LOOPO_DOCS_DIR = join(LOOPO_DIR, "docs");
 export const LOOPO_ROOT_MANIFEST_FILE = join(LOOPO_DIR, "manifest.sign.json");
@@ -39,37 +36,9 @@ export const LOOPO_HOOK_EVENT_FILE = join(LOOPO_DIR, "hook-events.jsonl");
 export const LOOPO_BIN_FILE = join(LOOPO_DIR, "bin", "loopo");
 export const LOOPO_GLOBAL_BIN_ENV = "LOOPO_GLOBAL_BIN";
 export const LOOPO_SCRIPT_ENV = "LOOPO_SCRIPT";
-export const STORAGE_VERSION = 1;
 export const CANONICAL_QUEST_RE =
   /(?:^|[\\/])\.loopo[\\/]quests[\\/][^\\/]+[\\/]tasks\.yaml$/i;
 const STALL_STATUSES = new Set(["blocked", "deferred", "failed"]);
-
-type QuestRegistryItem = {
-  slug: string;
-  tasks_path: string;
-  evidence_path: string;
-  handoffs_path: string;
-  branch_ref?: string | null;
-  worktree_path?: string | null;
-  managed_hashes: Record<string, string>;
-  updated_at: string;
-};
-
-export type LoopoReceipt = {
-  receipt_id: string;
-  request_id: string;
-  quest_slug: string | null;
-  timestamp: string;
-  mutated_files: string[];
-  managed_hashes: Record<string, string>;
-};
-
-export type LoopoState = {
-  storage_version: number;
-  active_quest_slug: string | null;
-  quests: Record<string, QuestRegistryItem>;
-  receipts: LoopoReceipt[];
-};
 
 export type QuestFiles = {
   slug: string;
@@ -98,7 +67,8 @@ export type QuestTask = {
   context_refs: string[];
   branch_ref: string;
   worktree_path: string;
-  child_slug: string;
+  child_wtree: string;
+  child_slug?: string;
   concurrency_group: string;
   merge_target: string;
   merge_lease_id: string;
@@ -110,7 +80,8 @@ export type QuestTask = {
 
 export type QuestState = {
   schema_version: 3;
-  slug: string;
+  wtree: string;
+  slug?: string;
   quest_id: string;
   flow_id: string;
   flow_version: number;
@@ -120,7 +91,8 @@ export type QuestState = {
   resolution_source: string;
   coordinator_branch: string;
   coordinator_worktree: string;
-  parent_quest_slug: string;
+  parent_wtree: string;
+  parent_quest_slug?: string;
   landing_target_branch: string;
   landing_target_worktree: string;
   landed_commit: string;
@@ -134,11 +106,6 @@ export type QuestWorkspace = {
   branch_ref: string;
   worktree_path: string;
   mode: "git" | "directory";
-};
-
-export type QuestArchiveResult = {
-  archived_slug: string | null;
-  archived_path: string | null;
 };
 
 export type StrayIterationReport = {
@@ -1275,10 +1242,11 @@ export function ensureGlobalSkillFiles(skillRoot?: string | null): string {
 }
 
 export function renderTasksYaml(state: QuestState): string {
+  const wtree = String(state.wtree ?? state.slug ?? "");
   const lines = [
     "schema_version: 3",
-    `slug: ${yamlScalar(state.slug)}`,
-    `quest_id: ${yamlScalar(state.quest_id || state.slug)}`,
+    `wtree: ${yamlScalar(wtree)}`,
+    `quest_id: ${yamlScalar(state.quest_id || wtree)}`,
     `flow_id: ${yamlScalar(state.flow_id || "swe")}`,
     `flow_version: ${Number.isInteger(state.flow_version) ? state.flow_version : 1}`,
     `stage: ${yamlScalar(state.stage)}`,
@@ -1287,7 +1255,7 @@ export function renderTasksYaml(state: QuestState): string {
     `resolution_source: ${yamlScalar(state.resolution_source)}`,
     `coordinator_branch: ${yamlScalar(state.coordinator_branch)}`,
     `coordinator_worktree: ${yamlScalar(state.coordinator_worktree)}`,
-    `parent_quest_slug: ${yamlScalar(state.parent_quest_slug)}`,
+    `parent_wtree: ${yamlScalar(state.parent_wtree)}`,
     `landing_target_branch: ${yamlScalar(state.landing_target_branch)}`,
     `landing_target_worktree: ${yamlScalar(state.landing_target_worktree)}`,
     `landed_commit: ${yamlScalar(state.landed_commit)}`,
@@ -1310,7 +1278,7 @@ export function renderTasksYaml(state: QuestState): string {
       lines.push(`    context_refs: ${yamlStringList(task.context_refs)}`);
       lines.push(`    branch_ref: ${yamlScalar(task.branch_ref)}`);
       lines.push(`    worktree_path: ${yamlScalar(task.worktree_path)}`);
-      lines.push(`    child_slug: ${yamlScalar(task.child_slug)}`);
+      lines.push(`    child_wtree: ${yamlScalar(task.child_wtree)}`);
       lines.push(
         `    concurrency_group: ${yamlScalar(task.concurrency_group)}`,
       );
@@ -1365,7 +1333,7 @@ function emptyQuestTask(id: string): QuestTask {
     context_refs: [],
     branch_ref: "",
     worktree_path: "",
-    child_slug: "",
+    child_wtree: "",
     concurrency_group: "",
     merge_target: "",
     merge_lease_id: "",
@@ -1382,11 +1350,20 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
   for (const line of compactLines(text).split("\n")) {
     const match = line.match(/^([a-z_]+):\s*(.*)$/);
     if (match) {
-      const key = match[1] as keyof QuestState;
+      const rawKey = match[1];
+      const key = rawKey as keyof QuestState;
       const value = parseYamlScalar(match[2] ?? "");
+      if (rawKey === "slug") {
+        if (!result.wtree) result.wtree = value;
+        continue;
+      }
+      if (rawKey === "parent_quest_slug") {
+        if (!result.parent_wtree) result.parent_wtree = value;
+        continue;
+      }
       if (
         [
-          "slug",
+          "wtree",
           "quest_id",
           "flow_id",
           "stage",
@@ -1395,7 +1372,7 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
           "resolution_source",
           "coordinator_branch",
           "coordinator_worktree",
-          "parent_quest_slug",
+          "parent_wtree",
           "landing_target_branch",
           "landing_target_worktree",
           "landed_commit",
@@ -1422,8 +1399,13 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
     }
     const taskField = line.match(/^\s{4}([a-z_]+):\s*(.*)$/);
     if (taskField && currentTask) {
-      const key = taskField[1] as keyof QuestTask;
+      const rawKey = taskField[1];
+      const key = rawKey as keyof QuestTask;
       const raw = taskField[2] ?? "";
+      if (rawKey === "child_slug") {
+        currentTask.child_wtree ||= parseYamlScalar(raw);
+        continue;
+      }
       if (
         ["dependencies", "scope_files", "spec_refs", "context_refs"].includes(
           key,
@@ -1440,10 +1422,11 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
     }
   }
   if (tasks.length) result.tasks = tasks;
-  if (!result.quest_id && result.slug) result.quest_id = result.slug;
+  if (!result.wtree && result.slug) result.wtree = result.slug;
+  if (!result.quest_id && result.wtree) result.quest_id = result.wtree;
   if (!result.flow_id) result.flow_id = "swe";
   if (!result.flow_version) result.flow_version = 1;
-  if (!result.parent_quest_slug) result.parent_quest_slug = "";
+  if (!result.parent_wtree) result.parent_wtree = "";
   if (!result.landing_target_branch) result.landing_target_branch = "main";
   if (!result.landing_target_worktree) result.landing_target_worktree = "";
   if (!result.landed_commit) result.landed_commit = "";
@@ -1568,7 +1551,7 @@ function normalizePlanTask(
   input: Record<string, unknown>,
   index: number,
 ): QuestTask {
-  const slug = String(state.slug ?? "quest");
+  const slug = String(state.wtree ?? state.slug ?? "quest");
   const rawId = String(input.id ?? input.task_id ?? `task-${index + 1}`);
   const id = slugify(rawId);
   const contextRoot = String(state.context_root ?? ".");
@@ -1601,8 +1584,10 @@ function normalizePlanTask(
           ? coordinatorWorktree
           : taskAssignmentWorktreePath(contextRoot, slug, id)),
     ),
-    child_slug: String(
-      input.child_slug ?? (leafChild ? "" : taskAssignmentChildSlug(slug, id)),
+    child_wtree: String(
+      input.child_wtree ??
+        input.child_slug ??
+        (leafChild ? "" : taskAssignmentChildSlug(slug, id)),
     ),
     concurrency_group: String(input.concurrency_group ?? ""),
     merge_target: String(input.merge_target ?? coordinatorBranch),
@@ -1631,7 +1616,7 @@ export function applyQuestPlanToTasks(
     : [];
   const nextState: QuestState = {
     schema_version: 3,
-    slug: files.slug,
+    wtree: files.slug,
     quest_id: String(state.quest_id ?? files.slug),
     flow_id: String(state.flow_id ?? "swe"),
     flow_version: Number(state.flow_version ?? 1),
@@ -1641,7 +1626,7 @@ export function applyQuestPlanToTasks(
     resolution_source: String(state.resolution_source ?? ""),
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
-    parent_quest_slug: String(state.parent_quest_slug ?? ""),
+    parent_wtree: String(state.parent_wtree ?? ""),
     landing_target_branch: String(state.landing_target_branch ?? "main"),
     landing_target_worktree: String(state.landing_target_worktree ?? ""),
     landed_commit: String(state.landed_commit ?? ""),
@@ -1657,7 +1642,7 @@ export function applyQuestPlanToTasks(
 }
 
 export function renderPlanYaml(input: {
-  slug: string;
+  wtree: string;
   questId: string;
   prompt: string;
   plan?: Record<string, unknown> | null;
@@ -1668,7 +1653,7 @@ export function renderPlanYaml(input: {
     : [];
   const lines = [
     "schema_version: 3",
-    `slug: ${yamlScalar(input.slug)}`,
+    `wtree: ${yamlScalar(input.wtree)}`,
     `quest_id: ${yamlScalar(input.questId)}`,
     `prompt: ${yamlScalar(input.prompt)}`,
     `summary: ${yamlScalar(summary)}`,
@@ -1712,7 +1697,7 @@ export function writeQuestPlan(
   writeText(
     files.plan,
     renderPlanYaml({
-      slug: files.slug,
+      wtree: files.slug,
       questId: String(state.quest_id ?? files.slug),
       prompt: String(state.prompt ?? ""),
       plan,
@@ -1733,7 +1718,7 @@ export function applyChildStatusToTasks(
   const taskId = slugify(update.id);
   const nextState: QuestState = {
     schema_version: 3,
-    slug: files.slug,
+    wtree: files.slug,
     quest_id: String(state.quest_id ?? files.slug),
     flow_id: String(state.flow_id ?? "swe"),
     flow_version: Number(state.flow_version ?? 1),
@@ -1743,7 +1728,7 @@ export function applyChildStatusToTasks(
     resolution_source: String(state.resolution_source ?? ""),
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
-    parent_quest_slug: String(state.parent_quest_slug ?? ""),
+    parent_wtree: String(state.parent_wtree ?? ""),
     landing_target_branch: String(state.landing_target_branch ?? "main"),
     landing_target_worktree: String(state.landing_target_worktree ?? ""),
     landed_commit: String(state.landed_commit ?? ""),
@@ -1755,7 +1740,10 @@ export function applyChildStatusToTasks(
       return {
         ...task,
         status: update.status,
-        child_slug: childTaskValue(update.child_slug, task.child_slug),
+        child_wtree: childTaskValue(
+          update.child_wtree ?? update.child_slug,
+          task.child_wtree ?? task.child_slug ?? "",
+        ),
         branch_ref: childTaskValue(update.branch_ref, task.branch_ref),
         worktree_path: childTaskValue(update.worktree_path, task.worktree_path),
         merge_target: childTaskValue(update.merge_target, task.merge_target),
@@ -1788,7 +1776,7 @@ export function applyLandingReceipt(
   receipt: Partial<
     Pick<
       QuestState,
-      | "parent_quest_slug"
+      | "parent_wtree"
       | "landing_target_branch"
       | "landing_target_worktree"
       | "landed_commit"
@@ -1798,7 +1786,7 @@ export function applyLandingReceipt(
 ): QuestState {
   const nextState: QuestState = {
     schema_version: 3,
-    slug: files.slug,
+    wtree: files.slug,
     quest_id: String(state.quest_id ?? files.slug),
     flow_id: String(state.flow_id ?? "swe"),
     flow_version: Number(state.flow_version ?? 1),
@@ -1808,8 +1796,8 @@ export function applyLandingReceipt(
     resolution_source: String(state.resolution_source ?? ""),
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
-    parent_quest_slug: String(
-      receipt.parent_quest_slug ?? state.parent_quest_slug ?? "",
+    parent_wtree: String(
+      receipt.parent_wtree ?? state.parent_wtree ?? "",
     ),
     landing_target_branch: String(
       receipt.landing_target_branch ?? state.landing_target_branch ?? "main",
@@ -1849,7 +1837,7 @@ export function createQuest(input: {
   }
   const state: QuestState = {
     schema_version: 3,
-    slug: input.slug,
+    wtree: input.slug,
     quest_id: input.slug,
     flow_id: input.flowId ?? "swe",
     flow_version: input.flowVersion ?? 1,
@@ -1859,7 +1847,7 @@ export function createQuest(input: {
     resolution_source: input.resolutionSource,
     coordinator_branch: input.workspace.branch_ref,
     coordinator_worktree: input.workspace.worktree_path,
-    parent_quest_slug: String(input.parentQuestSlug ?? ""),
+    parent_wtree: String(input.parentQuestSlug ?? ""),
     landing_target_branch: String(input.landingTargetBranch ?? "main"),
     landing_target_worktree: String(input.landingTargetWorktree ?? ""),
     landed_commit: String(input.landedCommit ?? ""),
@@ -1872,7 +1860,7 @@ export function createQuest(input: {
   writeText(
     files.plan,
     renderPlanYaml({
-      slug: input.slug,
+      wtree: input.slug,
       questId: input.slug,
       prompt: input.prompt,
       plan: null,
@@ -1951,72 +1939,6 @@ export function extractSlugFromTasksPath(path: string): string | null {
     /(?:^|\/)\.loopo\/quests\/([a-z0-9]+(?:-[a-z0-9]+)*)\/tasks\.yaml$/i,
   );
   return questMatch?.[1] ?? null;
-}
-
-export function defaultState(): LoopoState {
-  return {
-    storage_version: STORAGE_VERSION,
-    active_quest_slug: null,
-    quests: {},
-    receipts: [],
-  };
-}
-
-export function loadState(repoRoot: string): LoopoState {
-  const path = resolve(repoRoot, LOOPO_STATE_FILE);
-  const parsed = readJson(path);
-  if (!parsed || typeof parsed !== "object") return defaultState();
-  const state = parsed as Partial<LoopoState>;
-  return {
-    storage_version:
-      typeof state.storage_version === "number"
-        ? state.storage_version
-        : STORAGE_VERSION,
-    active_quest_slug:
-      typeof state.active_quest_slug === "string" &&
-      state.active_quest_slug.trim()
-        ? state.active_quest_slug.trim()
-        : null,
-    quests:
-      state.quests && typeof state.quests === "object"
-        ? (state.quests as Record<string, QuestRegistryItem>)
-        : {},
-    receipts: Array.isArray(state.receipts)
-      ? (state.receipts as LoopoReceipt[])
-      : [],
-  };
-}
-
-export function saveState(repoRoot: string, state: LoopoState): void {
-  writeJson(resolve(repoRoot, LOOPO_STATE_FILE), state);
-}
-
-export function managedFiles(files: QuestFiles): string[] {
-  return [files.tasks, files.evidence, files.handoffs];
-}
-
-export function managedHashes(files: QuestFiles): Record<string, string> {
-  const hashes: Record<string, string> = {};
-  for (const file of managedFiles(files)) {
-    hashes[file] = hashText(readText(file));
-  }
-  return hashes;
-}
-
-export function activeQuestFiles(
-  repoRoot: string,
-  state: LoopoState,
-  explicitSlug?: string | null,
-): QuestFiles | null {
-  const slug = explicitSlug?.trim() || state.active_quest_slug;
-  if (!slug) return null;
-  return questFiles(repoRoot, slug);
-}
-
-export function ensureStateScaffold(repoRoot: string): LoopoState {
-  const state = loadState(repoRoot);
-  saveState(repoRoot, state);
-  return state;
 }
 
 function hasGitCommit(repoRoot: string): boolean {
@@ -2452,41 +2374,6 @@ export function parseLatestHandoffFromText(
   return data;
 }
 
-export function parseStatusesFromTasks(tasksText: string): string[] {
-  const lines = compactLines(tasksText).split("\n");
-  const statuses: string[] = [];
-  let inTasks = false;
-  let header: string[] | null = null;
-  let statusIdx = -1;
-
-  for (const line of lines) {
-    const stripped = line.trim();
-    if (/^##\s+tasks\b/i.test(stripped)) {
-      inTasks = true;
-      header = null;
-      statusIdx = -1;
-      continue;
-    }
-    if (inTasks && /^##\s+/.test(stripped)) break;
-    if (!inTasks || !stripped.startsWith("|")) continue;
-    const cols = stripped
-      .slice(1, stripped.endsWith("|") ? -1 : undefined)
-      .split("|")
-      .map((c) => c.trim());
-    if (!cols.length) continue;
-    if (header === null) {
-      header = cols.map((c) => c.toLowerCase());
-      statusIdx = header.indexOf("status");
-      continue;
-    }
-    if (cols.every((c) => /^[-: ]*$/.test(c))) continue;
-    if (statusIdx < 0 || statusIdx >= cols.length) continue;
-    const value = cols[statusIdx].replace(/`/g, "").trim().toLowerCase();
-    if (value) statuses.push(value);
-  }
-  return statuses;
-}
-
 function archiveRetentionCutoff(now: Date): number {
   const cutoff = new Date(now.getTime());
   cutoff.setMonth(cutoff.getMonth() - 6);
@@ -2512,38 +2399,6 @@ export function pruneOldQuestArchives(
   return deleted;
 }
 
-export function isQuestArchiveReady(files: QuestFiles): boolean {
-  const statuses = parseStatusesFromTasks(readText(files.tasks));
-  if (!statuses.length || !statuses.every((status) => status === "done")) {
-    return false;
-  }
-  const latest = parseLatestHandoffFromText(readText(files.handoffs));
-  const stopReason = String(latest?.stop_reason ?? "")
-    .trim()
-    .toLowerCase();
-  return stopReason === "all_done";
-}
-
-export function archiveQuestIfComplete(
-  repoRoot: string,
-  state: LoopoState,
-  files: QuestFiles,
-  now = new Date(),
-): QuestArchiveResult {
-  if (!existsSync(files.tasks) || !isQuestArchiveReady(files)) {
-    return { archived_slug: null, archived_path: null };
-  }
-  const sourceDir = dirname(files.tasks);
-  const targetDir = resolve(repoRoot, LOOPO_ARCHIEVE_DIR, files.slug);
-  mkdirSync(dirname(targetDir), { recursive: true });
-  rmSync(targetDir, { recursive: true, force: true });
-  renameSync(sourceDir, targetDir);
-  utimesSync(targetDir, now, now);
-  delete state.quests[files.slug];
-  if (state.active_quest_slug === files.slug) state.active_quest_slug = null;
-  return { archived_slug: files.slug, archived_path: targetDir };
-}
-
 export function findCanonicalQuestFiles(dir: string): string[] {
   const questsDir = join(dir, "quests");
   if (!existsSync(questsDir)) return [];
@@ -2558,49 +2413,6 @@ export function findCanonicalQuestFiles(dir: string): string[] {
   return files
     .sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path))
     .map((entry) => entry.path);
-}
-
-export function updateQuestRegistry(
-  state: LoopoState,
-  files: QuestFiles,
-  workspace?: Partial<QuestWorkspace> | null,
-): LoopoState {
-  const existing = state.quests[files.slug];
-  state.quests[files.slug] = {
-    slug: files.slug,
-    tasks_path: files.tasks,
-    evidence_path: files.evidence,
-    handoffs_path: files.handoffs,
-    branch_ref: workspace?.branch_ref ?? existing?.branch_ref ?? null,
-    worktree_path: workspace?.worktree_path ?? existing?.worktree_path ?? null,
-    managed_hashes: managedHashes(files),
-    updated_at: nowIso(),
-  };
-  return state;
-}
-
-export function detectManagedDrift(
-  state: LoopoState,
-  files: QuestFiles,
-): { drifted: boolean; files: string[]; hashes: Record<string, string> } {
-  const current = managedHashes(files);
-  const expected = state.quests[files.slug]?.managed_hashes ?? {};
-  const driftedFiles = Object.keys(current).filter(
-    (file) => expected[file] && expected[file] !== current[file],
-  );
-  return {
-    drifted: driftedFiles.length > 0,
-    files: driftedFiles,
-    hashes: current,
-  };
-}
-
-export function recordReceipt(
-  state: LoopoState,
-  receipt: LoopoReceipt,
-): LoopoState {
-  state.receipts = [...state.receipts.slice(-49), receipt];
-  return state;
 }
 
 export function resolveRepoFromCwd(cwd: string): string {

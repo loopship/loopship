@@ -6,7 +6,7 @@
   "additionalProperties": true,
   "required": [
     "schema_version",
-    "slug",
+    "wtree",
     "quest_id",
     "prompt",
     "summary",
@@ -15,7 +15,7 @@
   ],
   "properties": {
     "schema_version": { "const": 3 },
-    "slug": { "type": "string" },
+    "wtree": { "type": "string" },
     "quest_id": { "type": "string" },
     "prompt": { "type": "string" },
     "summary": { "type": "string" },

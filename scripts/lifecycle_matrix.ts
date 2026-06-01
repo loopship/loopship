@@ -145,7 +145,7 @@ function childResultPayload(taskId: string, childSlug: string, worktreePath: str
   return {
     step: "child_result",
     task_id: taskId,
-    child_slug: childSlug,
+    child_wtree: childSlug,
     status: "passed",
     worktree_path: worktreePath,
     merge_commit: `merge-${taskId}`,
@@ -243,7 +243,7 @@ function driveScenario(
       expect.arrayContaining([
         "init",
         "--wtree",
-        child.child_slug,
+        child.child_wtree,
         "--runtime",
         "codex",
       ]),
@@ -258,7 +258,7 @@ function driveScenario(
       wtree,
       childResultPayload(
         String(child.task_id),
-        String(child.child_slug),
+        String(child.child_wtree),
         String(child.worktree_path),
       ),
     );

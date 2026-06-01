@@ -204,7 +204,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
       {
         task_id: "t001",
         title: "Build",
-        child_slug: "demo-t001",
+        child_wtree: "demo-t001",
         branch_ref: "codex/demo-t001",
         worktree_path: "/tmp/worktree",
         acceptance: "works",
@@ -216,7 +216,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
   "child-result-input": {
     step: "child_result",
     task_id: "T001",
-    child_slug: "demo-t001",
+    child_wtree: "demo-t001",
     status: "passed",
     evidence: [{ type: "summary", ref: "README.md" }],
     merge_commit: "abc123",

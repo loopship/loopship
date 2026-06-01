@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "slug",
+    "wtree",
     "quest_id",
     "flow_id",
     "flow_version",
@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schema_version": { "const": 3 },
-    "slug": { "type": "string" },
+    "wtree": { "type": "string" },
     "quest_id": { "type": "string" },
     "flow_id": { "type": "string" },
     "flow_version": { "type": "integer" },
@@ -29,7 +29,7 @@
     "resolution_source": { "type": "string" },
     "coordinator_branch": { "type": "string" },
     "coordinator_worktree": { "type": "string" },
-    "parent_quest_slug": { "type": "string" },
+    "parent_wtree": { "type": "string" },
     "landing_target_branch": { "type": "string" },
     "landing_target_worktree": { "type": "string" },
     "landed_commit": { "type": "string" },

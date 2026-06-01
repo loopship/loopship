@@ -42,7 +42,7 @@ export type SimQuestLikeState = Partial<{
     status: string;
     dependencies: string[];
     scope_files: string[];
-    child_slug: string;
+    child_wtree: string;
     acceptance: string;
   }>;
 }>;
@@ -359,7 +359,7 @@ export function scenarioPayloadForStep(input: {
       return {
         step: "child_result",
         task_id: task.id,
-        child_slug: task.child_slug,
+        child_wtree: task.child_wtree,
         status: "passed",
         evidence: [
           {

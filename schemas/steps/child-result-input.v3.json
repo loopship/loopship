@@ -4,7 +4,7 @@
   "title": "Loopo V3 Child Result Input",
   "type": "object",
   "additionalProperties": false,
-  "required": ["step", "task_id", "child_slug", "status", "evidence"],
+  "required": ["step", "task_id", "child_wtree", "status", "evidence"],
   "allOf": [
     {
       "if": {
@@ -20,7 +20,7 @@
   "properties": {
     "step": { "const": "child_result" },
     "task_id": { "type": "string" },
-    "child_slug": { "type": "string" },
+    "child_wtree": { "type": "string" },
     "status": { "enum": ["passed", "blocked", "failed"] },
     "evidence": {
       "type": "array",
