@@ -43,10 +43,10 @@ type QuestSummary = {
   child_count: number;
   merged_child_count: number;
   unmerged_child_ids: string[];
-  plans: number;
-  validations: number;
-  reviews: number;
-  handoffs: number;
+  plan_events: number;
+  validation_events: number;
+  verification_events: number;
+  hook_decisions: number;
   commit_count: number;
   python_files: string[];
 };
@@ -383,10 +383,10 @@ export function emptyQuestSummary(): QuestSummary {
     child_count: 0,
     merged_child_count: 0,
     unmerged_child_ids: [],
-    plans: 0,
-    validations: 0,
-    reviews: 0,
-    handoffs: 0,
+    plan_events: 0,
+    validation_events: 0,
+    verification_events: 0,
+    hook_decisions: 0,
     commit_count: 0,
     python_files: [],
   };
@@ -413,6 +413,20 @@ function countJsonl(path: string): number {
   return readText(path)
     .split(/\r?\n/)
     .filter((line) => line.trim()).length;
+}
+
+function countEvent(path: string, eventName: string): number {
+  return readText(path)
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .filter((line) => {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        return String(parsed.event ?? "") === eventName;
+      } catch {
+        return false;
+      }
+    }).length;
 }
 
 function pythonFiles(repo: string): string[] {
@@ -460,10 +474,10 @@ function summarizeQuest(
       child_count: 0,
       merged_child_count: 0,
       unmerged_child_ids: [],
-      plans: 0,
-      validations: 0,
-      reviews: 0,
-      handoffs: 0,
+      plan_events: 0,
+      validation_events: 0,
+      verification_events: 0,
+      hook_decisions: 0,
       commit_count: gitCommitCount(fixture.repo, fixture.env),
       python_files: pythonFiles(fixture.repo),
     };
@@ -497,10 +511,10 @@ function summarizeQuest(
     child_count: tasks.length,
     merged_child_count: mergedChildIds.length,
     unmerged_child_ids: unmergedChildIds,
-    plans: countJsonl(files.plans),
-    validations: countJsonl(files.validation),
-    reviews: countJsonl(files.review),
-    handoffs: countJsonl(files.handoffs),
+    plan_events: countEvent(files.events, "plan_submitted"),
+    validation_events: countEvent(files.events, "validation_submitted"),
+    verification_events: countEvent(files.events, "verification_submitted"),
+    hook_decisions: countEvent(files.events, "hook_decision"),
     commit_count: gitCommitCount(fixture.repo, fixture.env),
     python_files: pythonFiles(fixture.repo),
   };
@@ -560,17 +574,17 @@ function evaluateResult(
   const lifecycleCovered =
     summary.child_count > 0 &&
     summary.merged_child_count === summary.child_count &&
-    summary.plans > 0 &&
-    summary.validations > 0 &&
-    summary.reviews > 0 &&
-    summary.handoffs > 0;
+    summary.plan_events > 0 &&
+    summary.validation_events > 0 &&
+    summary.verification_events > 0 &&
+    summary.hook_decisions > 0;
 
   if (archived && lifecycleCovered) {
     return {
       runtime: fixture.runtime,
       status: "passed",
       reason:
-        "archived quest with child execution plus plan, review, validation, and landing receipts",
+        "archived quest with child execution plus recorded plan, validation, verification, and hook audit receipts",
       duration_ms: durationMs,
       repo: fixture.repo,
       log_path: logPath,

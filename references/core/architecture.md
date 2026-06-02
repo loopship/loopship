@@ -33,20 +33,22 @@ loopo init "{request}" --runtime <runtime>
 
 ## Canonical Storage And Authority
 
-- Root system index: `.loopo/system.yaml`
-- Root system docs: `.loopo/docs/high-level-design.yaml`,
+- Worktree-local system index, when a system update is recorded:
+  `worktrees/{wtree}/.loopo/system.yaml`
+- Worktree-local system docs, when recorded:
+  `.loopo/docs/high-level-design.yaml`,
   `.loopo/docs/low-level-design.yaml`, `.loopo/docs/architecture.yaml`,
   `.loopo/docs/system-behaviours.yaml`, and `.loopo/docs/design-system.yaml`
-- Root manifest: `.loopo/manifest.sign.json`
-- Quest state: `.loopo/quests/{wtree}/tasks.yaml`,
-  `.loopo/quests/{wtree}/plan.yaml`, JSONL sidecars,
-  `.loopo/quests/{wtree}/children/*.yaml`, and
-  `.loopo/quests/{wtree}/manifest.sign.json`
-- Runtime state: `.loopo/hook-state.json` and `.loopo/hook-events.jsonl`
-- `tasks.yaml` is authoritative for root quest stage and task state.
-- `plan.yaml` is authoritative for the current plan.
+- Worktree-local system manifest, when recorded: `.loopo/manifest.sign.json`
+- Quest runtime state: `worktrees/{wtree}/.loopo/runtime/tasks.yaml`,
+  `.loopo/runtime/events.jsonl`, and `.loopo/runtime/manifest.sign.json`.
+  This runtime state stays local to the source worktree and is gitignored.
+- Volatile runtime coordination lives in `worktrees/{wtree}/.loopo/runtime/hook-state.json`
+  and the transient per-worktree `lock.json`.
+- `tasks.yaml` is authoritative for quest stage, Q&A, detailed plan, task graph,
+  validation receipt, verification receipt, and landing receipt.
 - `.loopo/system.yaml` indexes every supported system doc and schema.
-- JSONL sidecars are append-only event history.
+- `events.jsonl` is compact append-only machine audit history.
 - Manifests contain SHA-256 file digests, previous receipt head, current receipt
   head, writer command, and request id.
 - Direct edits that do not match the receipt chain are unauthorized/tampered
@@ -122,25 +124,23 @@ planning -> awaiting_user_answers -> plan_review -> task_graph_ready -> validati
 - Hook quest selection uses an explicit `--wtree`, payload `wtree`,
   payload `loopo_wtree`, or a cwd inside `<repo>/worktrees/<name>`. Repo-root
   hooks and missing, ambiguous, invalid, or conflicting selector signals no-op.
-- Archived quests under `.loopo/archieve/{wtree}` use the historical directory
-  spelling and are inactive; they must not trigger continuation.
 - Decision source priority:
-  1. canonical V3 stage in `.loopo/quests/{wtree}/tasks.yaml`
-  2. latest V3 event in `.loopo/quests/{wtree}/handoffs.jsonl`
-  3. child wtree state under `.loopo/quests/{wtree}/children/*.yaml`
+  1. canonical V3 stage and receipts in
+     `worktrees/{wtree}/.loopo/runtime/tasks.yaml`
+  2. compact audit events in `worktrees/{wtree}/.loopo/runtime/events.jsonl`
+  3. current task terminal state derived from the canonical task table
 - Continue only when the latest `stop_reason` is exactly `none`.
-- Continue as an automatic drain chain across hook-triggered turns until a
-  terminal handoff appears, all work is stalled, or continuation budget is
-  exhausted.
-- Treat `all_done` and `all_blocked_or_deferred` as terminal only when the task
-  table matches that terminal state; otherwise treat the handoff as stale drift,
-  continue the hook chain, and repair the handoff before ending.
+- Continue as an automatic drain chain across hook-triggered turns until work is
+  terminal, all work is stalled, or continuation budget is exhausted.
+- Hook duplicate suppression fingerprints `tasks.yaml` plus `events.jsonl`
+  excluding prior `hook_decision` entries, so recording a hook audit line does
+  not make an identical event look new.
 - Stop for every other stop reason.
 
 ## Drift, Duplicate, And Budget Guards
 
 - Before any continuation decision, hash all managed quest files: `tasks.yaml`,
-  `plan.yaml`, JSONL sidecars, child files, root system docs, and manifests.
+  `events.jsonl`, root system docs, and manifests.
 - Compare managed file hashes against the current manifest receipts.
 - On mismatch, mark `managed_file_drift`, emit no continuation, and use
   `loopo doctor --fix` as the recovery path.
@@ -151,9 +151,9 @@ planning -> awaiting_user_answers -> plan_review -> task_graph_ready -> validati
 - Do not suppress later events once the snapshot has advanced.
 - Limit each automatic continuation chain to 12 non-terminal hook-triggered
   turns per `(runtime, context_root, wtree)` chain.
-- When budget is reached, emit one final continuation prompt directing terminal
-  handoff append with `stop_reason: budget_exhausted`.
-- The next end-event sees terminal handoff and emits no continuation.
+- When budget is reached, emit one final continuation prompt directing manual
+  resume.
+- The next end-event with unchanged state emits no continuation.
 
 ## Runtime Event Mapping
 
@@ -180,15 +180,19 @@ bun index.ts doctor --fix
 bun scripts/setup_runtime_hooks.ts --repo /path/to/repo --runtime all --hook-script /abs/path/to/scripts/loopo_sim.ts
 ```
 
-Generated runtime files include:
+Generated durable tracked `.loopo` files include:
 
 - `.loopo/system.yaml`
 - `.loopo/docs/*.yaml`
 - `.loopo/manifest.sign.json`
-- `.loopo/quests/{wtree}/tasks.yaml`
-- `.loopo/quests/{wtree}/plan.yaml`
-- `.loopo/quests/{wtree}/children/*.yaml`
-- `.loopo/quests/{wtree}/manifest.sign.json`
+
+Quest-local ignored runtime files include:
+
+- `worktrees/{wtree}/.loopo/runtime/tasks.yaml`
+- `worktrees/{wtree}/.loopo/runtime/events.jsonl`
+- `worktrees/{wtree}/.loopo/runtime/manifest.sign.json`
+- `worktrees/{wtree}/.loopo/runtime/hook-state.json`
+- `worktrees/{wtree}/.loopo/runtime/lock.json`
 
 Core verification commands:
 
@@ -208,9 +212,9 @@ bun run scripts/report_lifecycle_matrix.ts
   evidence about Loopo behavior unless the user explicitly switches scope to
   the generated artifact.
 - When agent narration, terminal chatter, and Loopo state disagree, trust
-  canonical artifacts first: `.loopo/quests/*/tasks.yaml`,
-  `.loopo/quests/*/*.jsonl`, emitted `children[].commands.*`, and git worktree
-  state.
+  canonical artifacts first: worktree-local `.loopo/runtime/tasks.yaml`,
+  `.loopo/runtime/events.jsonl`, emitted `children[].commands.*`, and git
+  worktree state.
 - Separate runtime availability failure from Loopo lifecycle failure before
   changing instructions.
 - After a clarification round is answered, continue from recorded quest state,

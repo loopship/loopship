@@ -41,7 +41,7 @@ instructions: |-
      acceptance, and decomposition inputs.
   6. Submit the decision-complete `plan` payload through
      `loopo quest next --wtree <name> --json @-`; the binary owns creation and
-     mutation of `.loopo/quests/{wtree}/tasks.yaml`.
+     mutation of the active worktree's `.loopo/runtime/tasks.yaml`.
 
   ## Question Rounds
 
@@ -105,9 +105,9 @@ instructions: |-
   ## Task Graph Sizing
 
   - Prefer the smallest task graph that can finish deterministically.
-  - Prefer a serial task graph by default. Only create parallel-ready branches
-    when the work is clearly independent, the file scope is disjoint, and real
-    multi-agent execution is available.
+  - Prefer maximal useful independence so multiple child worktrees can run in
+    parallel when the work is clearly independent and the file scope is
+    disjoint.
   - For tiny utilities, one-file tools, and narrow greenfield apps, keep the
     graph to 1-2 tasks unless a split is required by file ownership, merge
     safety, or materially different acceptance criteria.
@@ -119,6 +119,8 @@ instructions: |-
     just because the scope is small.
   - Do not split setup, implementation, and tests into separate child tasks
     when one competent worker can complete them in one bounded pass.
+  - Child tasks are leaf workers. Do not split a child assignment into another
+    child depth.
 
   ## Defaulting Rules
 
@@ -130,7 +132,7 @@ instructions: |-
   - Once you ask a clarification round, do not auto-answer it. Wait for the
     user's response before continuing any decomposition that depends on it.
   - Record defaults, assumptions, and unresolved risks through the schema-valid
-    `plan` payload so they land in canonical YAML/JSONL state.
+    `plan` payload so they land in canonical `tasks.yaml` state.
 
   ## Plan Payload Output
 

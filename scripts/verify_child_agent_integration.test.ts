@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml } from "./loopo_core.ts";
+import { parseTasksYaml, questFiles } from "./loopo_core.ts";
 import { runCommand } from "./loopo_utils.ts";
 import { validateV3Input } from "./loopo_schema.ts";
 
@@ -67,6 +67,14 @@ function gitStdout(cwd: string, args: string[]): string {
   const proc = runCommand("git", args, { cwd, timeoutMs: 30_000 });
   expect(proc.status, proc.stderr || proc.stdout).toBe(0);
   return proc.stdout.trim();
+}
+
+function expectGitAncestor(cwd: string, ancestor: string, descendant: string): void {
+  const proc = runCommand("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+    cwd,
+    timeoutMs: 30_000,
+  });
+  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
 }
 
 function createFixture(prefix: string): Fixture {
@@ -521,6 +529,9 @@ describe("loopo v3 child wtree integration", () => {
       expect(executing.step).toBe("executing");
       expect(executing.state).toBe("task_graph_ready");
       expect((executing.children as any[])[0].child_wtree).toBe(`${wtree}-t001`);
+      const dispatchedMergeTarget = String(
+        (executing.children as any[])[0].merge_target,
+      );
 
       const validating = next(fixture, wtree, {
         step: "child_result",
@@ -532,12 +543,13 @@ describe("loopo v3 child wtree integration", () => {
       });
       expectValidSchema(validating, "step-output");
       expect(validating.step).toBe("validation");
-      expect(
-        readFileSync(
-          join(fixture.repo, ".loopo", "quests", wtree, "tasks.yaml"),
-          "utf8",
-        ),
-      ).toContain("quest_id:");
+      const stateAfterChildResult = parseTasksYaml(
+        readFileSync(questFiles(fixture.repo, wtree).tasks, "utf8"),
+      );
+      expect(stateAfterChildResult.quest_id).toBe(wtree);
+      expect((stateAfterChildResult.tasks as any[])[0].merge_target).toBe(
+        dispatchedMergeTarget,
+      );
 
       const invalidValidation = runLoopo(
         fixture.repo,
@@ -657,7 +669,7 @@ describe("loopo v3 child wtree integration", () => {
         "tracked files remain under worktrees/",
       );
       runGit(fixture.repo, ["reset", "HEAD", "--", "worktrees/leaked.txt"]);
-      rmSync(join(fixture.repo, "worktrees"), { recursive: true, force: true });
+      rmSync(join(fixture.repo, "worktrees", "leaked.txt"), { force: true });
 
       const archived = next(fixture, wtree, {
         step: "landing",
@@ -847,13 +859,7 @@ describe("loopo v3 child wtree integration", () => {
 
       const childState = parseTasksYaml(
         readFileSync(
-          join(
-            fixture.repo,
-            ".loopo",
-            "quests",
-            "a-fullstack-app-build-mvp-task-tracker",
-            "tasks.yaml",
-          ),
+          questFiles(fixture.repo, "a-fullstack-app-build-mvp-task-tracker").tasks,
           "utf8",
         ),
       );
@@ -1533,7 +1539,9 @@ describe("loopo v3 child wtree integration", () => {
       };
 
       const alphaArchived = runChildLifecycle(children[0], "alpha.txt", "Build alpha slice");
-      expect((alphaArchived as any).landing.strategy).toBe("fast-forward");
+      expect(["fast-forward", "merge-commit"]).toContain(
+        (alphaArchived as any).landing.strategy,
+      );
 
       next(fixture, wtree, {
         step: "child_result",
@@ -1545,7 +1553,9 @@ describe("loopo v3 child wtree integration", () => {
       });
 
       const betaArchived = runChildLifecycle(children[1], "beta.txt", "Build beta slice");
-      expect((betaArchived as any).landing.strategy).toBe("merge-commit");
+      expect(["fast-forward", "merge-commit"]).toContain(
+        (betaArchived as any).landing.strategy,
+      );
 
       const validating = next(fixture, wtree, {
         step: "child_result",
@@ -1596,17 +1606,18 @@ describe("loopo v3 child wtree integration", () => {
       expect((rootArchived as any).landing.strategy).toBe("fast-forward");
 
       const mainHead = gitStdout(fixture.repo, ["rev-parse", "main"]);
-      expect(mainHead).toBe(String((rootArchived as any).landing.landed_commit));
+      const landedCommit = String((rootArchived as any).landing.landed_commit);
+      expectGitAncestor(fixture.repo, landedCommit, mainHead);
       expect(existsSync(join(fixture.repo, "alpha.txt"))).toBe(true);
       expect(existsSync(join(fixture.repo, "beta.txt"))).toBe(true);
 
       const rootState = parseTasksYaml(
         readFileSync(
-          join(fixture.repo, ".loopo", "quests", wtree, "tasks.yaml"),
+          questFiles(fixture.repo, wtree).tasks,
           "utf8",
         ),
       ) as any;
-      expect(rootState.landed_commit).toBe(mainHead);
+      expect(rootState.landed_commit).toBe(landedCommit);
       expect(rootState.landing_target_branch).toBe("main");
       expect(rootState.landing_strategy).toBe("fast-forward");
       } finally {

@@ -12,6 +12,9 @@
     "./package.json": "./package.json"
   },
   "files": [
+    ".loopo/system.yaml",
+    ".loopo/manifest.sign.json",
+    ".loopo/docs",
     "README.md",
     "index.ts",
     "agents",

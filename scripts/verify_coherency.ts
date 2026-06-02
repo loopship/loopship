@@ -90,6 +90,39 @@ function assertMinimalSkillRoot(): void {
   }
 }
 
+function assertMinimalRuntimeModel(): void {
+  const scopedFiles = [
+    join(PACKAGE_ROOT, "scripts", "loopo.ts"),
+    join(PACKAGE_ROOT, "scripts", "loopo_core.ts"),
+    join(PACKAGE_ROOT, "scripts", "loopo_sim.ts"),
+    join(PACKAGE_ROOT, "scripts", "loopo_utils.ts"),
+    join(PACKAGE_ROOT, "scripts", "verify_runtime_live.ts"),
+    join(PACKAGE_ROOT, "references", "core", "architecture.md"),
+    join(PACKAGE_ROOT, "tasks.md"),
+  ];
+  const forbidden = [
+    ".loopo/quests",
+    "LOOPO_QUESTS",
+    "LOOPO_ARCHIEVE",
+    "storage_mode",
+    "questions.jsonl",
+    "plans.jsonl",
+    "evidence.jsonl",
+    "validation.jsonl",
+    "review.jsonl",
+    "handoffs.jsonl",
+    "hook-events.jsonl",
+    ".git/loopo",
+  ];
+  for (const file of scopedFiles) {
+    const text = readText(file);
+    const scope = file.replace(`${PACKAGE_ROOT}/`, "");
+    for (const needle of forbidden) {
+      assertNotContains(text, needle, scope);
+    }
+  }
+}
+
 function stepTitle(id: string): string {
   return id
     .split(/[-_]/)
@@ -145,8 +178,16 @@ function main(): number {
     ["skill launcher", join(SKILL_ROOT, "SKILL.md")],
     ["swe flow", join(PACKAGE_ROOT, "assets", "flows", "swe.yaml")],
     [
-      "base system behaviours",
-      join(PACKAGE_ROOT, "assets", "base-system-behaviours.yaml"),
+      "signed system behaviours",
+      join(PACKAGE_ROOT, ".loopo", "docs", "system-behaviours.yaml"),
+    ],
+    [
+      "signed system index",
+      join(PACKAGE_ROOT, ".loopo", "system.yaml"),
+    ],
+    [
+      "signed root manifest",
+      join(PACKAGE_ROOT, ".loopo", "manifest.sign.json"),
     ],
     ["plan step", join(PACKAGE_ROOT, "assets", "steps", "plan.yaml")],
     ["executing step", join(PACKAGE_ROOT, "assets", "steps", "executing.yaml")],
@@ -240,6 +281,7 @@ function main(): number {
   ] as const;
   for (const [label, path] of required) assertExists(path, label);
   assertNoLegacyIdentityTerms();
+  assertMinimalRuntimeModel();
   assertMinimalSkillRoot();
   assertNotContains(
     existsSync(join(PACKAGE_ROOT, "SKILL.md")) ? "present" : "",
@@ -249,8 +291,9 @@ function main(): number {
 
   const baseBehavioursPath = join(
     PACKAGE_ROOT,
-    "assets",
-    "base-system-behaviours.yaml",
+    ".loopo",
+    "docs",
+    "system-behaviours.yaml",
   );
   const baseBehaviours = parseYaml(readText(baseBehavioursPath));
   if (
@@ -266,7 +309,7 @@ function main(): number {
   );
   if (behaviourErrors.length) {
     throw new Error(
-      `base system behaviours schema validation failed: ${behaviourErrors.join(
+      `system behaviours schema validation failed: ${behaviourErrors.join(
         "; ",
       )}`,
     );

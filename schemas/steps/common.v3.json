@@ -65,10 +65,10 @@
     "docs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["state_yaml", "plan_yaml", "manifest"],
+      "required": ["state_yaml", "events_jsonl", "manifest"],
       "properties": {
         "state_yaml": { "type": "string" },
-        "plan_yaml": { "type": "string" },
+        "events_jsonl": { "type": "string" },
         "manifest": { "type": "string" }
       }
     },
@@ -248,8 +248,13 @@
         "task_id": { "type": "string" },
         "title": { "type": "string" },
         "child_wtree": { "type": "string" },
+        "parent_wtree": { "type": "string" },
+        "parent_task_id": { "type": "string" },
+        "parent_context_ref": { "type": "string" },
         "branch_ref": { "type": "string" },
         "worktree_path": { "type": "string" },
+        "merge_target": { "type": "string" },
+        "merge_target_worktree": { "type": "string" },
         "acceptance": { "type": "string" },
         "commands": {
           "type": "object",

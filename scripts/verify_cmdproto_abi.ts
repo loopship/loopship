@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLoopoShim } from "./loopo_core.ts";
+import { createLoopoShim, questFiles } from "./loopo_core.ts";
 import { runCommand } from "./loopo_utils.ts";
 import { validateSchemaPath, v3SchemaPath } from "./loopo_schema.ts";
 import { DEFAULT_RUNTIME_REQUEST } from "./runtime_supervisor.ts";
@@ -242,9 +242,9 @@ function main(): number {
     const step = parseJson(next.stdout);
     expectSchema(step as Record<string, any>, v3SchemaPath("step-output"));
 
-    const questDir = join(fixture.repo, ".loopo", "quests", wtree);
-    if (!existsSync(join(questDir, "tasks.yaml"))) {
-      fail("cmdproto quest next must still create the canonical quest state");
+    const files = questFiles(fixture.repo, wtree);
+    if (!existsSync(files.tasks)) {
+      fail("cmdproto quest next must create worktree-local canonical quest state");
     }
 
     const simRepo = join(fixture.root, "sim-repo");

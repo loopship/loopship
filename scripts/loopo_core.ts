@@ -6,9 +6,8 @@ import {
   mkdirSync,
   readdirSync,
   rmSync,
-  statSync,
 } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   expandHome,
   hashText,
@@ -20,10 +19,10 @@ import {
   writeJson,
   writeText,
 } from "./loopo_utils.ts";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 export const LOOPO_DIR = ".loopo";
-export const LOOPO_QUESTS_DIR = join(LOOPO_DIR, "quests");
-export const LOOPO_ARCHIEVE_DIR = join(LOOPO_DIR, "archieve");
+export const LOOPO_RUNTIME_DIR = join(LOOPO_DIR, "runtime");
 export const LOOPO_SYSTEM_FILE = join(LOOPO_DIR, "system.yaml");
 export const LOOPO_DOCS_DIR = join(LOOPO_DIR, "docs");
 export const LOOPO_ROOT_MANIFEST_FILE = join(LOOPO_DIR, "manifest.sign.json");
@@ -31,32 +30,25 @@ export const LOOPO_SYSTEM_BEHAVIOURS_FILE = join(
   LOOPO_DOCS_DIR,
   "system-behaviours.yaml",
 );
-export const LOOPO_HOOK_STATE_FILE = join(LOOPO_DIR, "hook-state.json");
-export const LOOPO_HOOK_EVENT_FILE = join(LOOPO_DIR, "hook-events.jsonl");
 export const LOOPO_BIN_FILE = join(LOOPO_DIR, "bin", "loopo");
 export const LOOPO_GLOBAL_BIN_ENV = "LOOPO_GLOBAL_BIN";
 export const LOOPO_SCRIPT_ENV = "LOOPO_SCRIPT";
 export const CANONICAL_QUEST_RE =
-  /(?:^|[\\/])\.loopo[\\/]quests[\\/][^\\/]+[\\/]tasks\.yaml$/i;
-const STALL_STATUSES = new Set(["blocked", "deferred", "failed"]);
+  /(?:^|[\\/])\.loopo[\\/]runtime[\\/]tasks\.yaml$/i;
 const LEGACY_WTREE_KEY = ["sl", "ug"].join("");
 const LEGACY_PARENT_WTREE_KEY = ["parent", "quest", ["sl", "ug"].join("")].join("_");
 const LEGACY_CHILD_WTREE_KEY = ["child", ["sl", "ug"].join("")].join("_");
 
 export type QuestFiles = {
   wtree: string;
+  workspace_root: string;
+  loopo_root: string;
   dir: string;
   tasks: string;
-  plan: string;
+  events: string;
   manifest: string;
-  children_dir: string;
-  questions: string;
-  plans: string;
-  evidence: string;
-  validation: string;
-  review: string;
-  handoffs: string;
-  hook_events: string;
+  hook_state: string;
+  lock: string;
 };
 
 export type QuestTask = {
@@ -80,6 +72,49 @@ export type QuestTask = {
   blocker?: string;
 };
 
+export type QuestQuestion = {
+  id: string;
+  question: string;
+  impact?: string;
+  default?: string;
+};
+
+export type QuestAnswer = {
+  id?: string;
+  question_id?: string;
+  question?: string;
+  answer: string;
+  accepted_default?: boolean;
+};
+
+export type QuestQuestionRound = {
+  questions: QuestQuestion[];
+};
+
+export type QuestPlanDetail = {
+  classification: string;
+  scope: string;
+  summary: string;
+  rationale: string;
+  af: Record<string, unknown>;
+  of: Record<string, unknown>;
+  high_impact_unknowns: string[];
+  defaulted_unknowns: string[];
+  verification_targets: string[];
+  decomposition_rationale: string;
+};
+
+export type QuestValidationReceipt = {
+  status: string;
+  checks: Array<Record<string, unknown>>;
+};
+
+export type QuestVerificationReceipt = {
+  status: string;
+  acceptance_trace: Array<Record<string, unknown>>;
+  risks: Array<Record<string, unknown>>;
+};
+
 export type QuestState = {
   schema_version: 3;
   wtree: string;
@@ -93,12 +128,19 @@ export type QuestState = {
   coordinator_branch: string;
   coordinator_worktree: string;
   parent_wtree: string;
+  parent_task_id: string;
+  parent_context_ref: string;
   landing_target_branch: string;
   landing_target_worktree: string;
   landed_commit: string;
   landing_strategy: string;
   assumptions: string[];
   constraints: string[];
+  question_rounds: QuestQuestionRound[];
+  answers: QuestAnswer[];
+  plan_detail: QuestPlanDetail;
+  validation_receipt: QuestValidationReceipt;
+  verification_receipt: QuestVerificationReceipt;
   tasks: QuestTask[];
 };
 
@@ -107,201 +149,6 @@ export type QuestWorkspace = {
   worktree_path: string;
   mode: "git" | "directory";
 };
-
-export type StrayIterationReport = {
-  has_stray: boolean;
-  task_block_count: number;
-  evidence_block_count: number;
-  total_block_count: number;
-  task_blocks: string[];
-  evidence_blocks: string[];
-};
-
-type EvidenceStatusSource = "transition" | "import";
-
-export type EvidenceTaskStatus = {
-  status: string;
-  source: EvidenceStatusSource;
-  line: number;
-  raw: string;
-};
-
-export type HandoffCanonicalization = {
-  text: string;
-  changed: boolean;
-  reordered: boolean;
-  deduped: boolean;
-  latest_iteration_id: string | null;
-  latest_stop_reason: string | null;
-};
-
-export type TaskEvidenceMismatch = {
-  task_id: string;
-  task_status: string;
-  evidence_status: string;
-  evidence_source: EvidenceStatusSource;
-};
-
-export type QuestCoherencyScan = {
-  mismatches: TaskEvidenceMismatch[];
-  handoff_done_candidates: string[];
-  handoff_non_monotonic: boolean;
-  latest_iteration_id: string | null;
-  latest_stop_reason: string | null;
-  task_fallback: "unknown" | "all_done" | "all_stalled" | "continue";
-  terminal_mismatch: boolean;
-  stray: StrayIterationReport;
-};
-
-export type QuestCoherencyRepair = {
-  touched_files: string[];
-  stray_blocks_moved: number;
-  handoff_reordered: boolean;
-  handoff_deduped: boolean;
-  task_updates: Record<string, { from: string; to: string }>;
-  evidence_reconciliations: Record<string, string[]>;
-  latest_iteration_id: string | null;
-  latest_stop_reason: string | null;
-};
-
-function compactLines(text: string): string {
-  return text.replace(/\r\n/g, "\n");
-}
-
-function extractSection(text: string, heading: string): string {
-  const lines = compactLines(text).split("\n");
-  const headingRe = new RegExp(
-    `^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`,
-    "i",
-  );
-  let start = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (headingRe.test(lines[i].trim())) {
-      start = i;
-      break;
-    }
-  }
-  if (start < 0) return "";
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^##\s+/.test(lines[i].trim())) {
-      end = i;
-      break;
-    }
-  }
-  return lines.slice(start, end).join("\n").trim();
-}
-
-export function parseHandoffBlocksAnywhere(text: string): string[] {
-  const lines = compactLines(text).split("\n");
-  const blocks: string[] = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    if (!/^###\s*iteration\s*=/.test(lines[i].trim())) continue;
-    let end = lines.length;
-    for (let j = i + 1; j < lines.length; j += 1) {
-      if (
-        /^###\s*iteration\s*=/.test(lines[j].trim()) ||
-        /^##\s+/.test(lines[j].trim())
-      ) {
-        end = j;
-        break;
-      }
-    }
-    const block = lines.slice(i, end).join("\n").trim();
-    if (block) blocks.push(block);
-    i = end - 1;
-  }
-  return blocks;
-}
-
-type ExtractBlocksResult = {
-  blocks: string[];
-  cleaned_text: string;
-};
-
-function collapseBlankLines(text: string): string {
-  const compact = compactLines(text)
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trimEnd();
-  return compact ? `${compact}\n` : "";
-}
-
-function stripHandoffHeadings(text: string): string {
-  const lines = compactLines(text).split("\n");
-  const kept = lines.filter(
-    (line) => !/^\s*#{1,3}\s*iteration\s+handoffs\b/i.test(line.trim()),
-  );
-  return collapseBlankLines(kept.join("\n"));
-}
-
-export function extractIterationBlocksAndClean(
-  text: string,
-): ExtractBlocksResult {
-  const lines = compactLines(text).split("\n");
-  const blocks: string[] = [];
-  const ranges: Array<[number, number]> = [];
-
-  for (let i = 0; i < lines.length; i += 1) {
-    if (!/^###\s*iteration\s*=/.test(lines[i].trim())) continue;
-    let end = lines.length;
-    for (let j = i + 1; j < lines.length; j += 1) {
-      if (
-        /^###\s*iteration\s*=/.test(lines[j].trim()) ||
-        /^##\s+/.test(lines[j].trim())
-      ) {
-        end = j;
-        break;
-      }
-    }
-    const block = lines.slice(i, end).join("\n").trim();
-    if (block) blocks.push(block);
-    ranges.push([i, end]);
-    i = end - 1;
-  }
-
-  if (!ranges.length) {
-    return {
-      blocks,
-      cleaned_text: collapseBlankLines(text),
-    };
-  }
-
-  const drop = new Set<number>();
-  for (const [start, end] of ranges) {
-    for (let i = start; i < end; i += 1) drop.add(i);
-  }
-  const kept = lines.filter((_, idx) => !drop.has(idx));
-  const stripped = stripHandoffHeadings(kept.join("\n"));
-  return {
-    blocks,
-    cleaned_text: collapseBlankLines(stripped),
-  };
-}
-
-function blockFingerprint(block: string): string {
-  return compactLines(block)
-    .trim()
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{2,}/g, "\n");
-}
-
-function parseBracketList(value: string): string[] {
-  const trimmed = String(value || "").trim();
-  if (!trimmed || trimmed === "[]") return [];
-  const wrapped = trimmed.match(/^\[(.*)\]$/);
-  const source = wrapped ? wrapped[1] : trimmed;
-  if (!source.trim()) return [];
-  return source
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseIterationId(value: string): number {
-  const parsed = Number.parseInt(String(value || "").trim(), 10);
-  return Number.isFinite(parsed) ? parsed : Number.MIN_SAFE_INTEGER;
-}
 
 function normalizeTaskPathSegment(value: string): string {
   const cleaned = String(value || "")
@@ -357,516 +204,6 @@ export function taskAssignmentWorktreePath(
   );
 }
 
-function evaluateTaskFallback(
-  statuses: string[],
-): "unknown" | "all_done" | "all_stalled" | "continue" {
-  if (!statuses.length) return "unknown";
-  if (statuses.every((status) => status === "done")) return "all_done";
-  if (statuses.every((status) => STALL_STATUSES.has(status)))
-    return "all_stalled";
-  return "continue";
-}
-
-function parseTaskTable(tasksText: string): {
-  lines: string[];
-  rows: Array<{
-    line_index: number;
-    id: string;
-    status: string;
-    cols: string[];
-    id_idx: number;
-    status_idx: number;
-  }>;
-  status_by_id: Record<string, string>;
-  branch_ref_idx: number;
-  worktree_path_idx: number;
-} {
-  const lines = compactLines(tasksText).split("\n");
-  const rows: Array<{
-    line_index: number;
-    id: string;
-    status: string;
-    cols: string[];
-    id_idx: number;
-    status_idx: number;
-  }> = [];
-  const status_by_id: Record<string, string> = {};
-
-  let inTasks = false;
-  let header: string[] | null = null;
-  let idIdx = -1;
-  let statusIdx = -1;
-  let branchRefIdx = -1;
-  let worktreePathIdx = -1;
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const stripped = line.trim();
-    if (/^##\s+tasks\b/i.test(stripped)) {
-      inTasks = true;
-      header = null;
-      idIdx = -1;
-      statusIdx = -1;
-      branchRefIdx = -1;
-      worktreePathIdx = -1;
-      continue;
-    }
-    if (inTasks && /^##\s+/.test(stripped)) break;
-    if (!inTasks || !stripped.startsWith("|")) continue;
-    const cols = stripped
-      .slice(1, stripped.endsWith("|") ? -1 : undefined)
-      .split("|")
-      .map((c) => c.trim());
-    if (!cols.length) continue;
-    if (header === null) {
-      header = cols.map((c) => c.toLowerCase());
-      idIdx = header.indexOf("id");
-      statusIdx = header.indexOf("status");
-      branchRefIdx = header.indexOf("branch_ref");
-      worktreePathIdx = header.indexOf("worktree_path");
-      continue;
-    }
-    if (cols.every((c) => /^[-: ]*$/.test(c))) continue;
-    if (idIdx < 0 || statusIdx < 0) continue;
-    if (idIdx >= cols.length || statusIdx >= cols.length) continue;
-    const id = cols[idIdx].replace(/`/g, "").trim();
-    const status = cols[statusIdx].replace(/`/g, "").trim().toLowerCase();
-    if (!id) continue;
-    rows.push({
-      line_index: i,
-      id,
-      status,
-      cols,
-      id_idx: idIdx,
-      status_idx: statusIdx,
-    });
-    status_by_id[id] = status;
-  }
-
-  return {
-    lines,
-    rows,
-    status_by_id,
-    branch_ref_idx: branchRefIdx,
-    worktree_path_idx: worktreePathIdx,
-  };
-}
-
-export function rewriteTaskAssignments(
-  repoRoot: string,
-  wtree: string,
-  tasksText: string,
-): {
-  text: string;
-  applied: Record<string, { branch_ref: string; worktree_path: string }>;
-} {
-  const parsed = parseTaskTable(tasksText);
-  if (!parsed.rows.length) {
-    return {
-      text: `${parsed.lines.join("\n").trimEnd()}\n`,
-      applied: {},
-    };
-  }
-
-  const lines = [...parsed.lines];
-  const applied: Record<string, { branch_ref: string; worktree_path: string }> =
-    {};
-  for (const row of parsed.rows) {
-    const branchRef = taskAssignmentBranchRef(wtree, row.id);
-    const worktreePath = taskAssignmentWorktreePath(repoRoot, wtree, row.id);
-    if (
-      parsed.branch_ref_idx >= 0 &&
-      parsed.branch_ref_idx < row.cols.length &&
-      row.cols[parsed.branch_ref_idx] !== branchRef
-    ) {
-      row.cols[parsed.branch_ref_idx] = branchRef;
-    }
-    if (
-      parsed.worktree_path_idx >= 0 &&
-      parsed.worktree_path_idx < row.cols.length &&
-      row.cols[parsed.worktree_path_idx] !== worktreePath
-    ) {
-      row.cols[parsed.worktree_path_idx] = worktreePath;
-    }
-    lines[row.line_index] = `| ${row.cols.join(" | ")} |`;
-    applied[row.id] = {
-      branch_ref: branchRef,
-      worktree_path: worktreePath,
-    };
-  }
-
-  return {
-    text: `${lines.join("\n").trimEnd()}\n`,
-    applied,
-  };
-}
-
-function rewriteTaskStatuses(
-  tasksText: string,
-  updates: Record<string, string>,
-): {
-  text: string;
-  applied: Record<string, { from: string; to: string }>;
-} {
-  const parsed = parseTaskTable(tasksText);
-  const lines = [...parsed.lines];
-  const applied: Record<string, { from: string; to: string }> = {};
-
-  for (const row of parsed.rows) {
-    const next = updates[row.id]?.trim().toLowerCase();
-    if (!next || next === row.status) continue;
-    row.cols[row.status_idx] = next;
-    lines[row.line_index] = `| ${row.cols.join(" | ")} |`;
-    applied[row.id] = { from: row.status, to: next };
-  }
-
-  return {
-    text: `${lines.join("\n").trimEnd()}\n`,
-    applied,
-  };
-}
-
-export function parseLatestEvidenceTaskStatuses(
-  evidenceText: string,
-): Record<string, EvidenceTaskStatus> {
-  const lines = compactLines(evidenceText).split("\n");
-  const latest: Record<string, EvidenceTaskStatus> = {};
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    let match = line.match(/task=([^ ]+).*?\b([a-z_]+)->([a-z_]+)\b/i);
-    if (match) {
-      const ids = match[1]
-        .split(",")
-        .map((id) => id.trim())
-        .filter(Boolean);
-      const next = match[3].trim().toLowerCase();
-      for (const id of ids) {
-        latest[id] = {
-          status: next,
-          source: "transition",
-          line: i + 1,
-          raw: line,
-        };
-      }
-      continue;
-    }
-    match = line.match(/task=([^ ]+)\s+imported\s+status=([a-z_]+)/i);
-    if (!match) continue;
-    const ids = match[1]
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean);
-    const next = match[2].trim().toLowerCase();
-    for (const id of ids) {
-      latest[id] = {
-        status: next,
-        source: "import",
-        line: i + 1,
-        raw: line,
-      };
-    }
-  }
-  return latest;
-}
-
-export function canonicalizeHandoffBlocks(
-  handoffText: string,
-): HandoffCanonicalization {
-  const originalBlocks = parseHandoffBlocksAnywhere(handoffText);
-  const dedupedBlocks: Array<{
-    block: string;
-    fingerprint: string;
-    iteration: number;
-    index: number;
-  }> = [];
-  const seen = new Set<string>();
-  for (let i = 0; i < originalBlocks.length; i += 1) {
-    const block = originalBlocks[i].trim();
-    if (!block) continue;
-    const fingerprint = blockFingerprint(block);
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
-    const iterationId = block
-      .replace(/^###\s*iteration\s*=\s*/i, "")
-      .split("\n")[0]
-      .trim();
-    dedupedBlocks.push({
-      block,
-      fingerprint,
-      iteration: parseIterationId(iterationId),
-      index: i,
-    });
-  }
-
-  const sorted = [...dedupedBlocks].sort((a, b) => {
-    if (a.iteration !== b.iteration) return a.iteration - b.iteration;
-    return a.index - b.index;
-  });
-  const sortedBlocks = sorted.map((entry) => entry.block);
-  const text = sortedBlocks.length
-    ? `# Iteration Handoffs\n\n${sortedBlocks.join("\n\n")}\n`
-    : "# Iteration Handoffs\n";
-
-  let reordered = false;
-  if (originalBlocks.length === sortedBlocks.length) {
-    for (let i = 0; i < originalBlocks.length; i += 1) {
-      if (originalBlocks[i].trim() !== sortedBlocks[i].trim()) {
-        reordered = true;
-        break;
-      }
-    }
-  } else {
-    reordered = true;
-  }
-  const deduped = originalBlocks.length !== sortedBlocks.length;
-  const latest = parseLatestHandoffFromText(text);
-  return {
-    text,
-    changed: text.trimEnd() !== compactLines(handoffText).trimEnd(),
-    reordered,
-    deduped,
-    latest_iteration_id: latest?.iteration_id?.trim() || null,
-    latest_stop_reason: latest?.stop_reason?.trim().toLowerCase() || null,
-  };
-}
-
-export function parseHandoffDoneCandidates(handoffText: string): string[] {
-  const blocks = parseHandoffBlocksAnywhere(handoffText);
-  const active = new Set<string>();
-  const ordered = blocks
-    .map((block, index) => {
-      const iterationId = block
-        .replace(/^###\s*iteration\s*=\s*/i, "")
-        .split("\n")[0]
-        .trim();
-      const advancedRaw =
-        block.match(/^\s*-\s*advanced_tasks\s*:\s*(.+)$/im)?.[1] ?? "";
-      const rolledRaw =
-        block.match(/^\s*-\s*rolled_back_tasks\s*:\s*(.+)$/im)?.[1] ?? "";
-      return {
-        index,
-        iteration: parseIterationId(iterationId),
-        advanced: parseBracketList(advancedRaw),
-        rolled: parseBracketList(rolledRaw),
-      };
-    })
-    .sort((a, b) =>
-      a.iteration === b.iteration
-        ? a.index - b.index
-        : a.iteration - b.iteration,
-    );
-
-  for (const block of ordered) {
-    for (const id of block.advanced) active.add(id);
-    for (const id of block.rolled) active.delete(id);
-  }
-  return [...active];
-}
-
-export function scanQuestCoherency(files: QuestFiles): QuestCoherencyScan {
-  const tasksText = readText(files.tasks);
-  const evidenceText = readText(files.evidence);
-  const handoffText = readText(files.handoffs);
-  const tasks = parseTaskTable(tasksText).status_by_id;
-  const taskFallback = evaluateTaskFallback(Object.values(tasks));
-  const evidence = parseLatestEvidenceTaskStatuses(evidenceText);
-  const handoffDone = new Set(parseHandoffDoneCandidates(handoffText));
-
-  const blocks = parseHandoffBlocksAnywhere(handoffText);
-  let nonMonotonic = false;
-  let lastIter = Number.MIN_SAFE_INTEGER;
-  for (const block of blocks) {
-    const iterationId = block
-      .replace(/^###\s*iteration\s*=\s*/i, "")
-      .split("\n")[0]
-      .trim();
-    const iter = parseIterationId(iterationId);
-    if (iter < lastIter) {
-      nonMonotonic = true;
-      break;
-    }
-    lastIter = iter;
-  }
-  const latest = parseLatestHandoffFromText(handoffText);
-  const latestStopReason = latest?.stop_reason?.trim().toLowerCase() || null;
-  const terminalMismatch =
-    !!latestStopReason &&
-    ((latestStopReason === "all_done" && taskFallback !== "all_done") ||
-      (latestStopReason === "all_blocked_or_deferred" &&
-        taskFallback !== "all_stalled"));
-
-  const mismatches: TaskEvidenceMismatch[] = [];
-  for (const [taskId, taskStatus] of Object.entries(tasks)) {
-    const ev = evidence[taskId];
-    if (!ev) continue;
-    if (ev.status === taskStatus) continue;
-    mismatches.push({
-      task_id: taskId,
-      task_status: taskStatus,
-      evidence_status: ev.status,
-      evidence_source: ev.source,
-    });
-  }
-
-  return {
-    mismatches,
-    handoff_done_candidates: [...handoffDone],
-    handoff_non_monotonic: nonMonotonic,
-    latest_iteration_id: latest?.iteration_id?.trim() || null,
-    latest_stop_reason: latestStopReason,
-    task_fallback: taskFallback,
-    terminal_mismatch: terminalMismatch,
-    stray: detectStrayIterationPlacement(files),
-  };
-}
-
-export function repairQuestCoherency(
-  files: QuestFiles,
-  nowTimestamp = nowIso(),
-): QuestCoherencyRepair {
-  const touched = new Set<string>();
-  const stray = repairStrayIterationPlacement(files);
-  for (const file of stray.touched_files) touched.add(file);
-
-  let tasksText = readText(files.tasks);
-  let evidenceText = readText(files.evidence);
-  const handoffText = readText(files.handoffs);
-  const handoffCanonical = canonicalizeHandoffBlocks(handoffText);
-  if (handoffCanonical.changed) {
-    writeText(files.handoffs, handoffCanonical.text);
-    touched.add(files.handoffs);
-  }
-
-  const scan = scanQuestCoherency(files);
-  const handoffDone = new Set(scan.handoff_done_candidates);
-  const taskUpdates: Record<string, string> = {};
-  const evidenceReconcile: Record<string, string[]> = {};
-
-  for (const mismatch of scan.mismatches) {
-    if (
-      mismatch.evidence_status === "done" &&
-      mismatch.task_status !== "done" &&
-      handoffDone.has(mismatch.task_id)
-    ) {
-      taskUpdates[mismatch.task_id] = "done";
-      continue;
-    }
-    (evidenceReconcile[mismatch.task_status] ??= []).push(mismatch.task_id);
-  }
-
-  const appliedUpdates: Record<string, { from: string; to: string }> = {};
-  if (Object.keys(taskUpdates).length) {
-    const rewritten = rewriteTaskStatuses(tasksText, taskUpdates);
-    tasksText = rewritten.text;
-    for (const [taskId, delta] of Object.entries(rewritten.applied)) {
-      appliedUpdates[taskId] = delta;
-    }
-    if (Object.keys(rewritten.applied).length) {
-      writeText(files.tasks, tasksText);
-      touched.add(files.tasks);
-    }
-  }
-
-  const reconciliationEntries: string[] = [];
-  for (const [status, taskIds] of Object.entries(evidenceReconcile)) {
-    if (!taskIds.length) continue;
-    const sortedIds = [...taskIds].sort();
-    reconciliationEntries.push(
-      `- [${nowTimestamp}] task=${sortedIds.join(",")} reconciled evidence->${status} type=reconcile ref="${files.tasks}" summary="reconciled stale evidence status to canonical task table"`,
-    );
-  }
-  if (reconciliationEntries.length) {
-    appendEvidence(files.evidence, reconciliationEntries);
-    evidenceText = readText(files.evidence);
-    touched.add(files.evidence);
-  }
-
-  const latest = parseLatestHandoffFromText(readText(files.handoffs));
-  return {
-    touched_files: [...touched],
-    stray_blocks_moved: stray.moved_block_count,
-    handoff_reordered: handoffCanonical.reordered,
-    handoff_deduped: handoffCanonical.deduped,
-    task_updates: appliedUpdates,
-    evidence_reconciliations: evidenceReconcile,
-    latest_iteration_id: latest?.iteration_id?.trim() || null,
-    latest_stop_reason: latest?.stop_reason?.trim().toLowerCase() || null,
-  };
-}
-
-export function detectStrayIterationPlacement(
-  files: QuestFiles,
-): StrayIterationReport {
-  const tasksExtract = extractIterationBlocksAndClean(readText(files.tasks));
-  const evidenceExtract = extractIterationBlocksAndClean(
-    readText(files.evidence),
-  );
-  const task_block_count = tasksExtract.blocks.length;
-  const evidence_block_count = evidenceExtract.blocks.length;
-  const total_block_count = task_block_count + evidence_block_count;
-  return {
-    has_stray: total_block_count > 0,
-    task_block_count,
-    evidence_block_count,
-    total_block_count,
-    task_blocks: tasksExtract.blocks,
-    evidence_blocks: evidenceExtract.blocks,
-  };
-}
-
-export function repairStrayIterationPlacement(files: QuestFiles): {
-  had_stray: boolean;
-  moved_block_count: number;
-  touched_files: string[];
-} {
-  const touched = new Set<string>();
-  const tasksOriginal = readText(files.tasks);
-  const evidenceOriginal = readText(files.evidence);
-  const handoffsOriginal = readText(files.handoffs);
-
-  const tasksExtract = extractIterationBlocksAndClean(tasksOriginal);
-  const evidenceExtract = extractIterationBlocksAndClean(evidenceOriginal);
-  const movedBlocks = [...tasksExtract.blocks, ...evidenceExtract.blocks];
-  if (!movedBlocks.length) {
-    return { had_stray: false, moved_block_count: 0, touched_files: [] };
-  }
-
-  if (tasksExtract.cleaned_text !== collapseBlankLines(tasksOriginal)) {
-    writeText(
-      files.tasks,
-      tasksExtract.cleaned_text || "# Quest\n\n## Tasks\n",
-    );
-    touched.add(files.tasks);
-  }
-  if (evidenceExtract.cleaned_text !== collapseBlankLines(evidenceOriginal)) {
-    writeText(files.evidence, evidenceExtract.cleaned_text || "# Evidence\n");
-    touched.add(files.evidence);
-  }
-
-  const handoffPrefix = handoffsOriginal.trim()
-    ? handoffsOriginal.trimEnd()
-    : "# Iteration Handoffs";
-  const existing = new Set(
-    parseHandoffBlocksAnywhere(handoffsOriginal).map(blockFingerprint),
-  );
-  const appendable = movedBlocks.filter(
-    (block) => !existing.has(blockFingerprint(block)),
-  );
-  if (appendable.length) {
-    writeText(
-      files.handoffs,
-      `${handoffPrefix}\n\n${appendable.join("\n\n").trim()}\n`,
-    );
-    touched.add(files.handoffs);
-  }
-
-  return {
-    had_stray: true,
-    moved_block_count: movedBlocks.length,
-    touched_files: [...touched],
-  };
-}
-
 export function normalizeName(input: string): string {
   const value = input
     .toLowerCase()
@@ -896,22 +233,32 @@ function planTaskAcceptance(value: unknown): string {
 }
 
 export function questFiles(repoRoot: string, wtree: string): QuestFiles {
-  const dir = resolve(repoRoot, LOOPO_QUESTS_DIR, wtree);
+  const worktreeRoot = coordinatorWorktreePath(repoRoot, wtree);
+  return questFilesForWorkspace(worktreeRoot, wtree);
+}
+
+export function questFilesForWorkspace(
+  workspaceRoot: string,
+  wtree: string,
+): QuestFiles {
+  const workspace_root = resolve(workspaceRoot);
+  const loopo_root = resolve(workspace_root, LOOPO_DIR);
+  const dir = resolve(workspace_root, LOOPO_RUNTIME_DIR);
   return {
     wtree,
+    workspace_root,
+    loopo_root,
     dir,
     tasks: resolve(dir, "tasks.yaml"),
-    plan: resolve(dir, "plan.yaml"),
+    events: resolve(dir, "events.jsonl"),
     manifest: resolve(dir, "manifest.sign.json"),
-    children_dir: resolve(dir, "children"),
-    questions: resolve(dir, "questions.jsonl"),
-    plans: resolve(dir, "plans.jsonl"),
-    evidence: resolve(dir, "evidence.jsonl"),
-    validation: resolve(dir, "validation.jsonl"),
-    review: resolve(dir, "review.jsonl"),
-    handoffs: resolve(dir, "handoffs.jsonl"),
-    hook_events: resolve(dir, "hook-events.jsonl"),
+    hook_state: resolve(dir, "hook-state.json"),
+    lock: resolve(dir, "lock.json"),
   };
+}
+
+export function questWorkspaceRoot(files: QuestFiles): string {
+  return files.workspace_root;
 }
 
 type SystemDocDef = {
@@ -982,6 +329,11 @@ export function renderSystemIndexYaml(repoRoot: string): string {
   return `${lines.join("\n")}\n`;
 }
 
+function manifestPathKey(root: string, path: string): string {
+  const key = relative(root, path).replace(/\\/g, "/");
+  return key && !key.startsWith("..") ? key : path;
+}
+
 export function rootManagedFiles(repoRoot: string): string[] {
   return [
     resolve(repoRoot, LOOPO_SYSTEM_FILE),
@@ -1000,7 +352,7 @@ export function writeRootManifest(
     typeof previous?.receipt_head === "string" ? previous.receipt_head : null;
   const files: Record<string, string> = {};
   for (const file of rootManagedFiles(repoRoot)) {
-    files[file] = hashText(readText(file));
+    files[manifestPathKey(repoRoot, file)] = hashText(readText(file));
   }
   const receiptHead = hashText(
     [
@@ -1059,18 +411,23 @@ export function verifyRootManifest(repoRoot: string): {
       ? (manifest.files as Record<string, string>)
       : {};
   const errors: string[] = [];
-  for (const file of rootManagedFiles(repoRoot)) {
-    const expected = files[file];
+  const managed = rootManagedFiles(repoRoot);
+  const managedKeys = managed.map((file) => manifestPathKey(repoRoot, file));
+  const useRelativeKeys = managedKeys.some((key) => files[key] != null);
+  for (const file of managed) {
+    const key = useRelativeKeys ? manifestPathKey(repoRoot, file) : file;
+    const expected = files[key];
     if (!expected) {
-      errors.push(`root manifest missing file entry: ${file}`);
+      errors.push(`root manifest missing file entry: ${key}`);
       continue;
     }
     const actual = hashText(readText(file));
     if (actual !== expected)
       errors.push(`unauthorized/tampered root file: ${file}`);
   }
+  const managedSet = new Set(useRelativeKeys ? managedKeys : managed);
   for (const file of Object.keys(files)) {
-    if (!rootManagedFiles(repoRoot).includes(file)) {
+    if (!managedSet.has(file)) {
       errors.push(`root manifest contains unmanaged file entry: ${file}`);
     }
   }
@@ -1244,58 +601,127 @@ export function ensureGlobalSkillFiles(skillRoot?: string | null): string {
   return skillPath;
 }
 
-export function renderTasksYaml(state: QuestState): string {
-  const wtree = String(state.wtree ?? "");
-  const lines = [
-    "schema_version: 3",
-    `wtree: ${yamlScalar(wtree)}`,
-    `quest_id: ${yamlScalar(state.quest_id || wtree)}`,
-    `flow_id: ${yamlScalar(state.flow_id || "swe")}`,
-    `flow_version: ${Number.isInteger(state.flow_version) ? state.flow_version : 1}`,
-    `stage: ${yamlScalar(state.stage)}`,
-    `prompt: ${yamlScalar(state.prompt)}`,
-    `context_root: ${yamlScalar(state.context_root)}`,
-    `resolution_source: ${yamlScalar(state.resolution_source)}`,
-    `coordinator_branch: ${yamlScalar(state.coordinator_branch)}`,
-    `coordinator_worktree: ${yamlScalar(state.coordinator_worktree)}`,
-    `parent_wtree: ${yamlScalar(state.parent_wtree)}`,
-    `landing_target_branch: ${yamlScalar(state.landing_target_branch)}`,
-    `landing_target_worktree: ${yamlScalar(state.landing_target_worktree)}`,
-    `landed_commit: ${yamlScalar(state.landed_commit)}`,
-    `landing_strategy: ${yamlScalar(state.landing_strategy)}`,
-    `assumptions: ${yamlStringList(state.assumptions)}`,
-    `constraints: ${yamlStringList(state.constraints)}`,
-    "tasks:",
-  ];
-  if (!state.tasks.length) {
-    lines.push("  []");
-  } else {
-    for (const task of state.tasks) {
-      lines.push(`  - id: ${yamlScalar(task.id)}`);
-      lines.push(`    title: ${yamlScalar(task.title)}`);
-      lines.push(`    type: ${yamlScalar(task.type)}`);
-      lines.push(`    status: ${yamlScalar(task.status)}`);
-      lines.push(`    dependencies: ${yamlStringList(task.dependencies)}`);
-      lines.push(`    scope_files: ${yamlStringList(task.scope_files)}`);
-      lines.push(`    spec_refs: ${yamlStringList(task.spec_refs)}`);
-      lines.push(`    context_refs: ${yamlStringList(task.context_refs)}`);
-      lines.push(`    branch_ref: ${yamlScalar(task.branch_ref)}`);
-      lines.push(`    worktree_path: ${yamlScalar(task.worktree_path)}`);
-      lines.push(`    child_wtree: ${yamlScalar(task.child_wtree)}`);
-      lines.push(
-        `    concurrency_group: ${yamlScalar(task.concurrency_group)}`,
-      );
-      lines.push(`    merge_target: ${yamlScalar(task.merge_target)}`);
-      lines.push(`    merge_lease_id: ${yamlScalar(task.merge_lease_id)}`);
-      lines.push(`    merge_commit: ${yamlScalar(task.merge_commit)}`);
-      lines.push(
-        `    system_impact_ref: ${yamlScalar(task.system_impact_ref)}`,
-      );
-      lines.push(`    acceptance: ${yamlScalar(task.acceptance)}`);
-      if (task.blocker) lines.push(`    blocker: ${yamlScalar(task.blocker)}`);
-    }
+function defaultQuestPlanDetail(): QuestPlanDetail {
+  return {
+    classification: "",
+    scope: "",
+    summary: "",
+    rationale: "",
+    af: {},
+    of: {},
+    high_impact_unknowns: [],
+    defaulted_unknowns: [],
+    verification_targets: [],
+    decomposition_rationale: "",
+  };
+}
+
+function defaultQuestValidationReceipt(): QuestValidationReceipt {
+  return { status: "", checks: [] };
+}
+
+function defaultQuestVerificationReceipt(): QuestVerificationReceipt {
+  return { status: "", acceptance_trace: [], risks: [] };
+}
+
+function normalizeQuestQuestion(value: unknown): QuestQuestion | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const question = String(row.question ?? "").trim();
+  if (!id || !question) return null;
+  const result: QuestQuestion = { id, question };
+  if (String(row.impact ?? "").trim()) result.impact = String(row.impact).trim();
+  if (String(row.default ?? "").trim())
+    result.default = String(row.default).trim();
+  return result;
+}
+
+function normalizeQuestAnswer(value: unknown): QuestAnswer | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const answer = String(row.answer ?? "").trim();
+  if (!answer) return null;
+  const result: QuestAnswer = { answer };
+  if (String(row.id ?? "").trim()) result.id = String(row.id).trim();
+  if (String(row.question_id ?? "").trim())
+    result.question_id = String(row.question_id).trim();
+  if (String(row.question ?? "").trim())
+    result.question = String(row.question).trim();
+  if (typeof row.accepted_default === "boolean") {
+    result.accepted_default = row.accepted_default;
   }
-  return `${lines.join("\n")}\n`;
+  return result;
+}
+
+function normalizeQuestionRounds(value: unknown): QuestQuestionRound[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const questions = Array.isArray((entry as Record<string, unknown>).questions)
+        ? ((entry as Record<string, unknown>).questions as unknown[])
+            .map(normalizeQuestQuestion)
+            .filter((row): row is QuestQuestion => Boolean(row))
+        : [];
+      return questions.length ? { questions } : null;
+    })
+    .filter((row): row is QuestQuestionRound => Boolean(row));
+}
+
+function normalizeTaskList(value: unknown): QuestTask[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) =>
+      normalizePlanTask(
+        {},
+        typeof item === "object" && item ? (item as Record<string, unknown>) : {},
+        index,
+      ),
+    )
+    .filter(Boolean);
+}
+
+export function renderTasksYaml(state: QuestState): string {
+  const wtree = String(state.wtree ?? "").trim();
+  return stringifyYaml(
+    {
+      schema_version: 3,
+      wtree,
+      quest_id: String(state.quest_id ?? wtree),
+      flow_id: String(state.flow_id ?? "swe"),
+      flow_version:
+        Number.isInteger(state.flow_version) && state.flow_version > 0
+          ? state.flow_version
+          : 1,
+      stage: String(state.stage ?? "planning"),
+      prompt: String(state.prompt ?? ""),
+      context_root: String(state.context_root ?? ""),
+      resolution_source: String(state.resolution_source ?? ""),
+      coordinator_branch: String(state.coordinator_branch ?? "main"),
+      coordinator_worktree: String(state.coordinator_worktree ?? ""),
+      parent_wtree: String(state.parent_wtree ?? ""),
+      parent_task_id: String(state.parent_task_id ?? ""),
+      parent_context_ref: String(state.parent_context_ref ?? ""),
+      landing_target_branch: String(state.landing_target_branch ?? "main"),
+      landing_target_worktree: String(state.landing_target_worktree ?? ""),
+      landed_commit: String(state.landed_commit ?? ""),
+      landing_strategy: String(state.landing_strategy ?? ""),
+      assumptions: asStringList(state.assumptions),
+      constraints: asStringList(state.constraints),
+      question_rounds: Array.isArray(state.question_rounds)
+        ? state.question_rounds
+        : [],
+      answers: Array.isArray(state.answers) ? state.answers : [],
+      plan_detail: state.plan_detail ?? defaultQuestPlanDetail(),
+      validation_receipt:
+        state.validation_receipt ?? defaultQuestValidationReceipt(),
+      verification_receipt:
+        state.verification_receipt ?? defaultQuestVerificationReceipt(),
+      tasks: Array.isArray(state.tasks) ? state.tasks : [],
+    },
+    { lineWidth: 0 },
+  );
 }
 
 function parseYamlScalar(value: string): string {
@@ -1347,90 +773,110 @@ function emptyQuestTask(id: string): QuestTask {
 }
 
 export function parseTasksYaml(text: string): Partial<QuestState> {
-  const result: Partial<QuestState> = {};
-  const tasks: QuestTask[] = [];
-  let currentTask: QuestTask | null = null;
-  for (const line of compactLines(text).split("\n")) {
-    const match = line.match(/^([a-z_]+):\s*(.*)$/);
-    if (match) {
-      const rawKey = match[1];
-      const key = rawKey as keyof QuestState;
-      const value = parseYamlScalar(match[2] ?? "");
-      if (rawKey === LEGACY_WTREE_KEY || rawKey === LEGACY_PARENT_WTREE_KEY) {
-        throw new Error(
-          `legacy quest state key "${rawKey}" is unsupported; recreate or manually update the quest state to use wtree-only fields`,
-        );
-      }
-      if (
-        [
-          "wtree",
-          "quest_id",
-          "flow_id",
-          "stage",
-          "prompt",
-          "context_root",
-          "resolution_source",
-          "coordinator_branch",
-          "coordinator_worktree",
-          "parent_wtree",
-          "landing_target_branch",
-          "landing_target_worktree",
-          "landed_commit",
-          "landing_strategy",
-        ].includes(key)
-      ) {
-        (result as Record<string, unknown>)[key] = value;
-      } else if (key === "flow_version") {
-        const version = Number(value);
-        (result as Record<string, unknown>)[key] =
-          Number.isInteger(version) && version > 0 ? version : 1;
-      } else if (key === "assumptions" || key === "constraints") {
-        (result as Record<string, unknown>)[key] = parseYamlStringList(
-          match[2] ?? "",
-        );
-      }
-      continue;
-    }
-    const taskStart = line.match(/^\s{2}- id:\s*(.*)$/);
-    if (taskStart) {
-      currentTask = emptyQuestTask(parseYamlScalar(taskStart[1] ?? ""));
-      tasks.push(currentTask);
-      continue;
-    }
-    const taskField = line.match(/^\s{4}([a-z_]+):\s*(.*)$/);
-    if (taskField && currentTask) {
-      const rawKey = taskField[1];
-      const key = rawKey as keyof QuestTask;
-      const raw = taskField[2] ?? "";
-      if (rawKey === LEGACY_CHILD_WTREE_KEY) {
-        throw new Error(
-          `legacy quest task key "${rawKey}" is unsupported; recreate or manually update the quest state to use "child_wtree"`,
-        );
-      }
-      if (
-        ["dependencies", "scope_files", "spec_refs", "context_refs"].includes(
-          key,
-        )
-      ) {
-        (currentTask as Record<string, unknown>)[key] =
-          parseYamlStringList(raw);
-      } else if (key === "type") {
-        currentTask.type =
-          parseYamlScalar(raw) === "general" ? "general" : "coding";
-      } else {
-        (currentTask as Record<string, unknown>)[key] = parseYamlScalar(raw);
-      }
-    }
+  const parsed = parseYaml(text) as Record<string, unknown> | null;
+  const raw = parsed && typeof parsed === "object" ? parsed : {};
+  if (LEGACY_WTREE_KEY in raw || LEGACY_PARENT_WTREE_KEY in raw) {
+    throw new Error(
+      "legacy quest state keys are unsupported; recreate or manually update the quest state to use wtree-only fields",
+    );
   }
-  if (tasks.length) result.tasks = tasks;
+  const result: Partial<QuestState> = {
+    schema_version: 3,
+    wtree: String(raw.wtree ?? "").trim(),
+    quest_id: String(raw.quest_id ?? raw.wtree ?? "").trim(),
+    flow_id: String(raw.flow_id ?? "swe").trim() || "swe",
+    flow_version: Number.isInteger(raw.flow_version)
+      ? Number(raw.flow_version)
+      : Math.max(1, Number(raw.flow_version ?? 1) || 1),
+    stage: String(raw.stage ?? "planning").trim() || "planning",
+    prompt: String(raw.prompt ?? ""),
+    context_root: String(raw.context_root ?? ""),
+    resolution_source: String(raw.resolution_source ?? ""),
+    coordinator_branch: String(raw.coordinator_branch ?? "main"),
+    coordinator_worktree: String(raw.coordinator_worktree ?? ""),
+    parent_wtree: String(raw.parent_wtree ?? ""),
+    parent_task_id: String(raw.parent_task_id ?? ""),
+    parent_context_ref: String(raw.parent_context_ref ?? ""),
+    landing_target_branch: String(raw.landing_target_branch ?? "main"),
+    landing_target_worktree: String(raw.landing_target_worktree ?? ""),
+    landed_commit: String(raw.landed_commit ?? ""),
+    landing_strategy: String(raw.landing_strategy ?? ""),
+    assumptions: asStringList(raw.assumptions),
+    constraints: asStringList(raw.constraints),
+    question_rounds: normalizeQuestionRounds(raw.question_rounds),
+    answers: Array.isArray(raw.answers)
+      ? raw.answers
+          .map(normalizeQuestAnswer)
+          .filter((row): row is QuestAnswer => Boolean(row))
+      : [],
+    plan_detail:
+      raw.plan_detail && typeof raw.plan_detail === "object"
+        ? {
+            ...defaultQuestPlanDetail(),
+            ...(raw.plan_detail as Record<string, unknown>),
+            high_impact_unknowns: asStringList(
+              (raw.plan_detail as Record<string, unknown>).high_impact_unknowns,
+            ),
+            defaulted_unknowns: asStringList(
+              (raw.plan_detail as Record<string, unknown>).defaulted_unknowns,
+            ),
+            verification_targets: asStringList(
+              (raw.plan_detail as Record<string, unknown>).verification_targets,
+            ),
+            af:
+              (raw.plan_detail as Record<string, unknown>).af &&
+              typeof (raw.plan_detail as Record<string, unknown>).af === "object"
+                ? ((raw.plan_detail as Record<string, unknown>)
+                    .af as Record<string, unknown>)
+                : {},
+            of:
+              (raw.plan_detail as Record<string, unknown>).of &&
+              typeof (raw.plan_detail as Record<string, unknown>).of === "object"
+                ? ((raw.plan_detail as Record<string, unknown>)
+                    .of as Record<string, unknown>)
+                : {},
+          }
+        : defaultQuestPlanDetail(),
+    validation_receipt:
+      raw.validation_receipt && typeof raw.validation_receipt === "object"
+        ? {
+            status: String(
+              (raw.validation_receipt as Record<string, unknown>).status ?? "",
+            ),
+            checks: Array.isArray(
+              (raw.validation_receipt as Record<string, unknown>).checks,
+            )
+              ? (((raw.validation_receipt as Record<string, unknown>)
+                  .checks as unknown[]) as Array<Record<string, unknown>>)
+              : [],
+          }
+        : defaultQuestValidationReceipt(),
+    verification_receipt:
+      raw.verification_receipt && typeof raw.verification_receipt === "object"
+        ? {
+            status: String(
+              (raw.verification_receipt as Record<string, unknown>).status ?? "",
+            ),
+            acceptance_trace: Array.isArray(
+              (raw.verification_receipt as Record<string, unknown>)
+                .acceptance_trace,
+            )
+              ? (((raw.verification_receipt as Record<string, unknown>)
+                  .acceptance_trace as unknown[]) as Array<
+                  Record<string, unknown>
+                >)
+              : [],
+            risks: Array.isArray(
+              (raw.verification_receipt as Record<string, unknown>).risks,
+            )
+              ? (((raw.verification_receipt as Record<string, unknown>)
+                  .risks as unknown[]) as Array<Record<string, unknown>>)
+              : [],
+          }
+        : defaultQuestVerificationReceipt(),
+    tasks: normalizeTaskList(raw.tasks),
+  };
   if (!result.quest_id && result.wtree) result.quest_id = result.wtree;
-  if (!result.flow_id) result.flow_id = "swe";
-  if (!result.flow_version) result.flow_version = 1;
-  if (!result.parent_wtree) result.parent_wtree = "";
-  if (!result.landing_target_branch) result.landing_target_branch = "main";
-  if (!result.landing_target_worktree) result.landing_target_worktree = "";
-  if (!result.landed_commit) result.landed_commit = "";
-  if (!result.landing_strategy) result.landing_strategy = "";
   return result;
 }
 
@@ -1444,23 +890,11 @@ export function appendJsonl(
 }
 
 function questManagedFiles(files: QuestFiles): string[] {
-  const childFiles = existsSync(files.children_dir)
-    ? readdirSync(files.children_dir)
-        .filter((name) => name.endsWith(".yaml") || name.endsWith(".jsonl"))
-        .map((name) => resolve(files.children_dir, name))
-    : [];
-  return [
-    files.tasks,
-    files.plan,
-    files.questions,
-    files.plans,
-    files.evidence,
-    files.validation,
-    files.review,
-    files.handoffs,
-    files.hook_events,
-    ...childFiles,
-  ];
+  return [files.tasks, files.events];
+}
+
+function questManifestPathKey(files: QuestFiles, path: string): string {
+  return manifestPathKey(files.workspace_root, path);
 }
 
 export function writeQuestManifest(
@@ -1473,7 +907,7 @@ export function writeQuestManifest(
     typeof previous?.receipt_head === "string" ? previous.receipt_head : null;
   const hashes: Record<string, string> = {};
   for (const file of questManagedFiles(files)) {
-    hashes[file] = hashText(readText(file));
+    hashes[questManifestPathKey(files, file)] = hashText(readText(file));
   }
   const receiptHead = hashText(
     [
@@ -1511,12 +945,15 @@ export function verifyQuestManifest(files: QuestFiles): {
       ? (manifest.files as Record<string, string>)
       : {};
   const managed = questManagedFiles(files);
-  const managedSet = new Set(managed);
+  const managedKeys = managed.map((file) => questManifestPathKey(files, file));
+  const useRelativeKeys = managedKeys.some((key) => recorded[key] != null);
+  const managedSet = new Set(useRelativeKeys ? managedKeys : managed);
   const errors: string[] = [];
   for (const file of managed) {
-    const expected = recorded[file];
+    const key = useRelativeKeys ? questManifestPathKey(files, file) : file;
+    const expected = recorded[key];
     if (!expected) {
-      errors.push(`quest manifest missing file entry: ${file}`);
+      errors.push(`quest manifest missing file entry: ${key}`);
       continue;
     }
     const actual = hashText(readText(file));
@@ -1594,10 +1031,7 @@ function normalizePlanTask(
         (leafChild ? "" : taskAssignmentMergeLeaseId(wtree, id)),
     ),
     merge_commit: String(input.merge_commit ?? ""),
-    system_impact_ref: String(
-      input.system_impact_ref ??
-        (leafChild ? "" : `.loopo/quests/${wtree}/children/${id}.yaml`),
-    ),
+    system_impact_ref: String(input.system_impact_ref ?? ""),
     acceptance: planTaskAcceptance(
       input.acceptance ?? input.acceptance_criteria,
     ),
@@ -1625,82 +1059,50 @@ export function applyQuestPlanToTasks(
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
     parent_wtree: String(state.parent_wtree ?? ""),
+    parent_task_id: String(state.parent_task_id ?? ""),
+    parent_context_ref: String(state.parent_context_ref ?? ""),
     landing_target_branch: String(state.landing_target_branch ?? "main"),
     landing_target_worktree: String(state.landing_target_worktree ?? ""),
     landed_commit: String(state.landed_commit ?? ""),
     landing_strategy: String(state.landing_strategy ?? ""),
     assumptions: asStringList(plan?.assumptions),
     constraints: asStringList(plan?.constraints),
+    question_rounds: Array.isArray(state.question_rounds)
+      ? state.question_rounds
+      : [],
+    answers: Array.isArray(state.answers) ? state.answers : [],
+    plan_detail: {
+      ...defaultQuestPlanDetail(),
+      ...(state.plan_detail ?? {}),
+      classification: String(plan?.classification ?? ""),
+      scope: String(plan?.scope ?? ""),
+      summary: String(plan?.summary ?? plan?.scope ?? ""),
+      rationale: String(plan?.summary ?? plan?.scope ?? ""),
+      af:
+        plan?.af && typeof plan.af === "object"
+          ? (plan.af as Record<string, unknown>)
+          : {},
+      of:
+        plan?.of && typeof plan.of === "object"
+          ? (plan.of as Record<string, unknown>)
+          : {},
+      high_impact_unknowns: asStringList(plan?.high_impact_unknowns),
+      defaulted_unknowns: asStringList(plan?.defaulted_unknowns),
+      verification_targets: asStringList(plan?.verification_targets),
+      decomposition_rationale: String(
+        plan?.decomposition_rationale ?? plan?.summary ?? "",
+      ),
+    },
+    validation_receipt:
+      state.validation_receipt ?? defaultQuestValidationReceipt(),
+    verification_receipt:
+      state.verification_receipt ?? defaultQuestVerificationReceipt(),
     tasks: taskInputs.map((task, index) =>
       normalizePlanTask(state, task, index),
     ),
   };
   writeText(files.tasks, renderTasksYaml(nextState));
   return nextState;
-}
-
-export function renderPlanYaml(input: {
-  wtree: string;
-  questId: string;
-  prompt: string;
-  plan?: Record<string, unknown> | null;
-}): string {
-  const summary = String(input.plan?.summary ?? "").trim();
-  const taskInputs = Array.isArray(input.plan?.tasks)
-    ? (input.plan!.tasks as Array<Record<string, unknown>>)
-    : [];
-  const lines = [
-    "schema_version: 3",
-    `wtree: ${yamlScalar(input.wtree)}`,
-    `quest_id: ${yamlScalar(input.questId)}`,
-    `prompt: ${yamlScalar(input.prompt)}`,
-    `summary: ${yamlScalar(summary)}`,
-    `assumptions: ${yamlStringList(asStringList(input.plan?.assumptions))}`,
-    "tasks:",
-  ];
-  if (!taskInputs.length) {
-    lines.push("  []");
-  } else {
-    taskInputs.forEach((task, index) => {
-      const id = normalizeName(
-        String(task.id ?? task.task_id ?? `task-${index + 1}`),
-      );
-      lines.push(`  - id: ${yamlScalar(id)}`);
-      lines.push(
-        `    title: ${yamlScalar(String(task.title ?? task.name ?? id))}`,
-      );
-      lines.push(
-        `    type: ${yamlScalar(task.type === "general" ? "general" : "coding")}`,
-      );
-      lines.push(
-        `    acceptance: ${yamlScalar(planTaskAcceptance(task.acceptance ?? task.acceptance_criteria))}`,
-      );
-      lines.push(
-        `    spec_refs: ${yamlStringList(asStringList(task.spec_refs ?? task.specs))}`,
-      );
-      lines.push(
-        `    context_refs: ${yamlStringList(asStringList(task.context_refs ?? task.context))}`,
-      );
-    });
-  }
-  lines.push("");
-  return lines.join("\n");
-}
-
-export function writeQuestPlan(
-  files: QuestFiles,
-  state: Partial<QuestState>,
-  plan: Record<string, unknown> | null,
-): void {
-  writeText(
-    files.plan,
-    renderPlanYaml({
-      wtree: files.wtree,
-      questId: String(state.quest_id ?? files.wtree),
-      prompt: String(state.prompt ?? ""),
-      plan,
-    }),
-  );
 }
 
 function childTaskValue(value: unknown, fallback: string): string {
@@ -1732,12 +1134,23 @@ export function applyChildStatusToTasks(
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
     parent_wtree: String(state.parent_wtree ?? ""),
+    parent_task_id: String(state.parent_task_id ?? ""),
+    parent_context_ref: String(state.parent_context_ref ?? ""),
     landing_target_branch: String(state.landing_target_branch ?? "main"),
     landing_target_worktree: String(state.landing_target_worktree ?? ""),
     landed_commit: String(state.landed_commit ?? ""),
     landing_strategy: String(state.landing_strategy ?? ""),
     assumptions: asStringList(state.assumptions),
     constraints: asStringList(state.constraints),
+    question_rounds: Array.isArray(state.question_rounds)
+      ? state.question_rounds
+      : [],
+    answers: Array.isArray(state.answers) ? state.answers : [],
+    plan_detail: state.plan_detail ?? defaultQuestPlanDetail(),
+    validation_receipt:
+      state.validation_receipt ?? defaultQuestValidationReceipt(),
+    verification_receipt:
+      state.verification_receipt ?? defaultQuestVerificationReceipt(),
     tasks: (Array.isArray(state.tasks) ? state.tasks : []).map((task) => {
       if (task.id !== taskId) return task;
       return {
@@ -1799,6 +1212,8 @@ export function applyLandingReceipt(
     parent_wtree: String(
       receipt.parent_wtree ?? state.parent_wtree ?? "",
     ),
+    parent_task_id: String(state.parent_task_id ?? ""),
+    parent_context_ref: String(state.parent_context_ref ?? ""),
     landing_target_branch: String(
       receipt.landing_target_branch ?? state.landing_target_branch ?? "main",
     ),
@@ -1811,6 +1226,15 @@ export function applyLandingReceipt(
     ),
     assumptions: asStringList(state.assumptions),
     constraints: asStringList(state.constraints),
+    question_rounds: Array.isArray(state.question_rounds)
+      ? state.question_rounds
+      : [],
+    answers: Array.isArray(state.answers) ? state.answers : [],
+    plan_detail: state.plan_detail ?? defaultQuestPlanDetail(),
+    validation_receipt:
+      state.validation_receipt ?? defaultQuestValidationReceipt(),
+    verification_receipt:
+      state.verification_receipt ?? defaultQuestVerificationReceipt(),
     tasks: Array.isArray(state.tasks) ? state.tasks : [],
   };
   writeText(files.tasks, renderTasksYaml(nextState));
@@ -1826,13 +1250,15 @@ export function createQuest(input: {
   flowId?: string;
   flowVersion?: number;
   parentWtree?: string;
+  parentTaskId?: string;
+  parentContextRef?: string;
   landingTargetBranch?: string;
   landingTargetWorktree?: string;
   landedCommit?: string;
   landingStrategy?: string;
 }): { files: QuestFiles; state: QuestState } {
   const files = questFiles(input.repoRoot, input.wtree);
-  if (existsSync(files.tasks) || existsSync(files.plan)) {
+  if (existsSync(files.tasks)) {
     throw new Error(`quest wtree already exists: ${input.wtree}`);
   }
   const state: QuestState = {
@@ -1848,68 +1274,31 @@ export function createQuest(input: {
     coordinator_branch: input.workspace.branch_ref,
     coordinator_worktree: input.workspace.worktree_path,
     parent_wtree: String(input.parentWtree ?? ""),
+    parent_task_id: String(input.parentTaskId ?? ""),
+    parent_context_ref: String(input.parentContextRef ?? ""),
     landing_target_branch: String(input.landingTargetBranch ?? "main"),
     landing_target_worktree: String(input.landingTargetWorktree ?? ""),
     landed_commit: String(input.landedCommit ?? ""),
     landing_strategy: String(input.landingStrategy ?? ""),
     assumptions: [],
     constraints: [],
+    question_rounds: [],
+    answers: [],
+    plan_detail: defaultQuestPlanDetail(),
+    validation_receipt: defaultQuestValidationReceipt(),
+    verification_receipt: defaultQuestVerificationReceipt(),
     tasks: [],
   };
   writeText(files.tasks, renderTasksYaml(state));
-  writeText(
-    files.plan,
-    renderPlanYaml({
-      wtree: input.wtree,
-      questId: input.wtree,
-      prompt: input.prompt,
-      plan: null,
-    }),
-  );
-  mkdirSync(files.children_dir, { recursive: true });
-  for (const file of [
-    files.questions,
-    files.plans,
-    files.evidence,
-    files.validation,
-    files.review,
-    files.handoffs,
-    files.hook_events,
-  ]) {
-    if (!existsSync(file)) writeText(file, "");
-  }
-  appendJsonl(files.handoffs, {
+  if (!existsSync(files.events)) writeText(files.events, "");
+  if (!existsSync(files.hook_state)) writeJson(files.hook_state, {});
+  appendJsonl(files.events, {
     event: "quest_started",
     quest_id: input.wtree,
     stage: state.stage,
-    iteration: 0,
-    stop_reason: "none",
   });
   writeQuestManifest(files, `start-${input.wtree}`, "loopo quest next");
   return { files, state };
-}
-
-export function findLatestQuest(
-  repoRoot: string,
-): { files: QuestFiles; state: Partial<QuestState> } | null {
-  const questsDir = resolve(repoRoot, LOOPO_QUESTS_DIR);
-  if (!existsSync(questsDir)) return null;
-  const entries = readdirSync(questsDir)
-    .map((wtree) => {
-      const files = questFiles(repoRoot, wtree);
-      if (!existsSync(files.tasks)) return null;
-      return { files, mtimeMs: statSync(files.tasks).mtimeMs };
-    })
-    .filter((entry): entry is { files: QuestFiles; mtimeMs: number } =>
-      Boolean(entry),
-    )
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  const first = entries[0];
-  if (!first) return null;
-  return {
-    files: first.files,
-    state: parseTasksYaml(readText(first.files.tasks)),
-  };
 }
 
 export function updateQuestStage(
@@ -1918,13 +1307,13 @@ export function updateQuestStage(
   requestId = "quest-stage",
   writerCommand = "loopo quest next",
 ): Partial<QuestState> {
-  const currentText = readText(files.tasks);
-  const nextText = /^stage:\s*.*$/m.test(currentText)
-    ? currentText.replace(/^stage:\s*.*$/m, `stage: ${yamlScalar(nextStage)}`)
-    : `${currentText.trimEnd()}\nstage: ${yamlScalar(nextStage)}\n`;
-  writeText(files.tasks, nextText.endsWith("\n") ? nextText : `${nextText}\n`);
-  const state = parseTasksYaml(readText(files.tasks));
-  appendJsonl(files.handoffs, {
+  const current = parseTasksYaml(readText(files.tasks));
+  const state = {
+    ...current,
+    stage: nextStage,
+  } as QuestState;
+  writeText(files.tasks, renderTasksYaml(state));
+  appendJsonl(files.events, {
     event: "stage_changed",
     quest_id: state.quest_id ?? files.wtree,
     stage: nextStage,
@@ -1935,10 +1324,13 @@ export function updateQuestStage(
 
 export function extractWtreeFromTasksPath(path: string): string | null {
   const normalized = path.replace(/\\/g, "/");
-  const questMatch = normalized.match(
-    /(?:^|\/)\.loopo\/quests\/([a-z0-9]+(?:-[a-z0-9]+)*)\/tasks\.yaml$/i,
-  );
-  return questMatch?.[1] ?? null;
+  if (/(?:^|\/)\.loopo\/runtime\/tasks\.yaml$/i.test(normalized)) {
+    const worktreeMatch = normalized.match(
+      /(?:^|\/)worktrees\/([a-z0-9]+(?:-[a-z0-9]+)*)\/\.loopo\/runtime\/tasks\.yaml$/i,
+    );
+    return worktreeMatch?.[1] ?? null;
+  }
+  return null;
 }
 
 function hasGitCommit(repoRoot: string): boolean {
@@ -2010,6 +1402,23 @@ function isEmptyDirectory(path: string): boolean {
   }
 }
 
+function isRuntimeScaffoldOnlyDirectory(path: string): boolean {
+  if (!existsSync(path)) return false;
+  try {
+    const entries = readdirSync(path);
+    if (!entries.length) return true;
+    if (entries.some((entry) => entry !== ".loopo")) return false;
+    const runtimeDir = resolve(path, ".loopo", "runtime");
+    if (!existsSync(runtimeDir)) return false;
+    const runtimeEntries = readdirSync(runtimeDir);
+    return runtimeEntries.every(
+      (entry) => entry === "lock.json" || entry === "hook-state.json",
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function coordinatorWorktreePath(
   repoRoot: string,
   wtree: string,
@@ -2061,6 +1470,11 @@ function ensureNamedWorkspace(
     };
   }
 
+  if (existsSync(desiredPath) && !isEmptyDirectory(desiredPath)) {
+    if (isRuntimeScaffoldOnlyDirectory(desiredPath)) {
+      rmSync(desiredPath, { recursive: true, force: true });
+    }
+  }
   if (existsSync(desiredPath) && !isEmptyDirectory(desiredPath)) {
     throw new Error(
       `cannot create coordinator worktree at ${desiredPath}: path already exists and is not empty`,
@@ -2234,185 +1648,39 @@ export function ensureQuestFiles(
 ): QuestFiles {
   const files = questFiles(repoRoot, wtree);
   if (!existsSync(files.tasks)) {
-    writeText(files.tasks, renderEmptyTasksDocument({ objective }));
-  }
-  if (!existsSync(files.evidence)) {
-    writeText(files.evidence, "# Evidence\n");
-  }
-  if (!existsSync(files.handoffs)) {
-    writeText(
-      files.handoffs,
-      [
-        "# Iteration Handoffs",
-        "",
-        "### iteration=0",
-        `- session_end_timestamp: ${nowIso()}`,
-        "- stop_reason: none",
-        "- advanced_tasks: []",
-        "- rolled_back_tasks: []",
-        "- new_blockers: []",
-        "- next_queue: []",
-        '- next_plan: ["initialize first tasks"]',
-        "- known_risks: []",
-        "",
-      ].join("\n"),
-    );
-  }
-  return files;
-}
-
-export function rewriteQuestMeta(
-  tasksText: string,
-  patch: Partial<{
-    objective: string;
-    scope: string;
-    constraints: string;
-    assumptions: string;
-  }>,
-): string {
-  const lines = compactLines(tasksText).split("\n");
-  const next = [...lines];
-  const keys = ["objective", "scope", "constraints", "assumptions"] as const;
-  for (const key of keys) {
-    const idx = next.findIndex((line) =>
-      new RegExp(`^\\s*-\\s*${key}\\s*:`).test(line.trim()),
-    );
-    if (idx >= 0 && typeof patch[key] === "string") {
-      next[idx] = `- ${key}: ${patch[key]}`;
-    }
-  }
-  return next.join("\n");
-}
-
-export function replaceTasksSection(
-  repoRoot: string,
-  wtree: string,
-  tasksText: string,
-  newTable: string,
-): string {
-  const lines = compactLines(tasksText).split("\n");
-  let start = lines.findIndex((line) => /^##\s+Tasks\b/i.test(line.trim()));
-  if (start < 0) {
-    return rewriteTaskAssignments(
-      repoRoot,
+    const initial: QuestState = {
+      schema_version: 3,
       wtree,
-      `${tasksText.trim()}\n\n## Tasks\n${newTable.trim()}\n`,
-    ).text;
+      quest_id: wtree,
+      flow_id: "swe",
+      flow_version: 1,
+      stage: "planning",
+      prompt: objective,
+      context_root: repoRoot,
+      resolution_source: "manual",
+      coordinator_branch: wtree,
+      coordinator_worktree: coordinatorWorktreePath(repoRoot, wtree),
+      parent_wtree: "",
+      parent_task_id: "",
+      parent_context_ref: "",
+      landing_target_branch: "main",
+      landing_target_worktree: landingTargetWorktreePath(repoRoot, "main"),
+      landed_commit: "",
+      landing_strategy: "",
+      assumptions: [],
+      constraints: [],
+      question_rounds: [],
+      answers: [],
+      plan_detail: defaultQuestPlanDetail(),
+      validation_receipt: defaultQuestValidationReceipt(),
+      verification_receipt: defaultQuestVerificationReceipt(),
+      tasks: [],
+    };
+    writeText(files.tasks, renderTasksYaml(initial));
   }
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^##\s+/.test(lines[i].trim())) {
-      end = i;
-      break;
-    }
-  }
-  const replacement = ["## Tasks", ...newTable.trim().split("\n")];
-  return rewriteTaskAssignments(
-    repoRoot,
-    wtree,
-    [...lines.slice(0, start), ...replacement, ...lines.slice(end)].join("\n"),
-  ).text;
-}
-
-export function appendEvidence(file: string, entries: string[]): void {
-  const lines = compactLines(readText(file));
-  const prefix = lines.trim() ? lines.trimEnd() : "# Evidence";
-  const body = entries
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .join("\n");
-  writeText(file, `${prefix}\n${body}\n`);
-}
-
-export function renderHandoffBlock(input: Record<string, unknown>): string {
-  const iteration =
-    String(input.iteration ?? input.iteration_id ?? "").trim() || "0";
-  const fields: Array<[string, unknown]> = [
-    ["session_end_timestamp", input.session_end_timestamp ?? nowIso()],
-    ["stop_reason", input.stop_reason ?? "none"],
-    ["advanced_tasks", input.advanced_tasks ?? []],
-    ["rolled_back_tasks", input.rolled_back_tasks ?? []],
-    ["new_blockers", input.new_blockers ?? []],
-    ["next_queue", input.next_queue ?? []],
-    ["next_plan", input.next_plan ?? []],
-    ["known_risks", input.known_risks ?? []],
-  ];
-  const body = fields.map(([key, value]) => {
-    if (Array.isArray(value)) return `- ${key}: [${value.join(", ")}]`;
-    return `- ${key}: ${String(value)}`;
-  });
-  return [`### iteration=${iteration}`, "", ...body].join("\n");
-}
-
-export function appendHandoff(
-  file: string,
-  handoff: Record<string, unknown>,
-): void {
-  const text = readText(file).trim();
-  const prefix = text || "# Iteration Handoffs";
-  const block = renderHandoffBlock(handoff);
-  writeText(file, `${prefix}\n\n${block}\n`);
-}
-
-export function parseLatestHandoffFromText(
-  text: string,
-): Record<string, string> | null {
-  const lines = compactLines(text).split("\n");
-  let latest = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (/^###\s*iteration\s*=/.test(lines[i].trim())) latest = i;
-  }
-  if (latest < 0) return null;
-  const data: Record<string, string> = {
-    iteration_id: lines[latest].replace(/^###\s*iteration\s*=\s*/i, "").trim(),
-  };
-  for (const line of lines.slice(latest + 1)) {
-    if (/^###\s*iteration\s*=/.test(line.trim())) break;
-    const match = line.match(/^\s*-\s*([A-Za-z0-9_]+)\s*:\s*(.+?)\s*$/);
-    if (match) data[match[1].toLowerCase()] = match[2].trim();
-  }
-  return data;
-}
-
-function archiveRetentionCutoff(now: Date): number {
-  const cutoff = new Date(now.getTime());
-  cutoff.setMonth(cutoff.getMonth() - 6);
-  return cutoff.getTime();
-}
-
-export function pruneOldQuestArchives(
-  repoRoot: string,
-  now = new Date(),
-): string[] {
-  const archieveDir = resolve(repoRoot, LOOPO_ARCHIEVE_DIR);
-  if (!existsSync(archieveDir)) return [];
-  const cutoff = archiveRetentionCutoff(now);
-  const deleted: string[] = [];
-  for (const name of readdirSync(archieveDir).sort()) {
-    const path = join(archieveDir, name);
-    if (!existsSync(path)) continue;
-    const stat = statSync(path);
-    if (!stat.isDirectory() || stat.mtimeMs >= cutoff) continue;
-    rmSync(path, { recursive: true, force: true });
-    deleted.push(path);
-  }
-  return deleted;
-}
-
-export function findCanonicalQuestFiles(dir: string): string[] {
-  const questsDir = join(dir, "quests");
-  if (!existsSync(questsDir)) return [];
-  const files: Array<{ path: string; mtimeMs: number }> = [];
-  for (const name of readdirSync(questsDir).sort()) {
-    const questDir = join(questsDir, name);
-    if (!existsSync(questDir) || !statSync(questDir).isDirectory()) continue;
-    const path = join(questDir, "tasks.yaml");
-    if (!existsSync(path)) continue;
-    files.push({ path, mtimeMs: statSync(path).mtimeMs });
-  }
-  return files
-    .sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path))
-    .map((entry) => entry.path);
+  if (!existsSync(files.events)) writeText(files.events, "");
+  if (!existsSync(files.hook_state)) writeJson(files.hook_state, {});
+  return files;
 }
 
 export function resolveRepoFromCwd(cwd: string): string {

@@ -285,7 +285,17 @@ function withGuidedEnvelope(input: {
   output: Record<string, unknown>;
 }): Record<string, unknown> {
   const state = questState(input.repoRoot, input.wtree);
-  const stage = String(state.stage ?? "");
+  const outputStep =
+    typeof input.output.step === "string"
+      ? input.output.step
+      : input.output.step &&
+          typeof input.output.step === "object" &&
+          !Array.isArray(input.output.step)
+        ? String((input.output.step as Record<string, unknown>).id ?? "")
+        : "";
+  const outputStage = String(input.output.state ?? "");
+  const stage =
+    outputStep === "archived" ? "archived" : outputStage || String(state.stage ?? "");
   const flowId = String(state.flow_id ?? DEFAULT_FLOW_ID).trim() || DEFAULT_FLOW_ID;
   const originalCommands =
     input.output.commands &&
@@ -300,7 +310,7 @@ function withGuidedEnvelope(input: {
     flow_id: flowId,
     wtree: input.wtree,
     current_stage: stage,
-    done: stage === "archived",
+    done: stage === "archived" || outputStep === "archived",
     ...input.output,
     commands: {
       ...originalCommands,

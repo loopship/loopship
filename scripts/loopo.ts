@@ -33,17 +33,14 @@ import {
   applyChildStatusToTasks,
   applySystemUpdate,
   appendJsonl,
+  coordinatorWorktreePath,
   createLoopoShim,
   createQuest,
   ensureCoordinatorWorkspace,
   ensureTaskWorkspace,
   ensureGlobalSkillFiles,
   ensureGitRootCommit,
-  ensureSystemScaffold,
   landingTargetWorktreePath,
-  LOOPO_HOOK_STATE_FILE,
-  LOOPO_SYSTEM_FILE,
-  LOOPO_ROOT_MANIFEST_FILE,
   parseTasksYaml,
   taskAssignmentBranchRef,
   taskAssignmentChildWtree,
@@ -51,12 +48,13 @@ import {
   type QuestFiles,
   type QuestTask,
   questFiles,
+  questWorkspaceRoot,
+  renderTasksYaml,
   resolveGlobalLoopoBinPath,
   normalizeName,
   updateQuestStage,
   verifyQuestManifest,
   verifyRootManifest,
-  writeQuestPlan,
   writeQuestManifest,
 } from "./loopo_core.ts";
 import {
@@ -81,6 +79,7 @@ type Command = "init" | "doctor" | "quest" | "hook" | "sim" | "cmdproto";
 type ParentQuestAssignment = {
   parent_wtree: string;
   task_id: string;
+  parent_context_ref: string;
   landing_target_branch: string;
   landing_target_worktree: string;
   merge_lease_id: string;
@@ -135,7 +134,11 @@ function parseCommand(argv: string[]): Command {
 function ensureRepo(path: string): string {
   const repo = resolve(expandHome(path));
   if (!existsSync(repo)) throw new Error(`repo path does not exist: ${repo}`);
-  return realpathSync(repo);
+  const gitRoot = gitRootFrom(repo);
+  const normalized = gitRoot
+    ? baseRepoRootFromWorktreeRoot(gitRoot) ?? gitRoot
+    : repo;
+  return realpathSync(normalized);
 }
 
 function gitRootFrom(cwd: string): string | null {
@@ -149,6 +152,13 @@ function gitRootFrom(cwd: string): string | null {
   } catch {
     return null;
   }
+}
+
+function baseRepoRootFromWorktreeRoot(path: string): string | null {
+  const match = resolve(path).match(/^(.*)[\\/]worktrees[\\/][^\\/]+$/);
+  if (!match?.[1]) return null;
+  const base = match[1];
+  return existsSync(resolve(base, ".git")) ? realpathSync(base) : null;
 }
 
 function resolveRepoContext(input?: {
@@ -170,20 +180,34 @@ function resolveRepoContext(input?: {
   for (const candidate of candidates) {
     if (typeof candidate !== "string" || !candidate.trim()) continue;
     const resolved = resolve(expandHome(candidate));
+    const gitRoot = gitRootFrom(resolved);
+    if (gitRoot) {
+      const base = baseRepoRootFromWorktreeRoot(gitRoot);
+      return {
+        repoRoot: realpathSync(base ?? gitRoot),
+        source: base ? "repo_worktree" : "git_root",
+      };
+    }
     if (existsSync(resolve(resolved, ".loopo"))) {
-      return { repoRoot: realpathSync(resolved), source: "loopo_ancestor" };
+      const base = baseRepoRootFromWorktreeRoot(resolved);
+      return {
+        repoRoot: realpathSync(base ?? resolved),
+        source: base ? "repo_worktree" : "loopo_ancestor",
+      };
     }
     let cursor = resolved;
     while (true) {
       if (existsSync(resolve(cursor, ".loopo"))) {
-        return { repoRoot: realpathSync(cursor), source: "loopo_ancestor" };
+        const base = baseRepoRootFromWorktreeRoot(cursor);
+        return {
+          repoRoot: realpathSync(base ?? cursor),
+          source: base ? "repo_worktree" : "loopo_ancestor",
+        };
       }
       const parent = dirname(cursor);
       if (parent === cursor) break;
       cursor = parent;
     }
-    const gitRoot = gitRootFrom(resolved);
-    if (gitRoot) return { repoRoot: realpathSync(gitRoot), source: "git_root" };
     if (existsSync(resolved))
       return { repoRoot: realpathSync(resolved), source: "cwd" };
   }
@@ -497,14 +521,10 @@ export function runDoctor(argv: string[]): number {
   const globalBin = resolveGlobalLoopoBinPath();
   const repoRoot = args.repo;
   const expectedFiles = [globalBin];
-  const rootCheck = existsSync(resolve(repoRoot, LOOPO_ROOT_MANIFEST_FILE))
-    ? verifyRootManifest(repoRoot)
-    : { ok: false, errors: ["missing root system manifest"] };
   const issues: string[] = [];
   for (const path of expectedFiles) {
     if (!existsSync(path)) issues.push(`missing ${path}`);
   }
-  for (const issue of rootCheck.errors) issues.push(issue);
   if (args.runtime === "codex" || args.runtime === "all") {
     const codexPath = resolve(repoRoot, ".codex", "hooks.json");
     if (!existsSync(codexPath)) {
@@ -560,7 +580,6 @@ export function runDoctor(argv: string[]): number {
     return 2;
   }
 
-  const systemFiles = ensureSystemScaffold(repoRoot);
   createLoopoShim(globalBin, wrapperScript);
   const buildHookCommand = (runtime: Runtime): string => {
     if (args.hookScript) {
@@ -588,7 +607,6 @@ export function runDoctor(argv: string[]): number {
   }
 
   console.log(`loopo doctor: status=fixed repo=${repoRoot}`);
-  for (const path of systemFiles) console.log(`- ${path}`);
   for (const path of written) console.log(`- ${path}`);
   return 0;
 }
@@ -734,11 +752,16 @@ function questByWtree(
 }
 
 function allQuestWtrees(repoRoot: string): string[] {
-  const questsDir = resolve(repoRoot, ".loopo", "quests");
-  if (!existsSync(questsDir)) return [];
-  return readdirSync(questsDir)
-    .filter((wtree) => existsSync(questFiles(repoRoot, wtree).tasks))
-    .sort();
+  const wtrees = new Set<string>();
+  const worktreesDir = resolve(repoRoot, "worktrees");
+  if (!existsSync(worktreesDir)) return [];
+  for (const entry of readdirSync(worktreesDir)) {
+    if (!validWtreeName(entry)) continue;
+    if (existsSync(questFiles(repoRoot, entry).tasks)) {
+      wtrees.add(entry);
+    }
+  }
+  return [...wtrees].sort();
 }
 
 function findParentQuestAssignment(
@@ -760,6 +783,7 @@ function findParentQuestAssignment(
     return {
       parent_wtree: parentWtree,
       task_id: matched.id,
+      parent_context_ref: String(parentQuest?.files.tasks ?? ""),
       landing_target_branch: String(
         matched.merge_target || parentQuest?.state.coordinator_branch || "main",
       ),
@@ -857,7 +881,6 @@ function ensureV3Runtime(input: {
   runtime: DoctorArgs["runtime"];
   skillHome?: string | null;
 }): void {
-  ensureSystemScaffold(input.repoRoot);
   ensureGlobalSkillFiles(input.skillHome);
   const wrapperScript = resolve(SCRIPT_DIR, "loopo.ts");
   const globalBin = resolveGlobalLoopoBinPath();
@@ -920,7 +943,7 @@ function v3InitRoute(input: {
 }
 
 function lockPath(repoRoot: string, wtree: string): string {
-  return resolve(repoRoot, ".loopo", "locks", `${wtree}.json`);
+  return questFiles(repoRoot, wtree).lock;
 }
 
 function pidAlive(pid: number): boolean {
@@ -1031,13 +1054,25 @@ function readyChildrenForV3(
           taskAssignmentWorktreePath(repoRoot, wtree, String(task.id)),
       ),
     );
-    const request = `loopo: execute child task ${task.id}: ${task.title}`;
+    const mergeTarget = String(task.merge_target || wtree);
+    const parentContextRef = resolve(
+      coordinatorWorktreePath(repoRoot, wtree),
+      ".loopo",
+      "runtime",
+      "tasks.yaml",
+    );
+    const request = `loopo: execute child task ${task.id}: ${task.title}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${mergeTarget} and return the merge_commit.`;
     return {
       task_id: task.id,
       title: task.title,
       child_wtree: childWtree,
+      parent_wtree: wtree,
+      parent_task_id: task.id,
+      parent_context_ref: parentContextRef,
       branch_ref: workspace.branch_ref,
       worktree_path: workspace.worktree_path,
+      merge_target: mergeTarget,
+      merge_target_worktree: coordinatorWorktreePath(repoRoot, wtree),
       acceptance: task.acceptance,
       commands: {
         init: command("loopo", [
@@ -1170,7 +1205,7 @@ function v3StepOutput(input: {
     };
     output.docs = {
       state_yaml: input.files.tasks,
-      plan_yaml: input.files.plan,
+      events_jsonl: input.files.events,
       manifest: input.files.manifest,
     };
   }
@@ -1255,7 +1290,7 @@ function appendV3Event(
   event: string,
   payload: Record<string, unknown>,
 ): void {
-  appendJsonl(files.handoffs, {
+  appendJsonl(files.events, {
     event,
     quest_id: files.wtree,
     payload,
@@ -1266,10 +1301,33 @@ function writeV3Manifest(files: QuestFiles, requestId: string): void {
   writeQuestManifest(files, requestId, "loopo quest next");
 }
 
+function persistQuestState(
+  files: QuestFiles,
+  nextState: Partial<{ [key: string]: any }>,
+): Partial<{ [key: string]: any }> {
+  writeText(files.tasks, renderTasksYaml(nextState as any));
+  return parseTasksYaml(readText(files.tasks));
+}
+
+function appendAuditEvent(
+  files: QuestFiles,
+  event: string,
+  stage: string,
+  requestId: string,
+  payload: Record<string, unknown>,
+): void {
+  appendJsonl(files.events, {
+    event,
+    quest_id: files.wtree,
+    stage,
+    request_id: requestId,
+    payload_digest: hashText(JSON.stringify(payload)),
+  });
+}
+
 function validatePlan(
   input: Record<string, any>,
   state: Partial<{ [key: string]: any }>,
-  files: QuestFiles,
 ): string | null {
   for (const key of [
     "classification",
@@ -1284,17 +1342,9 @@ function validatePlan(
   const highImpact = asArray(input.high_impact_unknowns);
   const defaulted = asArray(input.defaulted_unknowns);
   const questions = asArray(input.questions);
-  const hasRecordedAnswers = readText(files.questions)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .some((line) => {
-      try {
-        return JSON.parse(line)?.event === "answers";
-      } catch {
-        return false;
-      }
-    });
+  const hasRecordedAnswers =
+    Array.isArray(state.answers) && state.answers.length > 0;
+  const leafChild = isChildExecutionQuestPrompt(state.prompt);
   if (
     input.classification === "greenfield_app" &&
     questions.length === 0 &&
@@ -1314,6 +1364,12 @@ function validatePlan(
   if (!questions.length && !Array.isArray(input.task_graph?.tasks)) {
     return "plan must include task_graph.tasks unless it is asking questions";
   }
+  if (leafChild && !questions.length) {
+    const tasks = Array.isArray(input.task_graph?.tasks) ? input.task_graph.tasks : [];
+    if (tasks.length !== 1) {
+      return "execute child task quests must contain exactly one local task and must not split further";
+    }
+  }
   return null;
 }
 
@@ -1323,20 +1379,26 @@ function handlePlan(input: {
   payload: Record<string, any>;
   requestId: string;
 }): Partial<{ [key: string]: any }> {
-  const validation = validatePlan(input.payload, input.state, input.files);
+  const validation = validatePlan(input.payload, input.state);
   if (validation) throw new Error(validation);
   const questions = asArray(input.payload.questions);
-  appendJsonl(input.files.plans, {
-    event: "plan",
-    quest_id: input.files.wtree,
-    payload: input.payload,
-  });
+  const current = parseTasksYaml(readText(input.files.tasks));
   if (questions.length) {
-    appendJsonl(input.files.questions, {
-      event: "question_round",
-      quest_id: input.files.wtree,
-      questions,
-    });
+    const nextState = {
+      ...current,
+      question_rounds: [
+        ...(Array.isArray(current.question_rounds) ? current.question_rounds : []),
+        { questions },
+      ],
+    };
+    writeText(input.files.tasks, renderTasksYaml(nextState as any));
+    appendAuditEvent(
+      input.files,
+      "question_round",
+      String(current.stage ?? "planning"),
+      input.requestId,
+      { question_count: questions.length },
+    );
     return updateQuestStage(
       input.files,
       "awaiting_user_answers",
@@ -1345,13 +1407,36 @@ function handlePlan(input: {
     );
   }
   const plan = {
+    classification: String(input.payload.classification ?? ""),
+    scope: String(input.payload.scope ?? ""),
     summary: String(input.payload.summary ?? input.payload.scope ?? ""),
+    af:
+      input.payload.af && typeof input.payload.af === "object"
+        ? input.payload.af
+        : {},
+    of:
+      input.payload.of && typeof input.payload.of === "object"
+        ? input.payload.of
+        : {},
+    high_impact_unknowns: asArray(input.payload.high_impact_unknowns),
+    defaulted_unknowns: asArray(input.payload.defaulted_unknowns),
+    verification_targets: asArray(input.payload.verification_targets),
     assumptions: asArray(input.payload.assumptions),
     constraints: asArray(input.payload.constraints),
     tasks: asArray(input.payload.task_graph?.tasks),
   };
   const planned = applyQuestPlanToTasks(input.files, input.state, plan);
-  writeQuestPlan(input.files, planned, plan);
+  appendAuditEvent(
+    input.files,
+    "plan_submitted",
+    String(planned.stage ?? "planning"),
+    input.requestId,
+    {
+      classification: plan.classification,
+      task_count: plan.tasks.length,
+      verification_target_count: plan.verification_targets.length,
+    },
+  );
   return updateQuestStage(
     input.files,
     "plan_review",
@@ -1368,11 +1453,19 @@ function handleQuestions(input: {
   if (!Array.isArray(input.payload.answers)) {
     throw new Error("questions input requires answers array");
   }
-  appendJsonl(input.files.questions, {
-    event: "answers",
-    quest_id: input.files.wtree,
+  const current = parseTasksYaml(readText(input.files.tasks));
+  const nextState = {
+    ...current,
     answers: input.payload.answers,
-  });
+  };
+  writeText(input.files.tasks, renderTasksYaml(nextState as any));
+  appendAuditEvent(
+    input.files,
+    "answers_submitted",
+    String(current.stage ?? "awaiting_user_answers"),
+    input.requestId,
+    { answer_count: input.payload.answers.length },
+  );
   return updateQuestStage(
     input.files,
     "planning",
@@ -1414,7 +1507,7 @@ function gitWorktreeDirtyEntries(path: string): string[] {
 }
 
 function dirtyEntryPath(entry: string): string {
-  return entry.replace(/^[A-Z?! ][A-Z?! ]\s+/, "").trim();
+  return entry.replace(/^[A-Z?!]{1,2}\s+/, "").trim();
 }
 
 function isIgnorableOperationalDirtyPath(path: string): boolean {
@@ -1424,15 +1517,51 @@ function isIgnorableOperationalDirtyPath(path: string): boolean {
     normalized === ".gemini/settings.json" ||
     normalized === ".github/hooks/loopo.json" ||
     normalized === ".github/hooks" ||
-    normalized.startsWith(".loopo/") ||
+    normalized === ".loopo/runtime/hook-state.json" ||
+    normalized === ".loopo/runtime/lock.json" ||
     normalized.startsWith("worktrees/")
   );
 }
 
-function relevantGitDirtyEntries(path: string): string[] {
-  return gitWorktreeDirtyEntries(path).filter(
-    (entry) => !isIgnorableOperationalDirtyPath(dirtyEntryPath(entry)),
-  );
+function isDurableLoopoDirtyPath(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(".loopo/");
+}
+
+function nonLoopoGitDirtyEntries(path: string): string[] {
+  return gitWorktreeDirtyEntries(path).filter((entry) => {
+    const dirtyPath = dirtyEntryPath(entry);
+    return (
+      !isIgnorableOperationalDirtyPath(dirtyPath) &&
+      !isDurableLoopoDirtyPath(dirtyPath)
+    );
+  });
+}
+
+function commitDurableLoopoState(cwd: string, message: string): string | null {
+  if (!existsSync(resolve(cwd, ".loopo"))) return null;
+  const add = runCommand("git", ["add", "--", ".loopo"], {
+    cwd,
+    timeoutMs: 30_000,
+  });
+  if (add.status !== 0) {
+    throw new Error(add.stderr || add.stdout || "failed to stage .loopo state");
+  }
+  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ".loopo"], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  if (diff.status === 0) return null;
+  if (diff.status !== 1) {
+    throw new Error(diff.stderr || diff.stdout || "failed to inspect staged .loopo state");
+  }
+  const commit = runCommand("git", ["commit", "-m", message], {
+    cwd,
+    timeoutMs: 60_000,
+  });
+  if (commit.status !== 0) {
+    throw new Error(commit.stderr || commit.stdout || "failed to commit .loopo state");
+  }
+  return gitRevParse(cwd, "HEAD");
 }
 
 function gitCurrentBranch(cwd: string): string | null {
@@ -1482,12 +1611,16 @@ function gitMergeIntoBranch(
       `landing target worktree ${targetWorktree} is on ${currentBranch || "unknown"} instead of ${targetBranch}`,
     );
   }
-  const dirtyTargetEntries = relevantGitDirtyEntries(targetWorktree);
-  if (dirtyTargetEntries.length) {
+  const dirtyTargetNonLoopoEntries = nonLoopoGitDirtyEntries(targetWorktree);
+  if (dirtyTargetNonLoopoEntries.length) {
     throw new Error(
-      `cannot merge into dirty landing target worktree ${targetWorktree}: ${dirtyTargetEntries.slice(0, 5).join(", ")}`,
+      `cannot merge into dirty landing target worktree ${targetWorktree}: ${dirtyTargetNonLoopoEntries.slice(0, 5).join(", ")}`,
     );
   }
+  commitDurableLoopoState(
+    targetWorktree,
+    `chore(loopo): record ${targetBranch} target state`,
+  );
   const sourceCommit = gitRevParse(repoRoot, sourceBranch);
   const targetCommit = gitRevParse(repoRoot, targetBranch);
   if (sourceCommit === targetCommit) {
@@ -1515,7 +1648,7 @@ function gitMergeIntoBranch(
     );
   }
   const landedCommit = gitRevParse(targetWorktree, "HEAD");
-  const dirtyAfterMerge = relevantGitDirtyEntries(targetWorktree);
+  const dirtyAfterMerge = nonLoopoGitDirtyEntries(targetWorktree);
   if (dirtyAfterMerge.length) {
     throw new Error(
       `landing target worktree ${targetWorktree} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
@@ -1662,14 +1795,27 @@ function handleChildResult(input: {
     );
   }
   if (status === "passed") {
-    const childQuest = task.child_wtree.trim()
-      ? questByWtree(input.repoRoot, task.child_wtree.trim())
-      : null;
-    if (childQuest) {
-      const childStage = String(childQuest.state.stage ?? "");
-      if (childStage !== "archived") {
+    const mergeCommit = String(input.payload.merge_commit ?? "").trim();
+    const activeChildQuest = questByWtree(input.repoRoot, payloadChildWtree);
+    if (
+      activeChildQuest &&
+      String(activeChildQuest.state.stage ?? "") !== "archived"
+    ) {
+      throw new Error(
+        `cannot pass until child quest ${payloadChildWtree} is archived`,
+      );
+    }
+    const mergeTarget = String(task.merge_target ?? input.files.wtree).trim();
+    let mergeCommitResolved: string | null = null;
+    try {
+      mergeCommitResolved = gitRevParse(input.repoRoot, mergeCommit);
+    } catch {
+      mergeCommitResolved = null;
+    }
+    if (mergeCommitResolved) {
+      if (!gitIsAncestor(input.repoRoot, mergeCommitResolved, mergeTarget)) {
         throw new Error(
-          `child_result cannot pass until child quest ${task.child_wtree} is archived; current stage=${childStage || "unknown"}`,
+          `child_result merge_commit ${mergeCommit} is not present in merge target ${mergeTarget}`,
         );
       }
     }
@@ -1677,12 +1823,11 @@ function handleChildResult(input: {
   const taskUpdate = {
     id: String(input.payload.task_id),
     child_wtree: String(input.payload.child_wtree),
-    branch_ref: String(input.payload.branch_ref ?? input.payload.child_wtree),
-    worktree_path: String(input.payload.worktree_path ?? ""),
-    merge_target: input.files.wtree,
+    branch_ref: String(input.payload.branch_ref ?? task.branch_ref ?? ""),
+    worktree_path: String(input.payload.worktree_path ?? task.worktree_path ?? ""),
+    merge_target: String(input.payload.merge_target ?? task.merge_target ?? ""),
     merge_lease_id: String(
-      input.payload.merge_lease_id ??
-        `lease-${input.files.wtree}-${input.payload.task_id}`,
+      input.payload.merge_lease_id ?? task.merge_lease_id ?? "",
     ),
     merge_commit: String(input.payload.merge_commit ?? ""),
   };
@@ -1693,11 +1838,18 @@ function handleChildResult(input: {
           ...taskUpdate,
           status: status === "blocked" ? "blocked" : "failed",
         });
-  appendJsonl(input.files.evidence, {
-    event: "child_result",
-    quest_id: input.files.wtree,
-    payload: input.payload,
-  });
+  appendAuditEvent(
+    input.files,
+    "child_result_submitted",
+    String(next.stage ?? input.state.stage ?? "executing"),
+    input.requestId,
+    {
+      task_id: String(input.payload.task_id ?? ""),
+      child_wtree: String(input.payload.child_wtree ?? ""),
+      status,
+      merge_commit: String(input.payload.merge_commit ?? ""),
+    },
+  );
   if (allTasksDone(next)) {
     return updateQuestStage(
       input.files,
@@ -1719,11 +1871,29 @@ function handleValidation(input: {
   if (!["passed", "failed"].includes(String(input.payload.status))) {
     throw new Error("validation status must be passed or failed");
   }
-  appendJsonl(input.files.validation, {
-    event: "validation",
-    quest_id: input.files.wtree,
-    payload: input.payload,
-  });
+  const current = parseTasksYaml(readText(input.files.tasks));
+  writeText(
+    input.files.tasks,
+    renderTasksYaml({
+      ...(current as any),
+      validation_receipt: {
+        status: String(input.payload.status ?? ""),
+        checks: Array.isArray(input.payload.checks) ? input.payload.checks : [],
+      },
+    }),
+  );
+  appendAuditEvent(
+    input.files,
+    "validation_submitted",
+    String(current.stage ?? "validating"),
+    input.requestId,
+    {
+      status: String(input.payload.status ?? ""),
+      check_count: Array.isArray(input.payload.checks)
+        ? input.payload.checks.length
+        : 0,
+    },
+  );
   return updateQuestStage(
     input.files,
     input.payload.status === "passed"
@@ -1744,11 +1914,35 @@ function handleVerification(input: {
   if (!["passed", "failed"].includes(String(input.payload.status))) {
     throw new Error("verification status must be passed or failed");
   }
-  appendJsonl(input.files.review, {
-    event: "verification",
-    quest_id: input.files.wtree,
-    payload: input.payload,
-  });
+  const current = parseTasksYaml(readText(input.files.tasks));
+  writeText(
+    input.files.tasks,
+    renderTasksYaml({
+      ...(current as any),
+      verification_receipt: {
+        status: String(input.payload.status ?? ""),
+        acceptance_trace: Array.isArray(input.payload.acceptance_trace)
+          ? input.payload.acceptance_trace
+          : [],
+        risks: Array.isArray(input.payload.risks) ? input.payload.risks : [],
+      },
+    }),
+  );
+  appendAuditEvent(
+    input.files,
+    "verification_submitted",
+    String(current.stage ?? "verification_pending"),
+    input.requestId,
+    {
+      status: String(input.payload.status ?? ""),
+      acceptance_count: Array.isArray(input.payload.acceptance_trace)
+        ? input.payload.acceptance_trace.length
+        : 0,
+      risk_count: Array.isArray(input.payload.risks)
+        ? input.payload.risks.length
+        : 0,
+    },
+  );
   return updateQuestStage(
     input.files,
     input.payload.status === "passed" ? "system_update_pending" : "validating",
@@ -1760,22 +1954,31 @@ function handleVerification(input: {
 function handleSystemUpdate(input: {
   repoRoot: string;
   files: QuestFiles;
+  state: Partial<{ [key: string]: any }>;
   payload: Record<string, any>;
   requestId: string;
 }): Partial<{ [key: string]: any }> {
   if (!input.payload.system_update) {
     throw new Error("system_update input requires system_update");
   }
-  appendJsonl(input.files.review, {
-    event: "system_update",
-    quest_id: input.files.wtree,
-    payload: input.payload,
-  });
-  applySystemUpdate(
-    input.repoRoot,
-    input.payload.system_update,
+  appendAuditEvent(
+    input.files,
+    "system_update_submitted",
+    String(input.state.stage ?? "system_update_pending"),
     input.requestId,
+    {
+      update_count: Array.isArray(input.payload.system_update?.updates)
+        ? input.payload.system_update.updates.length
+        : 0,
+    },
   );
+  if (!isChildExecutionQuestPrompt(input.state.prompt)) {
+    applySystemUpdate(
+      questWorkspaceRoot(input.files),
+      input.payload.system_update,
+      input.requestId,
+    );
+  }
   return updateQuestStage(
     input.files,
     "landing_ready",
@@ -1789,11 +1992,10 @@ function handleLanding(input: {
   files: QuestFiles;
   payload: Record<string, any>;
   requestId: string;
-}): Partial<{ [key: string]: any }> {
+}): { files: QuestFiles; state: Partial<{ [key: string]: any }> } {
   if (!["landed", "blocked"].includes(String(input.payload.status))) {
     throw new Error("landing status must be landed or blocked");
   }
-  let landingReceipt: GitLandingReceipt | null = null;
   if (String(input.payload.status) === "landed") {
     const currentState = parseTasksYaml(readText(input.files.tasks));
     const tasks = Array.isArray(currentState.tasks)
@@ -1809,20 +2011,9 @@ function handleLanding(input: {
         `cannot land while child tasks are missing merge_commit: ${unmerged.map((task) => task.id).join(", ")}`,
       );
     }
-    const unresolvedChildren = tasks.filter((task) => {
-      if (!CHILD_DONE_STATUSES.has(task.status)) return false;
-      const childWtree = String(task.child_wtree ?? "").trim();
-      if (!childWtree) return false;
-      const childQuest = questByWtree(input.repoRoot, childWtree);
-      return childQuest != null && String(childQuest.state.stage ?? "") !== "archived";
-    });
-    if (unresolvedChildren.length) {
-      throw new Error(
-        `cannot land while child quests are unresolved: ${unresolvedChildren.map((task) => task.child_wtree).join(", ")}`,
-      );
-    }
-    const dirtyCoordinatorEntries = relevantGitDirtyEntries(
-      String(currentState.coordinator_worktree ?? ""),
+    const coordinatorWorktree = String(currentState.coordinator_worktree ?? "");
+    const dirtyCoordinatorEntries = nonLoopoGitDirtyEntries(
+      coordinatorWorktree,
     );
     if (dirtyCoordinatorEntries.length) {
       throw new Error(
@@ -1850,7 +2041,7 @@ function handleLanding(input: {
       wtree: input.files.wtree,
       state: currentState,
     });
-    landingReceipt = gitMergeIntoBranch(
+    const landingReceipt = gitMergeIntoBranch(
       input.repoRoot,
       String(currentState.coordinator_branch ?? ""),
       landingContext.landingTargetBranch,
@@ -1863,27 +2054,44 @@ function handleLanding(input: {
       landed_commit: landingReceipt.landed_commit,
       landing_strategy: landingReceipt.strategy,
     });
+    appendAuditEvent(
+      input.files,
+      "landing_submitted",
+      String(currentState.stage ?? "landing_ready"),
+      input.requestId,
+      {
+        status: String(input.payload.status ?? ""),
+        source_branch: landingReceipt.source_branch,
+        target_branch: landingReceipt.target_branch,
+        target_worktree: landingReceipt.target_worktree,
+        landed_commit: landingReceipt.landed_commit,
+        strategy: landingReceipt.strategy,
+      },
+    );
+    const archived = updateQuestStage(
+      input.files,
+      "archived",
+      input.requestId,
+      "loopo quest next",
+    );
+    return { files: input.files, state: archived };
   }
-  appendV3Event(input.files, "landing", {
-    ...input.payload,
-    ...(landingReceipt
-      ? {
-          landing: {
-            source_branch: landingReceipt.source_branch,
-            target_branch: landingReceipt.target_branch,
-            target_worktree: landingReceipt.target_worktree,
-            landed_commit: landingReceipt.landed_commit,
-            strategy: landingReceipt.strategy,
-          },
-        }
-      : {}),
-  });
-  return updateQuestStage(
+  appendAuditEvent(
     input.files,
-    input.payload.status === "landed" ? "archived" : "landing_ready",
+    "landing_submitted",
+    "landing_ready",
     input.requestId,
-    "loopo quest next",
+    { status: String(input.payload.status ?? "") },
   );
+  return {
+    files: input.files,
+    state: updateQuestStage(
+      input.files,
+      "landing_ready",
+      input.requestId,
+      "loopo quest next",
+    ),
+  };
 }
 
 type HookChainState = {
@@ -1909,8 +2117,8 @@ function hookEventName(
   );
 }
 
-function loadHookRuntimeState(repoRoot: string): HookRuntimeState {
-  const parsed = readJson(resolve(repoRoot, LOOPO_HOOK_STATE_FILE));
+function loadHookRuntimeState(files: QuestFiles): HookRuntimeState {
+  const parsed = readJson(files.hook_state);
   if (!parsed || typeof parsed !== "object") {
     return { schema_version: 1, chains: {} };
   }
@@ -1921,8 +2129,8 @@ function loadHookRuntimeState(repoRoot: string): HookRuntimeState {
   return { schema_version: 1, chains };
 }
 
-function saveHookRuntimeState(repoRoot: string, state: HookRuntimeState): void {
-  writeJson(resolve(repoRoot, LOOPO_HOOK_STATE_FILE), state);
+function saveHookRuntimeState(files: QuestFiles, state: HookRuntimeState): void {
+  writeJson(files.hook_state, state);
 }
 
 function hookChainKey(
@@ -1945,29 +2153,27 @@ function rememberHookKey(chain: HookChainState, key: string): void {
 }
 
 function questHookSnapshotFiles(files: QuestFiles): string[] {
-  const childFiles = existsSync(files.children_dir)
-    ? readdirSync(files.children_dir)
-        .filter((name) => name.endsWith(".yaml") || name.endsWith(".jsonl"))
-        .map((name) => resolve(files.children_dir, name))
-    : [];
-  return [
-    files.tasks,
-    files.plan,
-    files.questions,
-    files.plans,
-    files.evidence,
-    files.validation,
-    files.review,
-    files.handoffs,
-    ...childFiles,
-  ].sort();
+  return [files.tasks, files.events].sort();
 }
 
 function questHookSnapshotFingerprint(files: QuestFiles): string {
+  const eventText = readText(files.events)
+    .split(/\r?\n/)
+    .filter((line) => {
+      if (!line.trim()) return false;
+      try {
+        const record = JSON.parse(line) as Record<string, any>;
+        return String(record.event ?? "") !== "hook_decision";
+      } catch {
+        return true;
+      }
+    })
+    .join("\n");
   return hashText(
-    questHookSnapshotFiles(files)
-      .map((file) => `${file}:${hashText(readText(file))}`)
-      .join("\n"),
+    [
+      `${files.tasks}:${hashText(readText(files.tasks))}`,
+      `${files.events}:${hashText(eventText)}`,
+    ].join("\n"),
   );
 }
 
@@ -1977,28 +2183,14 @@ function latestHookStopState(files: QuestFiles): {
 } {
   let iteration = "0";
   let stopReason = "none";
-  for (const line of readText(files.handoffs).split(/\r?\n/)) {
+  for (const line of readText(files.events).split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
       const record = JSON.parse(line) as Record<string, any>;
-      const payload =
-        record.payload && typeof record.payload === "object"
-          ? (record.payload as Record<string, any>)
-          : {};
-      const handoff =
-        payload.handoff && typeof payload.handoff === "object"
-          ? (payload.handoff as Record<string, any>)
-          : {};
-      const nextIteration =
-        record.iteration ??
-        record.iteration_id ??
-        payload.iteration ??
-        payload.iteration_id ??
-        handoff.iteration ??
-        handoff.iteration_id;
+      if (String(record.event ?? "") === "hook_decision") continue;
+      const nextIteration = record.iteration ?? record.iteration_id;
       if (nextIteration != null) iteration = String(nextIteration);
-      const nextStopReason =
-        record.stop_reason ?? payload.stop_reason ?? handoff.stop_reason;
+      const nextStopReason = record.stop_reason;
       if (nextStopReason != null) {
         stopReason = String(nextStopReason).trim().toLowerCase() || "none";
       }
@@ -2078,7 +2270,6 @@ function createV3Quest(input: {
   resolutionSource: string;
   flowId: string;
 }): { files: QuestFiles; state: Partial<{ [key: string]: any }> } {
-  ensureSystemScaffold(input.repoRoot);
   ensureGitRootCommit(input.repoRoot);
   const flow = loadFlowDefinition(input.flowId);
   const workspace = ensureCoordinatorWorkspace(input.repoRoot, input.wtree);
@@ -2100,6 +2291,8 @@ function createV3Quest(input: {
     flowId: flow.id,
     flowVersion: flow.version,
     parentWtree: parentAssignment?.parent_wtree ?? "",
+    parentTaskId: parentAssignment?.task_id ?? "",
+    parentContextRef: parentAssignment?.parent_context_ref ?? "",
     landingTargetBranch,
     landingTargetWorktree,
   });
@@ -2273,14 +2466,21 @@ export function runQuestNextV3(argv: string[]): number {
       return 0;
     }
 
-    const rootManifest = verifyRootManifest(context.repoRoot);
-    if (!rootManifest.ok) {
-      questResponse(
+    const rootManifestPath = resolve(
+      questWorkspaceRoot(existing.files),
+      ".loopo",
+      "manifest.sign.json",
+    );
+    if (existsSync(rootManifestPath)) {
+      const rootManifest = verifyRootManifest(questWorkspaceRoot(existing.files));
+      if (!rootManifest.ok) {
+        questResponse(
           v3Error("root manifest verification failed", {
             errors: rootManifest.errors,
-        }),
-      );
-      return 2;
+          }),
+        );
+        return 2;
+      }
     }
     const manifestCheck = verifyQuestManifest(existing.files);
     if (!manifestCheck.ok) {
@@ -2294,6 +2494,7 @@ export function runQuestNextV3(argv: string[]): number {
     }
 
     let state = existing.state;
+    let responseFiles = existing.files;
     const hasInput = Object.keys(payload).length > 0;
     if (hasInput) {
       const flow = loadStateFlow(state);
@@ -2370,16 +2571,19 @@ export function runQuestNextV3(argv: string[]): number {
           state = handleSystemUpdate({
             repoRoot: context.repoRoot,
             files: existing.files,
+            state,
             payload,
             requestId,
           });
         } else if (expected === "landing") {
-          state = handleLanding({
+          const landing = handleLanding({
             repoRoot: context.repoRoot,
             files: existing.files,
             payload,
             requestId,
           });
+          state = landing.state;
+          responseFiles = landing.files;
         }
       } catch (error) {
         questResponse(
@@ -2392,11 +2596,11 @@ export function runQuestNextV3(argv: string[]): number {
       }
     }
 
-    const refreshed = parseTasksYaml(readText(existing.files.tasks));
+    const refreshed = parseTasksYaml(readText(responseFiles.tasks));
     questResponse(
       v3StepOutput({
         repoRoot: context.repoRoot,
-        files: existing.files,
+        files: responseFiles,
         state: refreshed,
         full: args.full,
       }),
@@ -2458,7 +2662,7 @@ export function runHook(argv: string[]): number {
   const eventName = hookEventName(payload);
   const snapshot = questHookSnapshotFingerprint(activeQuest.files);
   const latestStop = latestHookStopState(activeQuest.files);
-  const chainState = loadHookRuntimeState(context.repoRoot);
+  const chainState = loadHookRuntimeState(activeQuest.files);
   const chainKey = hookChainKey(
     runtime,
     context.repoRoot,
@@ -2488,10 +2692,11 @@ export function runHook(argv: string[]): number {
     chain.continuation_count = 0;
     chain.budget_prompted = false;
     rememberHookKey(chain, duplicateKey);
-    saveHookRuntimeState(context.repoRoot, chainState);
-    appendJsonl(activeQuest.files.hook_events, {
+    saveHookRuntimeState(activeQuest.files, chainState);
+    appendJsonl(activeQuest.files.events, {
+      event: "hook_decision",
       runtime,
-      event: eventName || null,
+      hook_event_name: eventName || null,
       stage,
       iteration: latestStop.iteration,
       stop_reason: latestStop.stopReason,
@@ -2507,7 +2712,7 @@ export function runHook(argv: string[]): number {
     budgetUsed >= AUTO_CONTINUE_BUDGET || chain.budget_prompted === true;
   if (budgetExhausted && chain.budget_prompted) {
     rememberHookKey(chain, duplicateKey);
-    saveHookRuntimeState(context.repoRoot, chainState);
+    saveHookRuntimeState(activeQuest.files, chainState);
     process.stdout.write("{}");
     return 0;
   }
@@ -2533,10 +2738,11 @@ export function runHook(argv: string[]): number {
   if (budgetExhausted) chain.budget_prompted = true;
   else chain.continuation_count = budgetUsed + 1;
   rememberHookKey(chain, duplicateKey);
-  saveHookRuntimeState(context.repoRoot, chainState);
-  appendJsonl(activeQuest.files.hook_events, {
+  saveHookRuntimeState(activeQuest.files, chainState);
+  appendJsonl(activeQuest.files.events, {
+    event: "hook_decision",
     runtime,
-    event: eventName || null,
+    hook_event_name: eventName || null,
     stage,
     iteration: latestStop.iteration,
     stop_reason: latestStop.stopReason,
@@ -2594,11 +2800,9 @@ export function runInit(argv: string[]): number {
     "--fix",
   ]);
   if (doctorStatus !== 0) return doctorStatus;
-  const systemFiles = ensureSystemScaffold(args.repo);
   const skill = ensureGlobalSkillFiles(args.skillHome);
   console.log(`loopo init: repo=${args.repo}`);
   console.log(`loopo init: mode=installer`);
-  for (const path of systemFiles) console.log(`- ${path}`);
   console.log(`- ${skill}`);
   return 0;
 }

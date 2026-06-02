@@ -8,9 +8,9 @@ summary: Start the ready child wtree commands and submit child_result payloads a
 instructions: |-
   # Loopo Executing Step
 
-  Prefer one ready child CLI agent at a time. Parallel child CLI agents are
-  allowed only when the ready tasks are clearly independent, but they are not
-  the default.
+  Launch all ready child CLI agents whose dependencies, scope files, and
+  concurrency groups allow independent execution. Parallel child worktrees are
+  the default when the graph was split well.
 
   Each dispatched task gets one dedicated child CLI agent session, one child
   quest wtree, one child worktree, and no hidden task split.
@@ -24,8 +24,12 @@ instructions: |-
   `child_result` back to the parent only after the child quest reaches a
   terminal child state.
 
+  Child quests are leaf workers. They must not create another child depth or
+  delegate again. They should read the parent context file, complete the one
+  assigned task, land into the assigned merge target, and return `merge_commit`.
+
   A successful `child_result` must include the merged child commit hash in
-  `merge_commit`. Use the child quest's archived landing receipt and do not
+  `merge_commit`. Use the child quest's landing receipt and do not
   report `status: passed` until the child landing step has merged the child
   branch into the assigned `merge_target`.
 
@@ -33,5 +37,5 @@ instructions: |-
   merge by committing `worktrees/**` paths into the parent or landing branch;
   land the actual deliverables in the current quest tree.
 
-  Prefer serial child execution over stalling. Parallelism is optional;
-  correctness of child boundaries and result submission is mandatory.
+  Prefer maximal safe parallelism over artificial serial execution.
+  Correctness of child boundaries and result submission is mandatory.

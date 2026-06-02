@@ -1,0 +1,143 @@
+schema_version: 1
+behaviours:
+  - id: runtime-file-set
+    statement: >-
+      Each active quest stores local runtime state only in
+      `worktrees/<wtree>/.loopo/runtime/tasks.yaml`, `events.jsonl`,
+      `manifest.sign.json`, `hook-state.json`, and `lock.json`.
+    test_refs:
+      - scripts/verify_quest_contract.ts
+      - scripts/verify_runtime_hooks.ts
+
+  - id: tasks-yaml-authority
+    statement: >-
+      `tasks.yaml` is the canonical quest dossier for identity, parent refs,
+      readable question rounds, answers, detailed plan context, task graph,
+      validation receipt, verification receipt, and landing receipt.
+    test_refs:
+      - scripts/verify_child_agent_integration.test.ts
+      - scripts/verify_runtime_simulation.ts
+
+  - id: events-audit-stream
+    statement: >-
+      `events.jsonl` is a compact append-only machine audit stream. It records
+      lifecycle events such as question rounds, answers, plan submission,
+      validation submission, verification submission, landing submission, and
+      hook decisions without becoming the primary human context document.
+    test_refs:
+      - scripts/verify_runtime_hooks.ts
+      - scripts/verify_runtime_simulation.ts
+
+  - id: quest-manifest-scope
+    statement: >-
+      Quest manifest receipts cover only `tasks.yaml` and `events.jsonl`.
+      Volatile `hook-state.json` and `lock.json` are intentionally excluded from
+      manifest hashing.
+    test_refs:
+      - scripts/verify_quest_contract.ts
+      - scripts/verify_runtime_hooks.ts
+
+  - id: worktree-local-runtime
+    statement: >-
+      Quest runtime state remains local to the source worktree and is gitignored.
+      Landing does not merge runtime state into root `.loopo`; only signed docs,
+      system index, and root manifest are durable tracked `.loopo` outputs.
+    test_refs:
+      - scripts/verify_child_agent_integration.test.ts
+      - scripts/verify_coherency.ts
+
+  - id: signed-core-docs
+    statement: >-
+      Durable tracked `.loopo` content consists of `.loopo/system.yaml`,
+      `.loopo/docs/*.yaml`, and `.loopo/manifest.sign.json`. `system_update`
+      refreshes those files and re-signs the root manifest.
+    test_refs:
+      - scripts/verify_coherency.ts
+      - scripts/verify_child_agent_integration.test.ts
+
+  - id: no-sidecar-runtime
+    statement: >-
+      New quests do not create `plan.yaml`, `questions.jsonl`, `plans.jsonl`,
+      `evidence.jsonl`, `validation.jsonl`, `review.jsonl`, `handoffs.jsonl`,
+      `hook-events.jsonl`, or `children/` sidecars.
+    test_refs:
+      - scripts/verify_quest_contract.ts
+
+  - id: child-leaf-workers
+    statement: >-
+      Child quests created from `execute child task ...` are leaf workers. They
+      must not create child depth again, and they transition from approved task
+      graph directly into validation-oriented execution of the assigned task.
+    test_refs:
+      - scripts/verify_child_agent_integration.test.ts
+      - assets/steps/executing.yaml
+
+  - id: parent-child-coordination
+    statement: >-
+      Parent-child coordination is carried by the parent `tasks.yaml` task rows
+      plus emitted child command metadata such as `parent_wtree`,
+      `parent_task_id`, `parent_context_ref`, `merge_target`, and
+      `merge_target_worktree`.
+    test_refs:
+      - scripts/verify_child_agent_integration.test.ts
+      - schemas/steps/common.v3.json
+
+  - id: child-parallelism
+    statement: >-
+      Parallel child worktrees are first-class. Ready child tasks are selected
+      only when dependencies are complete and selected tasks do not conflict on
+      `scope_files` or `concurrency_group`.
+    test_refs:
+      - scripts/verify_child_agent_integration.test.ts
+      - scripts/report_lifecycle_matrix.ts
+
+  - id: child-result-acceptance
+    statement: >-
+      A passed `child_result` requires `merge_commit`. If that commit resolves to
+      a real git object, it must already be present in the declared merge target.
+      Parent acceptance is blocked while the child quest is still active.
+    test_refs:
+      - scripts/verify_child_agent_integration.test.ts
+
+  - id: hook-state-locality
+    statement: >-
+      Hook continuation counters and duplicate suppression memory live in the
+      active worktree's `.loopo/runtime/hook-state.json`, not in `.git/loopo`.
+    test_refs:
+      - scripts/verify_runtime_hooks.ts
+
+  - id: hook-duplicate-fingerprint
+    statement: >-
+      Hook duplicate suppression fingerprints `tasks.yaml` plus `events.jsonl`
+      while excluding prior `hook_decision` records so writing a hook audit line
+      does not make the next identical hook event look new.
+    test_refs:
+      - scripts/verify_runtime_hooks.ts
+
+  - id: hook-budget
+    statement: >-
+      Automatic continuation remains budget-limited to 12 non-terminal
+      hook-triggered turns per runtime and quest chain.
+    test_refs:
+      - scripts/verify_runtime_hooks.ts
+      - references/core/architecture.md
+
+  - id: leaf-planning-contract
+    statement: >-
+      The planning step stores readable Q&A and detailed plan context in
+      `tasks.yaml`, and task-graph approval should prefer maximal useful
+      independence without splitting work so finely that children would need to
+      delegate again.
+    test_refs:
+      - assets/steps/plan.yaml
+      - assets/steps/task-graph.yaml
+
+  - id: live-quest-selector
+    statement: >-
+      Hook quest selection uses an explicit `--wtree`, payload `wtree` or
+      `loopo_wtree`, or a cwd inside `worktrees/<wtree>`. Repo-root and
+      conflicting-selector hooks no-op.
+    test_refs:
+      - scripts/verify_runtime_hooks.ts
+
+pending_proposals: []

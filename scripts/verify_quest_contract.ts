@@ -90,9 +90,20 @@ function main(): number {
       fail(`v3 output leaked v2 fields: ${create.stdout}`);
     }
 
-    const questDir = join(repo, ".loopo", "quests", wtree);
+    const rootQuestDir = join(repo, ".loopo", "quests", wtree);
+    if (existsSync(rootQuestDir)) {
+      fail(`quest state must be worktree-local, found root state: ${rootQuestDir}`);
+    }
+    const questDir = join(repo, "worktrees", wtree, ".loopo", "runtime");
     for (const name of [
       "tasks.yaml",
+      "events.jsonl",
+      "manifest.sign.json",
+      "hook-state.json",
+    ]) {
+      if (!existsSync(join(questDir, name))) fail(`missing ${name}`);
+    }
+    for (const legacy of [
       "plan.yaml",
       "questions.jsonl",
       "plans.jsonl",
@@ -101,9 +112,8 @@ function main(): number {
       "review.jsonl",
       "handoffs.jsonl",
       "hook-events.jsonl",
-      "manifest.sign.json",
     ]) {
-      if (!existsSync(join(questDir, name))) fail(`missing ${name}`);
+      if (existsSync(join(questDir, legacy))) fail(`unexpected legacy file ${legacy}`);
     }
     const tasksYaml = readFileSync(join(questDir, "tasks.yaml"), "utf8");
     if (!tasksYaml.includes("schema_version: 3")) {

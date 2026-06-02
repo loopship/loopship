@@ -382,13 +382,13 @@ function assertCanonicalArtifacts(
     fail(`${label}: canonical task state did not reach archived`);
   }
 
-  const planEvents = readJsonl(files.plans).filter(
-    (record) => record.event === "plan",
+  const planEvents = readJsonl(files.events).filter(
+    (record) => record.event === "plan_submitted",
   );
   if (planEvents.length === 0) {
     fail(`${label}: expected at least one recorded plan payload`);
   }
-  const latestPlanPayload = planEvents.at(-1)?.payload ?? {};
+  const latestPlanPayload = state.plan_detail ?? {};
   if (String(latestPlanPayload.scope ?? "") !== expectedPlan.scope) {
     fail(
       `${label}: final plan scope mismatch: ${JSON.stringify(latestPlanPayload.scope)}`,
@@ -416,14 +416,17 @@ function assertCanonicalArtifacts(
     );
   }
 
-  const questionEvents = readJsonl(files.questions).map((record) =>
-    String(record.event ?? ""),
-  );
+  const questionEvents = readJsonl(files.events)
+    .map((record) => String(record.event ?? ""))
+    .filter((event) => ["question_round", "answers_submitted"].includes(event));
   if (scenario.expect_question_round) {
     for (const event of ["question_round", "answers"]) {
       if (!questionEvents.includes(event)) {
         fail(`${label}: expected questions log to include ${event}`);
       }
+    }
+    if (!Array.isArray(state.question_rounds) || state.question_rounds.length === 0) {
+      fail(`${label}: expected tasks.yaml to retain question rounds`);
     }
   } else if (questionEvents.length !== 0) {
     fail(

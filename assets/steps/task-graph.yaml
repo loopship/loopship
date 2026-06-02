@@ -13,9 +13,9 @@ instructions: |-
 
   Approve only when dependencies, scope files, concurrency groups, and child
   CLI-agent assignment fields are deterministic.
-  Prefer a short serial chain for single-operator CLI execution. Multiple ready
-  tasks at the same stage need a concrete independence rationale, not just
-  "these could be parallel."
+  Prefer maximal useful independence so multiple ready tasks can run in
+  parallel. Dependent tasks should wait instead of being emitted as partially
+  blocked child work.
 
   Reject graphs that are empty while the scoped request still requires
   implementation work. Small scope should shrink the graph, not remove it.
@@ -26,6 +26,9 @@ instructions: |-
   Reject graphs that over-split tiny work. Setup-only tasks, trivial test-only
   tasks, and micro-refactors should be folded into the nearest implementation
   task unless they need separate ownership or materially different acceptance.
+
+  Reject graphs that would cause a child task to split again. Child quests are
+  leaf workers and should receive one independently completable assignment.
 
   Reject small-prototype graphs that split scaffolding, implementation, and
   verification into separate tasks when one or two concrete implementation

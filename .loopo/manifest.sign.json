@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-02T07:42:53Z",
+  "generated_by": "loopo",
+  "writer_command": "loopo init",
+  "request_id": "system-scaffold",
+  "hash_algorithm": "sha256",
+  "previous_receipt_head": "422ed2ac8451bc62a097cda23dca3cf871a86a966c2311b3767cf72b93703377",
+  "receipt_head": "325d2d56f839eed2e38b8f021cbb25c17463c60d8466a01225cf198d8d69294c",
+  "files": {
+    ".loopo/system.yaml": "12216833a1198cdf090ab1b466c5db34b2d7d3ea4ad2d4a0f60f11bd4d7b5d61",
+    ".loopo/docs/high-level-design.yaml": "f51970ca4dbfc605ae60f1f475d92c531613a3ecafbeed8fed439fa6959e85f6",
+    ".loopo/docs/low-level-design.yaml": "f81a68d9995744b6a2ae3f66f5fb2b13b71ee3292b970c1e4a5e51149f42ef96",
+    ".loopo/docs/architecture.yaml": "aeb6f94c0cdfd1a429587a45a838f733e162af282b33d345997882990b9d86c5",
+    ".loopo/docs/system-behaviours.yaml": "35b40ca1eff292cddcbd088b0692c79cd27238a3ac58f4ffe1e45a5631c3a3a9",
+    ".loopo/docs/design-system.yaml": "b90aa63c07c28a88e429a5236766a0aeb5c12a45a34de57e621dea71e34e1e4b"
+  }
+}

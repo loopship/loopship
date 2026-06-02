@@ -40,7 +40,7 @@ const embeddedChildResultSchema = {
 
 const docs = {
   state_yaml: "/tmp/tasks.yaml",
-  plan_yaml: "/tmp/plan.yaml",
+  events_jsonl: "/tmp/events.jsonl",
   manifest: "/tmp/manifest.sign.json",
 };
 

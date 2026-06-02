@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml } from "./loopo_core.ts";
+import { parseTasksYaml, questFiles } from "./loopo_core.ts";
 import { validateV3Input } from "./loopo_schema.ts";
 import { readText, runCommand } from "./loopo_utils.ts";
 
@@ -137,7 +137,7 @@ function gitWorktrees(repo: string, env: Record<string, string>): string[] {
 
 function latestQuestState(fixture: MatrixFixture, wtree: string): any {
   return parseTasksYaml(
-    readFileSync(join(fixture.repo, ".loopo", "quests", wtree, "tasks.yaml"), "utf8"),
+    readFileSync(questFiles(fixture.repo, wtree).tasks, "utf8"),
   );
 }
 
