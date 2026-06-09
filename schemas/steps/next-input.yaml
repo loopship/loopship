@@ -1,0 +1,30 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/next-input.yaml
+title: Loopo V3 Quest Next Input
+oneOf:
+  - type: object
+    additionalProperties: false
+    required:
+      - step
+      - action
+      - wtree
+      - request
+    properties:
+      step:
+        const: select_quest
+      action:
+        const: create_quest
+      wtree:
+        type: string
+      flow_id:
+        type: string
+      request:
+        type: string
+  - $ref: plan-input.yaml
+  - $ref: questions-input.yaml
+  - $ref: task-graph-input.yaml
+  - $ref: child-result-input.yaml
+  - $ref: validation-input.yaml
+  - $ref: verification-input.yaml
+  - $ref: system-update-input.yaml
+  - $ref: landing-input.yaml

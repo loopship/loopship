@@ -62,7 +62,7 @@
 
 - `README.md` for the user-facing CLI surface.
 - `tasks.md` for current lifecycle coverage notes.
-- `references/core/architecture.md` for controller, lifecycle, runtime hook, ops, and supervisor contracts.
+- `.loopo/docs/software/architecture.yaml`, `.loopo/docs/workflow/spec.yaml`, and `.loopo/docs/agent/system-card.yaml` for controller, lifecycle, runtime hook, ops, and supervisor contracts.
 - `references/core/analytical-framework.md` for rigorous reasoning checks.
 - `references/core/optimization-framework.md` for deterministic execution discipline.
 - `agents/openai.yaml` for the Codex default invocation contract.

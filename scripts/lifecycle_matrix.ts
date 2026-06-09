@@ -15,6 +15,13 @@ import { validateV3Input } from "./loopo_schema.ts";
 import { readText, runCommand } from "./loopo_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
+const EMPTY_SYSTEM_CONTEXT = {
+  relevant_object_refs: [],
+  relevant_assertion_refs: [],
+  relevant_resource_refs: [],
+  relevant_memory_refs: [],
+  durable_implications: [],
+};
 
 export type MatrixFixture = {
   root: string;
@@ -33,8 +40,7 @@ export type MatrixScenario = {
   constraints?: string[];
   questions?: Array<Record<string, unknown>>;
   preplanAnswers?: Array<Record<string, unknown>>;
-  af?: Record<string, unknown>;
-  of?: Record<string, unknown>;
+  system_context?: Record<string, unknown>;
   verification_targets: string[];
   tasks: Array<Record<string, unknown>>;
 };
@@ -191,8 +197,7 @@ function driveScenario(
       scope: scenario.scope,
       summary: scenario.summary,
       questions: scenario.questions,
-      af: scenario.af ?? {},
-      of: scenario.of ?? {},
+      system_context: scenario.system_context ?? EMPTY_SYSTEM_CONTEXT,
       verification_targets: scenario.verification_targets,
       task_graph: { tasks: [] },
     });
@@ -215,8 +220,7 @@ function driveScenario(
     defaulted_unknowns: scenario.defaulted_unknowns ?? [],
     assumptions: scenario.assumptions ?? [],
     constraints: scenario.constraints ?? [],
-    af: scenario.af ?? {},
-    of: scenario.of ?? {},
+    system_context: scenario.system_context ?? EMPTY_SYSTEM_CONTEXT,
     verification_targets: scenario.verification_targets,
     task_graph: { tasks: scenario.tasks },
   });
@@ -288,7 +292,8 @@ function driveScenario(
     step: "system_update",
     system_update: {
       schema_version: 1,
-      updates: [{ doc_id: "architecture", summary: `${scenario.id} covered` }],
+      mode: "no_change",
+      summary: `${scenario.id} covered`,
     },
   });
   expectValidSchema(landing, "step-output");
@@ -335,8 +340,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
     summary: "Reproduce the failing test, apply the smallest fix, and confirm the regression is closed.",
     assumptions: ["The failure is isolated to one UI behavior."],
     constraints: ["Keep the fix minimal and regression-bounded."],
-    af: { decision: "Prefer the smallest targeted change." },
-    of: { delivery_strategy: "One bounded implementation child." },
+    system_context: EMPTY_SYSTEM_CONTEXT,
     verification_targets: ["The failing React test passes without breaking adjacent behavior."],
     tasks: [
       {
@@ -356,8 +360,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
     summary: "Restore a clean build by adjusting compatibility issues introduced by the upgrade.",
     assumptions: ["The project should keep the upgraded dependency version."],
     constraints: ["Repair behavior without broad refactors."],
-    af: { decision: "Contain the recovery to build compatibility." },
-    of: { delivery_strategy: "One bounded repair child." },
+    system_context: EMPTY_SYSTEM_CONTEXT,
     verification_targets: ["The production build succeeds after the repair."],
     tasks: [
       {
@@ -377,8 +380,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
     summary: "Decompose the general coding request into two independent parallel-ready children.",
     defaulted_unknowns: ["Use two disjoint file slices for the subtasks."],
     constraints: ["The subtasks must be independently mergeable."],
-    af: { decision: "Split only on safe parallel boundaries." },
-    of: { delivery_strategy: "Run two sibling child tasks in parallel." },
+    system_context: EMPTY_SYSTEM_CONTEXT,
     verification_targets: ["Both independent subtasks finish and merge cleanly."],
     tasks: [
       {
@@ -407,8 +409,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
     summary: "Treat the request as a non-coding research task and return a bounded recommendation.",
     defaulted_unknowns: ["Assume local-first constraints unless contradicted."],
     constraints: ["No implementation work is required for the research pass."],
-    af: { decision: "Optimize for decision quality over code output." },
-    of: { delivery_strategy: "One general research child quest." },
+    system_context: EMPTY_SYSTEM_CONTEXT,
     verification_targets: ["The recommendation covers tradeoffs and a clear winner."],
     tasks: [
       {
@@ -428,8 +429,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
     summary: "Split the feature into two merge-safe child tasks for frontend and backend.",
     assumptions: ["Frontend and backend work can proceed independently."],
     constraints: ["Keep file ownership disjoint between UI and API."],
-    af: { decision: "Use two child tasks because the boundaries are real." },
-    of: { delivery_strategy: "Dispatch frontend and backend children in parallel." },
+    system_context: EMPTY_SYSTEM_CONTEXT,
     verification_targets: ["Both frontend and backend slices complete and merge."],
     tasks: [
       {
@@ -473,8 +473,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
     defaulted_unknowns: ["No auth for MVP", "Simple list UI"],
     assumptions: ["All users share the same permissions in the MVP."],
     constraints: ["Use React, Express, and SQLite."],
-    af: { decision: "Constrain the vague request to one coherent MVP slice." },
-    of: { delivery_strategy: "Use one child quest to build the MVP end to end." },
+    system_context: EMPTY_SYSTEM_CONTEXT,
     verification_targets: ["The MVP app builds successfully."],
     tasks: [
       {

@@ -1,0 +1,30 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/quest-plan.yaml
+title: Loopo Quest Plan v3
+type: object
+additionalProperties: true
+required:
+  - schema_version
+  - wtree
+  - quest_id
+  - prompt
+  - summary
+  - assumptions
+  - tasks
+properties:
+  schema_version:
+    const: 3
+  wtree:
+    type: string
+  quest_id:
+    type: string
+  prompt:
+    type: string
+  summary:
+    type: string
+  assumptions:
+    type: array
+    items:
+      type: string
+  tasks:
+    type: array

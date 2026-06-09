@@ -12,10 +12,17 @@ export type SimPlanPayload = {
     impact: string;
     default?: string;
   }>;
-  af: Record<string, unknown>;
-  of: Record<string, unknown>;
+  system_context?: Record<string, unknown>;
   verification_targets: string[];
   tasks: Array<Record<string, unknown>>;
+};
+
+const EMPTY_SYSTEM_CONTEXT = {
+  relevant_object_refs: [],
+  relevant_assertion_refs: [],
+  relevant_resource_refs: [],
+  relevant_memory_refs: [],
+  durable_implications: [],
 };
 
 export type SimProductQuestScenario = {
@@ -108,13 +115,7 @@ export function selectSimProductQuestScenario(
           "Add one pytest test.",
           "Keep files minimal.",
         ],
-        af: {
-          decision:
-            "No clarification is needed because the prompt already fixes the runtime, interface, exact output, and minimum verification surface.",
-        },
-        of: {
-          delivery_strategy: "Use one bounded implementation child.",
-        },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: [
           "Running the CLI with --name prints the exact greeting.",
           "One pytest test passes.",
@@ -168,13 +169,7 @@ export function selectSimProductQuestScenario(
           "Ship a responsive UI.",
           "Include basic tests.",
         ],
-        af: {
-          decision:
-            "No clarification is needed because the request already fixes the stack, user model, persistence posture, and acceptance direction.",
-        },
-        of: {
-          delivery_strategy: "Use one bounded implementation child.",
-        },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: [
           "The React habit tracker renders as a responsive single-page UI.",
           "Habit data persists locally across reloads.",
@@ -232,14 +227,7 @@ export function selectSimProductQuestScenario(
       assumptions: [
         "The prompt is still product-defining and does not settle the MVP surface.",
       ],
-      af: {
-        decision:
-          "Clarification is required because the prompt is too generic to decompose safely.",
-      },
-      of: {
-        delivery_strategy:
-          "Pause decomposition until the first clarification round is answered.",
-      },
+      system_context: EMPTY_SYSTEM_CONTEXT,
       verification_targets: [
         "The first clarification round resolves the missing product definition.",
       ],
@@ -253,14 +241,7 @@ export function selectSimProductQuestScenario(
       defaulted_unknowns: ["No auth for MVP", "Simple list UI"],
       assumptions: ["All team members share the same permissions."],
       constraints: ["Use React, Express, and SQLite."],
-      af: {
-        decision:
-          "Constrain the vague request to one coherent MVP slice after clarification.",
-      },
-      of: {
-        delivery_strategy:
-          "Use one dedicated child quest to build the MVP end to end.",
-      },
+      system_context: EMPTY_SYSTEM_CONTEXT,
       verification_targets: ["Production build succeeds."],
       tasks: [
         {
@@ -300,8 +281,7 @@ function scenarioPlanPayload(plan: SimPlanPayload): Record<string, unknown> {
     ...(plan.assumptions?.length ? { assumptions: plan.assumptions } : {}),
     ...(plan.constraints?.length ? { constraints: plan.constraints } : {}),
     ...(plan.questions?.length ? { questions: plan.questions } : {}),
-    af: plan.af,
-    of: plan.of,
+    system_context: plan.system_context ?? EMPTY_SYSTEM_CONTEXT,
     verification_targets: plan.verification_targets,
     task_graph: { tasks: plan.tasks },
   };
@@ -395,12 +375,8 @@ export function scenarioPayloadForStep(input: {
         step: "system_update",
         system_update: {
           schema_version: 1,
-          updates: [
-            {
-              doc_id: "architecture",
-              summary: scenario.system_summary,
-            },
-          ],
+          mode: "no_change",
+          summary: scenario.system_summary,
         },
       };
     case "landing":

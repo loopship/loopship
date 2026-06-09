@@ -9,15 +9,15 @@
   },
   "exports": {
     ".": "./index.ts",
+    "./workflow-runner": "./scripts/loopo_workflow_runner.ts",
     "./package.json": "./package.json"
   },
   "files": [
     ".loopo/system.yaml",
-    ".loopo/manifest.sign.json",
+    ".loopo/signature.yaml",
     ".loopo/docs",
     "README.md",
     "index.ts",
-    "agents",
     "assets",
     "references",
     "schemas",
@@ -41,9 +41,9 @@
   },
   "scripts": {
     "cmdproto:gen": "cmdproto build --generate-only",
-    "cmdproto:schema": "cmdproto build --app-name loopo --out-dir assets/cmdproto",
+    "cmdproto:schema": "bun run scripts/run_cmdproto_schema.ts",
     "test": "bun test scripts/verify_flow_schema.test.ts scripts/verify_child_agent_integration.test.ts scripts/verify_lifecycle_matrix.test.ts scripts/verify_runtime_live.test.ts",
-    "verify": "bun run scripts/verify_coherency.ts && bun run cmdproto:schema && bun run scripts/verify_cmdproto_abi.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts && bun run scripts/report_lifecycle_matrix.ts",
+    "verify": "bun run scripts/verify_system_model.ts && bun run scripts/verify_coherency.ts && bun run scripts/run_cmdproto_schema.ts && bun run scripts/verify_cmdproto_abi.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts && bun run scripts/report_lifecycle_matrix.ts",
     "verify:lifecycle": "bun run scripts/report_lifecycle_matrix.ts",
     "verify:live": "bun run scripts/verify_runtime_live.ts"
   },
@@ -56,6 +56,7 @@
   },
   "dependencies": {
     "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "cmdproto": "git+https://github.com/omar391/cmdproto.git",
     "yaml": "^2.8.3"
   },

@@ -169,6 +169,7 @@ export function runCommand(
     },
     input: opts.input,
     encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
     timeout: opts.timeoutMs,
   });
 

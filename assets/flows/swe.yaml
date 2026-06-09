@@ -1,73 +1,190 @@
-schema_version: 1
-id: swe
-version: 1
-default_stage: planning
-stages:
-  - id: planning
-    step: plan
-    transitions:
-      questions: awaiting_user_answers
-      planned: plan_review
-  - id: awaiting_user_answers
-    step: questions
-    transitions:
-      answered: planning
-  - id: plan_review
-    step: task_graph
-    transitions:
-      approved: task_graph_ready
-      rejected: planning
-  - id: task_graph_ready
-    step: executing
-    transitions:
-      complete: validating
-      partial: task_graph_ready
-  - id: executing
-    step: executing
-    transitions:
-      complete: validating
-      partial: executing
-  - id: validating
-    step: validation
-    transitions:
-      passed: verification_pending
-      failed: task_graph_ready
-  - id: verification_pending
-    step: verification
-    transitions:
-      passed: system_update_pending
-      failed: validating
-  - id: system_update_pending
-    step: system_update
-    transitions:
-      updated: landing_ready
-  - id: landing_ready
-    step: landing
-    transitions:
-      landed: archived
-      blocked: landing_ready
-  - id: replanning
-    step: plan
-    transitions:
-      planned: plan_review
-  - id: archived
-    step: archived
-    transitions: {}
-subflows:
-  - id: replanning
-    type: in_flow_detour
-    starts_at: replanning
-    returns_to: plan_review
-    trigger: replan
-  - id: add_task
-    type: in_flow_detour
-    starts_at: replanning
-    returns_to: task_graph_ready
-    trigger: add_task
-  - id: child_task
-    type: spawned_quest
-    starts_at: task_graph_ready
-    returns_to: task_graph_ready
-    trigger: children[].commands.init
-    result_step: child_result
-    flow_id: swe
+document:
+  dsl: 1.0.3
+  namespace: loopo
+  name: swe
+  version: 1.0.0
+  summary: Loopo SWE lifecycle workflow composed from reusable single-step workflows.
+  metadata:
+    loopo:
+      kind: flow
+      version: 1
+      defaultStage: planning
+      stages:
+        planning:
+          step: plan
+          task: planning
+          transitions:
+            questions: awaiting_user_answers
+            planned: plan_review
+        awaiting_user_answers:
+          step: questions
+          task: awaiting_user_answers
+          transitions:
+            answered: planning
+        plan_review:
+          step: task_graph
+          task: plan_review
+          transitions:
+            approved: task_graph_ready
+            rejected: planning
+        task_graph_ready:
+          step: executing
+          task: task_graph_ready
+          transitions:
+            complete: validating
+            partial: task_graph_ready
+        executing:
+          step: executing
+          task: executing
+          transitions:
+            complete: validating
+            partial: executing
+        validating:
+          step: validation
+          task: validating
+          transitions:
+            passed: verification_pending
+            failed: task_graph_ready
+        verification_pending:
+          step: verification
+          task: verification_pending
+          transitions:
+            passed: system_update_pending
+            failed: validating
+        system_update_pending:
+          step: system_update
+          task: system_update_pending
+          transitions:
+            updated: landing_ready
+        landing_ready:
+          step: landing
+          task: landing_ready
+          transitions:
+            landed: archived
+            blocked: landing_ready
+        replanning:
+          step: plan
+          task: replanning
+          transitions:
+            planned: plan_review
+        archived:
+          step: archived
+          task: archived
+          transitions: {}
+      subflows:
+        - id: replanning
+          type: in_flow_detour
+          starts_at: replanning
+          returns_to: plan_review
+          trigger: replan
+        - id: add_task
+          type: in_flow_detour
+          starts_at: replanning
+          returns_to: task_graph_ready
+          trigger: add_task
+        - id: child_task
+          type: spawned_quest
+          starts_at: task_graph_ready
+          returns_to: task_graph_ready
+          trigger: children[].commands.init
+          result_step: child_result
+          flow_id: swe
+input:
+  schema:
+    format: json
+    document:
+      $ref: ../../schemas/steps/next-input.yaml
+output:
+  schema:
+    format: json
+    document:
+      $ref: ../../schemas/steps/archive-output.yaml
+do:
+  - planning:
+      call: workflow.loopo.steps.plan
+      then: continue
+      metadata:
+        loopo:
+          stageId: planning
+          stepId: plan
+          stepWorkflow: assets/workflows/steps/plan.yaml
+  - awaiting_user_answers:
+      call: workflow.loopo.steps.questions
+      then: planning
+      metadata:
+        loopo:
+          stageId: awaiting_user_answers
+          stepId: questions
+          stepWorkflow: assets/workflows/steps/questions.yaml
+  - plan_review:
+      call: workflow.loopo.steps.task_graph
+      then: continue
+      metadata:
+        loopo:
+          stageId: plan_review
+          stepId: task_graph
+          stepWorkflow: assets/workflows/steps/task_graph.yaml
+  - task_graph_ready:
+      call: workflow.loopo.steps.executing
+      then: continue
+      metadata:
+        loopo:
+          stageId: task_graph_ready
+          stepId: executing
+          stepWorkflow: assets/workflows/steps/executing.yaml
+  - executing:
+      call: workflow.loopo.steps.executing
+      then: continue
+      metadata:
+        loopo:
+          stageId: executing
+          stepId: executing
+          stepWorkflow: assets/workflows/steps/executing.yaml
+  - validating:
+      call: workflow.loopo.steps.validation
+      then: continue
+      metadata:
+        loopo:
+          stageId: validating
+          stepId: validation
+          stepWorkflow: assets/workflows/steps/validation.yaml
+  - verification_pending:
+      call: workflow.loopo.steps.verification
+      then: continue
+      metadata:
+        loopo:
+          stageId: verification_pending
+          stepId: verification
+          stepWorkflow: assets/workflows/steps/verification.yaml
+  - system_update_pending:
+      call: workflow.loopo.steps.system_update
+      then: landing_ready
+      metadata:
+        loopo:
+          stageId: system_update_pending
+          stepId: system_update
+          stepWorkflow: assets/workflows/steps/system_update.yaml
+  - landing_ready:
+      call: workflow.loopo.steps.landing
+      then: continue
+      metadata:
+        loopo:
+          stageId: landing_ready
+          stepId: landing
+          stepWorkflow: assets/workflows/steps/landing.yaml
+  - replanning:
+      call: workflow.loopo.steps.plan
+      then: plan_review
+      metadata:
+        loopo:
+          stageId: replanning
+          stepId: plan
+          stepWorkflow: assets/workflows/steps/plan.yaml
+  - archived:
+      call: workflow.loopo.steps.archived
+      then: continue
+      metadata:
+        loopo:
+          stageId: archived
+          stepId: archived
+          stepWorkflow: assets/workflows/steps/archived.yaml

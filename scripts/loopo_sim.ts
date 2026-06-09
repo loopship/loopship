@@ -4,7 +4,11 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTasksYaml, questFiles } from "./loopo_core.ts";
-import { DEFAULT_FLOW_ID, flowStep, loadFlowDefinition } from "./loopo_flow.ts";
+import {
+  DEFAULT_FLOW_ID,
+  flowStep,
+  loadFlowDefinition,
+} from "./loopo_workflow_runner.ts";
 import {
   readHookDecision as readSupervisorHookDecision,
 } from "./runtime_supervisor.ts";
@@ -237,6 +241,7 @@ function runLoopo(
   const launch = tsRunner(LOOPO_SCRIPT, args);
   return runCommand(launch.cmd, launch.args, {
     cwd: repoRoot,
+    env: { LOOPO_COMPACT_INIT_SCHEMA: "1" },
     timeoutMs: 60_000,
     input: input ? JSON.stringify(input) : undefined,
   });

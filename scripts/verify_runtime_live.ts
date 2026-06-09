@@ -402,7 +402,7 @@ function continuationPrompt(reason: string): string {
   return [
     "Loopo continuation:",
     "You are continuing an active Loopo quest in the current repository.",
-    "Use the embedded step payload, callback_schema, and commands.next to advance exactly one lifecycle step.",
+    "Use the embedded step payload, output_schema, and commands.next to advance exactly one lifecycle step.",
     "Do not restart with loopo init unless the payload explicitly tells you to.",
     "",
     embedded,

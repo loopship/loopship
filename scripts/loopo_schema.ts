@@ -2,10 +2,12 @@
 
 import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject } from "ajv";
+import addFormats from "ajv-formats";
 import { existsSync, readdirSync } from "node:fs";
-import { dirname, isAbsolute, normalize, resolve } from "node:path";
+import { dirname, isAbsolute, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readJson } from "./loopo_utils.ts";
+import { parse as parseYaml } from "yaml";
+import { readText } from "./loopo_utils.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 type JsonValue =
@@ -16,9 +18,10 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
+type SchemaObject = Record<string, unknown>;
+export type LoopoSchemaSource = string | SchemaObject | null;
 
-export const FLOW_SCHEMA_PATH = "schemas/flow.v1.json";
-export const STEP_DEFINITION_SCHEMA_PATH = "schemas/step-definition.v1.json";
+export const FLOW_SCHEMA_PATH = "schemas/loopo-flow.schema.yaml";
 export const V3_STEP_SCHEMAS = [
   "init-output",
   "next-input",
@@ -39,7 +42,7 @@ export const V3_STEP_SCHEMAS = [
 ] as const;
 
 export function v3SchemaPath(name: string): string {
-  return `schemas/steps/${name}.v3.json`;
+  return `schemas/steps/${name}.yaml`;
 }
 
 export function v3SchemaFilePath(name: string): string {
@@ -48,7 +51,7 @@ export function v3SchemaFilePath(name: string): string {
 
 export function loopoSchemaRef(name: string): Record<string, string> {
   return {
-    schema_path: `schemas/${name}.json`,
+    schema_path: `schemas/${name}.yaml`,
   };
 }
 
@@ -63,8 +66,11 @@ function cloneJson<T extends JsonValue>(value: T): T {
 }
 
 function localSchemaFilePath(schemaPath: string): string {
-  const path = schemaPath.trim();
-  if (!path.endsWith(".json")) {
+  const rawPath = schemaPath.trim();
+  const path = rawPath.startsWith("loopo://schemas/")
+    ? rawPath.slice("loopo://".length)
+    : rawPath;
+  if (!path.endsWith(".yaml")) {
     throw new Error(`unsupported local schema path: ${schemaPath}`);
   }
   return isAbsolute(path) ? path : resolve(ROOT, path);
@@ -76,7 +82,7 @@ function readSchemaByPath(schemaPath: string): JsonObject {
   const cached = cachedSchemaDocuments.get(schemaPath);
   if (cached) return cached;
   const path = localSchemaFilePath(schemaPath);
-  const schema = readJson(path) as JsonValue;
+  const schema = parseYaml(readText(path)) as JsonValue;
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
     throw new Error(`schema must be an object: ${schemaPath}`);
   }
@@ -87,6 +93,7 @@ function readSchemaByPath(schemaPath: string): JsonObject {
 function resolveSchemaRefPath(refPath: string, currentSchemaPath: string): string {
   const path = refPath.trim();
   if (!path) return currentSchemaPath;
+  if (path.startsWith("loopo://schemas/")) return path;
   if (path.startsWith("schemas/")) return path;
   if (isAbsolute(path)) return path;
   return normalize(`${dirname(currentSchemaPath)}/${path}`);
@@ -203,27 +210,138 @@ export function dereferencedV3Schema(name: string): Record<string, unknown> {
   ) as Record<string, unknown>;
 }
 
-let cachedAjv: Ajv2020 | null = null;
+export function dereferencedSchemaSource(
+  source: LoopoSchemaSource,
+): Record<string, unknown> | null {
+  if (source == null) return null;
+  if (typeof source === "string") {
+    const schema = readSchemaByPath(source);
+    return dereferenceSchemaValue(
+      cloneJson(schema),
+      source,
+      schema,
+      new Set<string>(),
+    ) as Record<string, unknown>;
+  }
+  return dereferenceSchemaValue(
+    cloneJson(source as JsonValue),
+    String(source.$id ?? "inline://loopo-schema"),
+    source as JsonObject,
+    new Set<string>(),
+  ) as Record<string, unknown>;
+}
 
-function schemaFiles(dir: string): string[] {
+function canonicalSchemaFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".json"))
-    .map((name) => resolve(dir, name));
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...canonicalSchemaFiles(path));
+    } else if (entry.isFile() && entry.name.endsWith(".yaml")) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function readSchemaFile(file: string): Record<string, unknown> | null {
+  const value = parseYaml(readText(file));
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function repoRelativeSchemaPath(file: string): string {
+  return relative(ROOT, file).replace(/\\/g, "/");
+}
+
+function addSwfFormats(ajv: Ajv2020): void {
+  addFormats(ajv);
+  ajv.addFormat(
+    "json-pointer",
+    /^(?:|\/(?:[^~/]|~0|~1)*)*$/u,
+  );
+  ajv.addFormat("uri-template", {
+    type: "string",
+    validate: (value: string) =>
+      typeof value === "string" &&
+      value.length > 0 &&
+      !/\s/u.test(value) &&
+      /^(?:[^{}]|\{[^{}\s]+\})+$/u.test(value),
+  });
 }
 
 function buildAjv(): Ajv2020 {
   const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addSwfFormats(ajv);
   for (const file of [
-    ...schemaFiles(resolve(ROOT, "schemas")),
-    ...schemaFiles(resolve(ROOT, "schemas", "steps")),
+    ...canonicalSchemaFiles(resolve(ROOT, "schemas")),
+    ...canonicalSchemaFiles(
+      resolve(
+        ROOT,
+        "vendor",
+        "serverlessworkflow",
+        "1.0.3",
+      ),
+    ),
   ]) {
-    const schema = readJson(file);
+    const schema = readSchemaFile(file);
     if (!schema) continue;
-    ajv.addSchema(schema);
+    ajv.addSchema(schema, repoRelativeSchemaPath(file));
   }
   return ajv;
 }
+
+function schemaFiles(dir: string): string[] {
+  return canonicalSchemaFiles(dir);
+}
+
+function ajvForInlineSchema(schema: SchemaObject): Ajv2020 {
+  const tempAjv = buildAjv();
+  tempAjv.addSchema(schema);
+  return tempAjv;
+}
+
+export function schemaPathForName(schemaName: string): string {
+  return v3SchemaPath(schemaName);
+}
+
+export function validateSchemaSource(
+  payload: Record<string, any>,
+  source: LoopoSchemaSource,
+): string[] {
+  if (source == null) return ["schema source is null"];
+  if (typeof source === "string") {
+    return validateSchemaPath(payload, source);
+  }
+  const inlineAjv = ajvForInlineSchema(source);
+  const schemaId =
+    typeof source.$id === "string" ? source.$id : "inline://loopo-schema";
+  const validate = inlineAjv.getSchema(schemaId) ?? inlineAjv.compile(source);
+  if (validate(payload)) return [];
+  return (validate.errors ?? []).map(formatError);
+}
+
+export function validateV3Input(
+  payload: Record<string, any>,
+  schemaName: string,
+): string[] {
+  const validate = ajv().getSchema(schemaPathForName(schemaName));
+  if (!validate) return [`input schema not found: ${schemaName}`];
+  if (validate(payload)) return [];
+  return (validate.errors ?? []).map(formatError);
+}
+
+export function validateSchemaPath(
+  payload: Record<string, any>,
+  schemaPath: string,
+): string[] {
+  const validate = ajv().getSchema(schemaPath);
+  if (!validate) return [`input schema not found: ${schemaPath}`];
+  if (validate(payload)) return [];
+  return (validate.errors ?? []).map(formatError);
+}
+let cachedAjv: Ajv2020 | null = null;
 
 function ajv(): Ajv2020 {
   cachedAjv ??= buildAjv();
@@ -248,24 +366,4 @@ function formatError(error: ErrorObject): string {
     return `${path} is not allowed`;
   }
   return `${path} ${message}`;
-}
-
-export function validateV3Input(
-  payload: Record<string, any>,
-  schemaName: string,
-): string[] {
-  const validate = ajv().getSchema(v3SchemaPath(schemaName));
-  if (!validate) return [`input schema not found: ${schemaName}`];
-  if (validate(payload)) return [];
-  return (validate.errors ?? []).map(formatError);
-}
-
-export function validateSchemaPath(
-  payload: Record<string, any>,
-  schemaPath: string,
-): string[] {
-  const validate = ajv().getSchema(schemaPath);
-  if (!validate) return [`input schema not found: ${schemaPath}`];
-  if (validate(payload)) return [];
-  return (validate.errors ?? []).map(formatError);
 }

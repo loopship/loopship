@@ -1,0 +1,72 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/system-update.yaml
+title: Loopo System Update
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - mode
+  - summary
+properties:
+  schema_version:
+    const: 1
+  mode:
+    enum:
+      - no_change
+      - replace
+  summary:
+    type: string
+    minLength: 1
+  root:
+    $ref: loopo://schemas/system.yaml
+  external_docs:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - op
+        - resource_ref
+      properties:
+        op:
+          enum:
+            - upsert
+            - delete
+        resource_ref:
+          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        document:
+          oneOf:
+            - $ref: loopo://schemas/docs/software-architecture.yaml
+            - $ref: loopo://schemas/docs/decision-records.yaml
+            - $ref: loopo://schemas/docs/workflow-spec.yaml
+            - $ref: loopo://schemas/docs/agent-system-card.yaml
+            - $ref: loopo://schemas/docs/knowledge-report.yaml
+            - $ref: loopo://schemas/docs/dataset-datasheet.yaml
+            - $ref: loopo://schemas/docs/model-card.yaml
+            - $ref: loopo://schemas/docs/business-architecture.yaml
+            - $ref: loopo://schemas/docs/artifact-bom.yaml
+            - $ref: loopo://schemas/system-pack.yaml
+allOf:
+  - if:
+      properties:
+        mode:
+          const: replace
+    then:
+      required:
+        - root
+  - if:
+      properties:
+        external_docs:
+          type: array
+    then:
+      properties:
+        external_docs:
+          items:
+            allOf:
+              - if:
+                  properties:
+                    op:
+                      const: upsert
+                then:
+                  required:
+                    - document

@@ -1,0 +1,65 @@
+document:
+  dsl: 1.0.3
+  namespace: loopo-steps
+  name: verification
+  version: 1.0.0
+  summary: Submit acceptance trace, PR-style risk review, and residual risks.
+  metadata:
+    loopo:
+      kind: step-workflow
+      stepId: verification
+do:
+  - verification:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/step-output.yaml
+      metadata:
+        loopo:
+          stepId: verification
+          handler: verification
+          inputStep: verification
+          summary: Submit acceptance trace, PR-style risk review, and residual risks.
+          instructions: >-
+            # Loopo Verification Step
+
+
+            Act as a top-class acceptance and risk reviewer for Loopo. Treat
+            this
+
+            instruction block as the verification step's system prompt: trace
+            acceptance,
+
+            review residual risk, and return only the schema-valid
+            `verification`
+
+            callback.
+
+
+            ## Step-Local Callback Contract
+
+
+            This step is reusable across flows. The orchestrator owns flow
+            transitions
+
+            and decides which step, if any, follows this callback. Produce only
+            the JSON
+
+            payload that matches this step's current `output_schema`, then
+            submit it
+
+            through `commands.next`; do not shape output for a guessed
+            successor.
+
+
+            Perform acceptance trace, risk review, behavior coverage, and
+            evidence review.
+          resultSchemaPath: schemas/steps/step-output.yaml
+      output:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/verification-input.yaml
+      call: loopo.internal.verification
+      with: {}

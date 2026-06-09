@@ -1,0 +1,56 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/plan-input.yaml
+title: Loopo V3 Plan Input
+type: object
+additionalProperties: false
+required:
+  - step
+  - classification
+  - scope
+  - system_context
+  - verification_targets
+  - task_graph
+properties:
+  step:
+    const: plan
+  classification:
+    enum:
+      - greenfield_app
+      - feature
+      - bugfix
+      - refactor
+      - general
+  scope:
+    type: string
+  summary:
+    type: string
+  clarification_matrix:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/question
+  high_impact_unknowns:
+    $ref: common.yaml#/$defs/string_array
+  defaulted_unknowns:
+    $ref: common.yaml#/$defs/string_array
+  assumptions:
+    $ref: common.yaml#/$defs/string_array
+  constraints:
+    $ref: common.yaml#/$defs/string_array
+  questions:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/question
+  system_context:
+    $ref: common.yaml#/$defs/system_context
+  verification_targets:
+    $ref: common.yaml#/$defs/string_array
+  task_graph:
+    type: object
+    additionalProperties: false
+    required:
+      - tasks
+    properties:
+      tasks:
+        type: array
+        items:
+          $ref: common.yaml#/$defs/task_graph_task

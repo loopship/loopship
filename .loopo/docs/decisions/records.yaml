@@ -1,0 +1,173 @@
+schema_version: 2
+id: decisions
+title: Decision Records
+text: |-
+  Architecture-significant decision records for Loopo system-model and lifecycle
+  architecture choices.
+links:
+  about:
+    - object:system-model
+standard_alignment:
+  adr: |-
+    Aligns with ADR practice by preserving context, drivers, options, selected decision,
+    rationale, consequences, durable decision state, and links back to the system model.
+decisions:
+  minimal-system-kernel:
+    state: accepted
+    date: 2026-06-08
+    title: Minimal universal system kernel
+    context: |-
+      Loopo needs one minimal schema-backed root model that works for software, workflows,
+      agents, data, models, knowledge artifacts, organizations, and generated artifacts.
+    drivers:
+      - The durable root must support many system kinds without software-only assumptions or nested architecture taxonomy.
+      - LLM agents must understand root records and links without memorizing compact custom grammars or joining scattered root arrays.
+      - The root must stay small enough to act as first-read context and delegate detailed industry documents to concrete schema-backed resources.
+    options:
+      single-records-array:
+        text: |-
+          Use one records array for objects, assertions, resources, memories, and relation
+          semantics.
+        tradeoffs:
+          - This lowers root block count but weakens the four mental models that help humans and LLMs scan the root.
+      four-record-blocks:
+        text: |-
+          Use objects, assertions, resources, and memories with relation-keyed typed links on
+          each record type.
+        tradeoffs:
+          - This keeps a small amount of structure while preserving readable graph traversal and avoiding a relation warehouse.
+      generic-section-doc:
+        text: |-
+          Use a generic external document schema with profiles, sections, and slot rules for
+          every canonical document.
+        tradeoffs:
+          - This keeps schema count low but creates indirection and does not resemble standard architecture, ADR, workflow, or agent documents.
+    decision: |-
+      Use four root blocks: objects, assertions, resources, and optional memories. Represent
+      graph semantics through relation-keyed typed links on those records.
+    rationale: |-
+      Four blocks preserve separate mental models for humans and LLMs, while typed link maps
+      preserve traversal without a relation warehouse or compact string grammar.
+    consequences:
+      - The root stays small, self-explaining, and suitable as first-read agent context for planning and durable knowledge scouting.
+      - The verifier must enforce typed link resolution and global id uniqueness across loaded root and pack records.
+      - Full canonical documentation must live in concrete schema-shaped resources rather than nested root sections.
+    links:
+      about:
+        - object:system-model
+  signature-sidecar:
+    state: accepted
+    date: 2026-06-08
+    title: YAML signature sidecar
+    context: |-
+      Loopo needs tamper-evident canonical files without embedding digest state into the human
+      and LLM first-read semantic root.
+    drivers:
+      - The root should remain semantic and human-editable instead of carrying mechanical digest and receipt metadata.
+      - The integrity sidecar should still be inspectable enough to debug tampering, schema drift, and missing canonical resources.
+    options:
+      embedded-digests:
+        text: |-
+          Embed digest fields directly in .loopo/system.yaml and canonical resource records,
+          keeping semantic state and integrity state in one file.
+        tradeoffs:
+          - This keeps one required file but creates self-hash complexity and noisy root diffs whenever canonical data changes.
+      json-manifest:
+        text: |-
+          Use a JSON signature sidecar as the root integrity surface while keeping the semantic
+          root in YAML.
+        tradeoffs:
+          - This is mechanically fine but conflicts with the YAML-first durable knowledge model used for Loopo-readable system state.
+      yaml-signature:
+        text: |-
+          Use .loopo/signature.yaml as a YAML signature manifest with canonical JSON hashing
+          for deterministic byte-level verification.
+        tradeoffs:
+          - This keeps the mechanical audit data outside the root while preserving readable YAML and deterministic canonicalization.
+    decision: |-
+      Store root and canonical resource digests plus Ed25519 receipt data in
+      .loopo/signature.yaml.
+    rationale: |-
+      A YAML signature sidecar keeps .loopo/system.yaml semantic and readable while preserving
+      deterministic audit metadata for canonical files.
+    consequences:
+      - Loopo has two required durable root files, but only .loopo/system.yaml is semantic first-read context.
+      - Runtime must regenerate .loopo/signature.yaml after canonical root or document writes so signature coverage matches current durable state.
+      - Signature entries may include schema files even when they are not root resources, because schema integrity is part of the canonical verification surface.
+    links:
+      about:
+        - object:system-model
+  concrete-doc-schemas:
+    state: accepted
+    date: 2026-06-08
+    title: Concrete industry-profile canonical document schemas
+    context: |-
+      Generic section docs validated shape but did not provide the full benefits of
+      recognizable architecture, decision, workflow, model, data, business, artifact, or agent
+      documents.
+    drivers:
+      - Humans and LLMs should recognize a document as architecture, ADRs, workflow spec, or agent card from its field structure rather than from a profile label.
+      - Concrete schemas can require meaningful standard sections and prevent title-only shell files more directly than generic section arrays.
+    options:
+      generic-sections:
+        text: |-
+          Keep one generic section schema and add profile-specific section requirements through
+          semantic verifier rules.
+        tradeoffs:
+          - This minimizes schema count but moves complexity into semantic rules and obscures the expected document shape.
+      concrete-profiles:
+        text: |-
+          Use one concrete schema per required industry-profile document type, with fields that
+          match the expected document structure.
+        tradeoffs:
+          - This increases schema count but makes each canonical document self-explaining and easier to validate against standard expectations.
+    decision: |-
+      Use concrete industry-profile canonical document schemas and satisfy per-kind
+      requirements through resource schema_ref values.
+    rationale: |-
+      Specific schemas make each YAML file self-explaining for humans and LLMs while keeping
+      the root universal and preserving generated Markdown as a rendering layer.
+    consequences:
+      - Required docs are checked by concrete schema refs instead of abstract categories or generic profiles.
+      - Generic profile docs are removed from the canonical path so concrete schemas define the expected canonical document format.
+      - Generated Markdown can later render fuller human documents from canonical YAML without becoming source-of-truth data.
+    links:
+      about:
+        - object:system-model
+  section-shaped-industry-docs:
+    state: accepted
+    date: 2026-06-09
+    title: Section-shaped industry documents
+    context: |-
+      Concrete industry documents were still using record-like id/text arrays, which fragmented
+      architecture and workflow prose even though schema fields already define the document
+      sections.
+    drivers:
+      - Industry document YAML should be easy for humans and LLMs to read without scanning dozens of tiny local records.
+      - Schema fields can render directly to Markdown headings, while map keys can act as local anchors without global record ids.
+    options:
+      keep-id-text-arrays:
+        text: |-
+          Keep every architecture, workflow, and agent document subsection as an array item with
+          id and text fields.
+        tradeoffs:
+          - This preserves uniform record mechanics but bloats context and produces fragmented generated Markdown.
+      section-shaped-documents:
+        text: |-
+          Use coherent section fields, multiline prose blocks, prose arrays, and keyed maps for
+          named subtopics inside concrete docs.
+        tradeoffs:
+          - This keeps root records separate from document prose and requires JSON Pointer fragments for precise section links.
+    decision: |-
+      Keep system.yaml and system-pack.yaml record-shaped, but make concrete industry documents
+      section-shaped and schema-specific.
+    rationale: |-
+      Root records need stable ids for graph traversal, while industry docs need coherent
+      sections that can render cleanly into human documents.
+    consequences:
+      - Document map keys are local anchors, not global record ids, so they can support precise fragments without polluting the root record namespace.
+      - Resource links can target precise canonical document sections through JSON Pointer fragments.
+      - Verifiers reject old concrete-doc id/text shell arrays after the v2 hard cut to prevent section-shaped docs from regressing into generic shells.
+    links:
+      about:
+        - object:system-model

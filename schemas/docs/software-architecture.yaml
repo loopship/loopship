@@ -1,0 +1,307 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/docs/software-architecture.yaml
+title: Loopo Software Architecture Document v2
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - id
+  - title
+  - text
+  - standard_alignment
+  - goals
+  - stakeholders
+  - constraints
+  - context
+  - solution_strategy
+  - structure
+  - runtime
+  - deployment
+  - interfaces
+  - data
+  - quality
+  - risks
+  - technical_debt
+  - diagrams
+  - examples
+  - decision_refs
+  - glossary
+properties:
+  schema_version:
+    const: 2
+  id:
+    $ref: loopo://schemas/system.yaml#/$defs/id
+  title:
+    type: string
+    minLength: 1
+    maxLength: 160
+  text:
+    $ref: "#/$defs/prose"
+  links:
+    $ref: loopo://schemas/system.yaml#/$defs/links
+  standard_alignment:
+    $ref: "#/$defs/prose_map"
+  goals:
+    $ref: "#/$defs/prose_array"
+  stakeholders:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+        - text
+        - concerns
+      properties:
+        role:
+          type: string
+          minLength: 1
+        text:
+          $ref: "#/$defs/prose"
+        concerns:
+          $ref: "#/$defs/prose_array"
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  constraints:
+    $ref: "#/$defs/prose_array"
+  context:
+    type: object
+    additionalProperties: false
+    required:
+      - business
+      - technical
+    properties:
+      business:
+        $ref: "#/$defs/prose"
+      technical:
+        $ref: "#/$defs/prose"
+  solution_strategy:
+    $ref: "#/$defs/prose"
+  structure:
+    type: object
+    additionalProperties: false
+    required:
+      - overview
+      - systems
+      - containers
+      - components
+      - code_units
+    properties:
+      overview:
+        $ref: "#/$defs/prose"
+      systems:
+        $ref: "#/$defs/prose_map"
+      containers:
+        $ref: "#/$defs/prose_map"
+      components:
+        $ref: "#/$defs/prose_map"
+      code_units:
+        $ref: "#/$defs/prose_map"
+  runtime:
+    type: object
+    additionalProperties: false
+    required:
+      - overview
+      - scenarios
+      - failure_scenarios
+    properties:
+      overview:
+        $ref: "#/$defs/prose"
+      scenarios:
+        $ref: "#/$defs/prose_map"
+      failure_scenarios:
+        $ref: "#/$defs/prose_map"
+  deployment:
+    type: object
+    additionalProperties: false
+    required:
+      - environments
+      - nodes
+    properties:
+      environments:
+        $ref: "#/$defs/prose_map"
+      nodes:
+        $ref: "#/$defs/prose_map"
+  interfaces:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - text
+      properties:
+        kind:
+          enum:
+            - api
+            - cli
+            - ui
+            - event
+            - file
+            - schema
+            - prompt
+            - protocol
+        text:
+          $ref: "#/$defs/prose"
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  data:
+    type: object
+    additionalProperties: false
+    required:
+      - stores
+      - flows
+    properties:
+      stores:
+        $ref: "#/$defs/prose_map"
+      flows:
+        $ref: "#/$defs/prose_map"
+  quality:
+    type: object
+    additionalProperties: false
+    required:
+      - goals
+      - scenarios
+    properties:
+      goals:
+        $ref: "#/$defs/prose_map"
+      scenarios:
+        $ref: "#/$defs/prose_map"
+  risks:
+    $ref: "#/$defs/risk_map"
+  technical_debt:
+    $ref: "#/$defs/prose_map"
+  diagrams:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/diagram_block"
+  examples:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/example_block"
+  decision_refs:
+    $ref: loopo://schemas/system.yaml#/$defs/resource_ref_array
+  glossary:
+    $ref: "#/$defs/prose_map"
+$defs:
+  key:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._-]*$"
+  prose:
+    type: string
+    minLength: 20
+    pattern: "\\n"
+  prose_array:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 20
+  prose_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/prose"
+  risk_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - mitigation
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        mitigation:
+          $ref: "#/$defs/prose"
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  diagram_block:
+    type: object
+    additionalProperties: false
+    required:
+      - kind
+      - syntax
+      - text
+      - source
+    properties:
+      kind:
+        $ref: "#/$defs/diagram_kind"
+      syntax:
+        $ref: "#/$defs/diagram_syntax"
+      text:
+        $ref: "#/$defs/prose"
+      source:
+        $ref: "#/$defs/prose"
+      rendered_ref:
+        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+      links:
+        $ref: loopo://schemas/system.yaml#/$defs/links
+  example_block:
+    type: object
+    additionalProperties: false
+    required:
+      - language
+      - text
+      - source
+    properties:
+      language:
+        $ref: "#/$defs/example_language"
+      text:
+        $ref: "#/$defs/prose"
+      source:
+        $ref: "#/$defs/prose"
+      links:
+        $ref: loopo://schemas/system.yaml#/$defs/links
+  diagram_kind:
+    enum:
+      - context
+      - container
+      - component
+      - deployment
+      - sequence
+      - state
+      - workflow
+      - dataflow
+      - class
+      - erd
+      - threat
+  diagram_syntax:
+    enum:
+      - mermaid
+      - plantuml
+      - graphviz
+      - d2
+  example_language:
+    enum:
+      - yaml
+      - json
+      - typescript
+      - javascript
+      - python
+      - bash
+      - sql
+      - markdown
+      - mermaid
+      - plantuml
+      - dockerfile
+      - hcl
+      - text

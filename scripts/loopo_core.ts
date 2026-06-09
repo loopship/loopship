@@ -7,6 +7,7 @@ import {
   readdirSync,
   rmSync,
 } from "node:fs";
+import { createPrivateKey, sign as signBytes } from "node:crypto";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   expandHome,
@@ -19,17 +20,21 @@ import {
   writeJson,
   writeText,
 } from "./loopo_utils.ts";
+import { validateSchemaPath } from "./loopo_schema.ts";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 export const LOOPO_DIR = ".loopo";
 export const LOOPO_RUNTIME_DIR = join(LOOPO_DIR, "runtime");
 export const LOOPO_SYSTEM_FILE = join(LOOPO_DIR, "system.yaml");
 export const LOOPO_DOCS_DIR = join(LOOPO_DIR, "docs");
-export const LOOPO_ROOT_MANIFEST_FILE = join(LOOPO_DIR, "manifest.sign.json");
-export const LOOPO_SYSTEM_BEHAVIOURS_FILE = join(
-  LOOPO_DOCS_DIR,
-  "system-behaviours.yaml",
-);
+export const LOOPO_ROOT_SIGNATURE_FILE = join(LOOPO_DIR, "signature.yaml");
+export const LOOPO_ROOT_MANIFEST_FILE = LOOPO_ROOT_SIGNATURE_FILE;
+export const LOOPO_ASSERTIONS_DIR = join(LOOPO_DOCS_DIR, "assertions");
+export const LOOPO_AREAS_DIR = join(LOOPO_DOCS_DIR, "areas");
+export const LOOPO_DECISIONS_DIR = join(LOOPO_DOCS_DIR, "decisions");
+export const LOOPO_ASSETS_DIR = join(LOOPO_DOCS_DIR, "assets");
+export const LOOPO_MEMORIES_DIR = join(LOOPO_DOCS_DIR, "memories");
+export const LOOPO_MIXED_DOCS_DIR = join(LOOPO_DOCS_DIR, "mixed");
 export const LOOPO_BIN_FILE = join(LOOPO_DIR, "bin", "loopo");
 export const LOOPO_GLOBAL_BIN_ENV = "LOOPO_GLOBAL_BIN";
 export const LOOPO_SCRIPT_ENV = "LOOPO_SCRIPT";
@@ -77,13 +82,8 @@ export type QuestQuestion = {
   question: string;
   impact?: string;
   default?: string;
-};
-
-export type QuestAnswer = {
-  id?: string;
-  question_id?: string;
-  question?: string;
-  answer: string;
+  status?: "open" | "answered" | "defaulted";
+  answer?: string;
   accepted_default?: boolean;
 };
 
@@ -91,13 +91,54 @@ export type QuestQuestionRound = {
   questions: QuestQuestion[];
 };
 
+export type QuestDurableImplication = {
+  record_kind:
+    | "rule"
+    | "behaviour"
+    | "claim"
+    | "assumption"
+    | "limitation"
+    | "area"
+    | "actor"
+    | "unit"
+    | "interface"
+    | "flow"
+    | "store"
+    | "asset"
+    | "schema"
+    | "document"
+    | "artifact"
+    | "evidence"
+    | "preference"
+    | "learning"
+    | "observation";
+  text: string;
+  links: Record<string, string[]>;
+  expected_system_update:
+    | "none"
+    | "object_update"
+    | "assertion_update"
+    | "resource_update"
+    | "memory_update"
+    | "doc_update"
+    | "system_update";
+  confidence: "low" | "medium" | "high";
+};
+
+export type QuestSystemContext = {
+  relevant_object_refs: string[];
+  relevant_assertion_refs: string[];
+  relevant_resource_refs: string[];
+  relevant_memory_refs: string[];
+  durable_implications: QuestDurableImplication[];
+};
+
 export type QuestPlanDetail = {
   classification: string;
   scope: string;
   summary: string;
   rationale: string;
-  af: Record<string, unknown>;
-  of: Record<string, unknown>;
+  system_context: QuestSystemContext;
   high_impact_unknowns: string[];
   defaulted_unknowns: string[];
   verification_targets: string[];
@@ -116,7 +157,7 @@ export type QuestVerificationReceipt = {
 };
 
 export type QuestState = {
-  schema_version: 3;
+  schema_version: 4;
   wtree: string;
   quest_id: string;
   flow_id: string;
@@ -137,7 +178,6 @@ export type QuestState = {
   assumptions: string[];
   constraints: string[];
   question_rounds: QuestQuestionRound[];
-  answers: QuestAnswer[];
   plan_detail: QuestPlanDetail;
   validation_receipt: QuestValidationReceipt;
   verification_receipt: QuestVerificationReceipt;
@@ -227,6 +267,26 @@ function asStringList(value: unknown): string[] {
   return value.map((item) => String(item ?? "").trim()).filter(Boolean);
 }
 
+function asLinkMap(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const allowed = new Set([
+    "about",
+    "part_of",
+    "uses",
+    "constrains",
+    "supported_by",
+    "derives_from",
+    "supersedes",
+  ]);
+  const result: Record<string, string[]> = {};
+  for (const [relation, targets] of Object.entries(value as Record<string, unknown>)) {
+    if (!allowed.has(relation)) continue;
+    const refs = asStringList(targets);
+    if (refs.length) result[relation] = refs;
+  }
+  return result;
+}
+
 function planTaskAcceptance(value: unknown): string {
   if (Array.isArray(value)) return asStringList(value).join("; ");
   return String(value ?? "").trim();
@@ -251,7 +311,7 @@ export function questFilesForWorkspace(
     dir,
     tasks: resolve(dir, "tasks.yaml"),
     events: resolve(dir, "events.jsonl"),
-    manifest: resolve(dir, "manifest.sign.json"),
+    manifest: resolve(dir, "manifest.yaml"),
     hook_state: resolve(dir, "hook-state.json"),
     lock: resolve(dir, "lock.json"),
   };
@@ -261,72 +321,19 @@ export function questWorkspaceRoot(files: QuestFiles): string {
   return files.workspace_root;
 }
 
-type SystemDocDef = {
-  id: string;
-  file: string;
-  schema: string;
-};
-
-export const SYSTEM_DOCS: SystemDocDef[] = [
-  {
-    id: "high-level-design",
-    file: "high-level-design.yaml",
-    schema: "system-high-level-design.v1.json",
-  },
-  {
-    id: "low-level-design",
-    file: "low-level-design.yaml",
-    schema: "system-low-level-design.v1.json",
-  },
-  {
-    id: "architecture",
-    file: "architecture.yaml",
-    schema: "system-architecture.v1.json",
-  },
-  {
-    id: "system-behaviours",
-    file: "system-behaviours.yaml",
-    schema: "system-behaviours.v1.json",
-  },
-  {
-    id: "design-system",
-    file: "design-system.yaml",
-    schema: "system-design-system.v1.json",
-  },
-];
-
-export function systemDocPath(repoRoot: string, file: string): string {
-  return resolve(repoRoot, LOOPO_DOCS_DIR, file);
-}
-
-export function renderSystemDocYaml(doc: SystemDocDef): string {
-  if (doc.id === "system-behaviours") {
-    return renderSystemBehavioursYaml();
+function collectYamlFiles(root: string): string[] {
+  if (!existsSync(root)) return [];
+  const entries = readdirSync(root, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = resolve(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectYamlFiles(path));
+      continue;
+    }
+    if (entry.isFile() && path.endsWith(".yaml")) files.push(path);
   }
-  const title = doc.id
-    .split("-")
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(" ");
-  return [
-    "schema_version: 1",
-    `id: ${yamlScalar(doc.id)}`,
-    `title: ${yamlScalar(title)}`,
-    "sections: []",
-    "updated_at: null",
-    "",
-  ].join("\n");
-}
-
-export function renderSystemIndexYaml(repoRoot: string): string {
-  const lines = ["schema_version: 1", "docs:"];
-  for (const doc of SYSTEM_DOCS) {
-    const path = systemDocPath(repoRoot, doc.file);
-    lines.push(`  - id: ${yamlScalar(doc.id)}`);
-    lines.push(`    path: ${yamlScalar(`.loopo/docs/${doc.file}`)}`);
-    lines.push(`    schema_path: ${yamlScalar(`schemas/${doc.schema}`)}`);
-    lines.push(`    digest: ${yamlScalar(hashText(readText(path)))}`);
-  }
-  return `${lines.join("\n")}\n`;
+  return files.sort();
 }
 
 function manifestPathKey(root: string, path: string): string {
@@ -334,66 +341,611 @@ function manifestPathKey(root: string, path: string): string {
   return key && !key.startsWith("..") ? key : path;
 }
 
-export function rootManagedFiles(repoRoot: string): string[] {
-  return [
-    resolve(repoRoot, LOOPO_SYSTEM_FILE),
-    ...SYSTEM_DOCS.map((doc) => systemDocPath(repoRoot, doc.file)),
-  ];
+type SystemResourceEntry = {
+  id: string;
+  kind: string;
+  role: "canonical" | "reference" | "generated";
+  location: string;
+  schema_ref: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
-export function writeRootManifest(
+function parseYamlFile(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null;
+  return asRecord(parseYaml(readText(path)));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, sortJson(item)]),
+  );
+}
+
+function canonicalYamlDigest(path: string): string {
+  const parsed = parseYaml(readText(path));
+  return hashText(JSON.stringify(sortJson(parsed)));
+}
+
+const LOCAL_MANIFEST_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIHgTC2I4kof+irKCC5FoOYtE4R03zw8KAF3bj9nN2AU/
+-----END PRIVATE KEY-----`;
+
+function signManifestReceipt(receiptHead: string): Record<string, string> {
+  const privateKey = createPrivateKey(LOCAL_MANIFEST_PRIVATE_KEY);
+  const value = signBytes(null, Buffer.from(receiptHead, "utf8"), privateKey).toString("base64");
+  return {
+    algorithm: "ed25519",
+    key_id: "loopo-local-v2",
+    value,
+  };
+}
+
+function renderYamlDocument(value: Record<string, unknown>): string {
+  const rendered = stringifyYaml(value, {
+    lineWidth: 0,
+    minContentWidth: 0,
+  });
+  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+}
+
+const MULTILINE_PROSE_KEYS = new Set([
+  "abstract",
+  "access",
+  "collection",
+  "text",
+  "context",
+  "decision",
+  "deprecation_policy",
+  "environment",
+  "labeling",
+  "maintenance",
+  "meaning",
+  "mission",
+  "motivation",
+  "overview",
+  "policy",
+  "preprocessing",
+  "purpose",
+  "rationale",
+  "mitigation",
+  "solution_strategy",
+  "source",
+]);
+const MULTILINE_PROSE_MAP_KEYS = new Set([
+  "allowed_memory",
+  "background",
+  "capabilities",
+  "caveats_recommendations",
+  "code_units",
+  "components",
+  "containers",
+  "data_objects",
+  "deployment",
+  "discussion",
+  "environments",
+  "ethical_considerations",
+  "ethics_privacy",
+  "exceptions",
+  "factors",
+  "failure_scenarios",
+  "flows",
+  "forbidden_memory",
+  "glossary",
+  "goals",
+  "governance",
+  "human_oversight",
+  "information",
+  "initiatives",
+  "invariants",
+  "licenses",
+  "limitations",
+  "mitigations",
+  "monitoring",
+  "nodes",
+  "policies",
+  "processes",
+  "products_services",
+  "provenance",
+  "quality",
+  "quantitative_analyses",
+  "references",
+  "research_questions",
+  "responsibilities",
+  "results",
+  "risks",
+  "scenarios",
+  "security",
+  "splits",
+  "stakeholders",
+  "standard_alignment",
+  "stores",
+  "systems",
+  "technical_debt",
+  "triggers",
+  "units",
+  "value_streams",
+]);
+const NON_PROSE_METADATA_KEYS = new Set([
+  "algorithm",
+  "at",
+  "date",
+  "digest",
+  "id",
+  "key_id",
+  "kind",
+  "lane",
+  "level",
+  "location",
+  "media",
+  "path",
+  "rendered_ref",
+  "resource_ref",
+  "role",
+  "schema_ref",
+  "schema_version",
+  "state",
+  "syntax",
+  "title",
+  "type",
+  "value",
+  "version",
+]);
+
+function wrapProse(value: string): string {
+  const normalized = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.includes("\n")) return normalized.trim();
+  const words = normalized.split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > 88 && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  if (lines.length === 1) {
+    const text = lines[0];
+    const midpoint = Math.max(1, Math.floor(text.length / 2));
+    const splitAt = text.lastIndexOf(" ", midpoint) > 0
+      ? text.lastIndexOf(" ", midpoint)
+      : text.indexOf(" ", midpoint);
+    if (splitAt > 0) return `${text.slice(0, splitAt)}\n${text.slice(splitAt + 1)}`;
+    return `${text}\n`;
+  }
+  return lines.join("\n");
+}
+
+function normalizeBullet(value: string): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeMultilineProse(value: unknown, key = ""): unknown {
+  if (typeof value === "string") {
+    return MULTILINE_PROSE_KEYS.has(key) ? wrapProse(value) : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => (typeof item === "string" ? normalizeBullet(item) : normalizeMultilineProse(item)));
+  }
+  if (!value || typeof value !== "object") return value;
+  if (MULTILINE_PROSE_MAP_KEYS.has(key)) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+        childKey,
+        typeof childValue === "string" && !NON_PROSE_METADATA_KEYS.has(childKey)
+          ? wrapProse(childValue)
+          : normalizeMultilineProse(childValue, childKey),
+      ]),
+    );
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+      childKey,
+      normalizeMultilineProse(childValue, childKey),
+    ]),
+  );
+}
+
+function defaultSystemTitle(repoRoot: string): string {
+  return basename(resolve(repoRoot))
+    .split(/[-_]/)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function renderSystemYaml(value: Record<string, unknown>): string {
+  return renderYamlDocument(normalizeMultilineProse(value) as Record<string, unknown>);
+}
+
+export function renderSystemDocYaml(value: Record<string, unknown>): string {
+  return renderYamlDocument(normalizeMultilineProse(value) as Record<string, unknown>);
+}
+
+function defaultSystemRoot(repoRoot: string): Record<string, unknown> {
+  const id = normalizeName(basename(resolve(repoRoot)));
+  return {
+    schema_version: 2,
+    id,
+    title: defaultSystemTitle(repoRoot),
+    kinds: ["software"],
+    text: "Canonical semantic frontier for durable system knowledge.",
+    scope_in: ["Durable system knowledge tracking."],
+    scope_out: ["Application-specific implementation details outside this system root."],
+    objects: [
+      {
+        id: "system-model",
+        kind: "unit",
+        text: "Durable semantic frontier using objects, assertions, resources, optional memories, links, concrete canonical docs, and signature integrity.",
+      },
+    ],
+    assertions: [
+      {
+        id: "canonical-docs-are-signed",
+        kind: "rule",
+        level: "must",
+        text: "Canonical system resources must be covered by the root signature.",
+        links: {
+          about: ["object:system-model"],
+          supported_by: ["resource:software-architecture"],
+        },
+      },
+    ],
+    resources: [
+      {
+        id: "software-architecture",
+        kind: "document",
+        role: "canonical",
+        location: ".loopo/docs/software/architecture.yaml",
+        schema_ref: "loopo://schemas/docs/software-architecture.yaml",
+        text: "Full software architecture source using arc42 and C4-aligned concerns.",
+        links: {
+          about: ["object:system-model"],
+        },
+        media: "application/yaml",
+      },
+      {
+        id: "decisions",
+        kind: "document",
+        role: "canonical",
+        location: ".loopo/docs/decisions/records.yaml",
+        schema_ref: "loopo://schemas/docs/decision-records.yaml",
+        text: "Architecture-significant decisions for this system.",
+        links: {
+          about: ["object:system-model"],
+        },
+        media: "application/yaml",
+      },
+    ],
+  };
+}
+
+function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
+  const title = defaultSystemTitle(repoRoot);
+  return {
+    schema_version: 2,
+    id: "software-architecture",
+    title: "Software Architecture",
+    text: `Full software architecture source for ${title}.`,
+    links: {
+      about: ["object:system-model"],
+    },
+    standard_alignment: {
+      arc42: "Aligns with arc42 architecture concerns including goals, context, building blocks, runtime, deployment, quality, risks, and glossary.",
+      "c4-model": "Aligns with C4-style system context, container, component, dynamic, and deployment architecture views represented as section-shaped YAML.",
+    },
+    goals: [
+      "Keep durable system knowledge compact, schema-backed, and useful as first-read context for humans and LLM agents.",
+    ],
+    stakeholders: {
+      "agent-operator": {
+        role: "operator",
+        text: "Human and LLM operators need a stable architecture source that can be validated mechanically and rendered into full human documents.",
+        concerns: [
+          "Architecture data must remain readable without learning a generic profile or section framework first.",
+        ],
+      },
+    },
+    constraints: [
+      "The root system file stays minimal and delegates architecture detail to concrete canonical documents.",
+    ],
+    context: {
+      business: "This system tracks durable system knowledge through a semantic root, canonical resources, and signature integrity.",
+      technical: "The schema library validates the root, section-shaped document profiles, optional record packs, and signature sidecar.",
+    },
+    solution_strategy: "Use concrete industry-profile document schemas instead of one generic profile and section format.",
+    structure: {
+      overview: "The system is organized around a compact semantic root, concrete canonical documents, optional record packs, and signature validation.",
+      systems: {
+        "system-root": "The system root keeps the first-read semantic model compact and delegates detail to concrete canonical docs.",
+      },
+      containers: {
+        "signature-sidecar": "The signature sidecar stores root and canonical resource digests without bloating the semantic root.",
+      },
+      components: {
+        "system-update-writer": "The system_update step validates and writes canonical root and external document updates.",
+      },
+      code_units: {
+        "system-verifier": "The semantic verifier rejects stale schema surfaces, unresolved links, shell documents, and missing canonical coverage.",
+      },
+    },
+    runtime: {
+      overview: "Runtime writes canonical knowledge through system_update and refreshes signature coverage after accepted changes.",
+      scenarios: {
+        "system-update-runtime": "Validate proposed root and external documents against the schema library, write canonical YAML, and refresh the signature sidecar.",
+      },
+      failure_scenarios: {
+        "shell-doc-rejection": "A canonical document with placeholder or title-only content fails semantic verification before it can become durable truth.",
+      },
+    },
+    deployment: {
+      environments: {
+        "local-worktree": "Canonical system files live inside the active repository worktree and are verified before finishing the task.",
+      },
+      nodes: {
+        "developer-machine": "The local developer machine runs Bun scripts that validate schemas, runtime flows, and signature coverage.",
+      },
+    },
+    interfaces: {
+      "root-yaml-interface": {
+        kind: "file",
+        text: ".loopo/system.yaml is the stable semantic interface for agents and humans.",
+      },
+      "signature-yaml-interface": {
+        kind: "file",
+        text: ".loopo/signature.yaml is the mechanical audit and digest sidecar for root and canonical resources.",
+      },
+    },
+    data: {
+      stores: {
+        "system-yaml-store": "The root YAML stores objects, assertions, resources, and optional memories as the semantic frontier.",
+      },
+      flows: {
+        "system-update-flow": "System updates flow from validated payloads into root and canonical documents, followed by signature refresh.",
+      },
+    },
+    quality: {
+      goals: {
+        "small-first-read-context": "The root prioritizes compact, deterministic, schema-backed first-read context.",
+      },
+      scenarios: {
+        "multiline-doc-prose": "Durable text fields use multiline YAML block scalars so LLM-written files stay readable and mechanically detectable.",
+      },
+    },
+    risks: {
+      "shell-doc-risk": {
+        text: "Generic durable docs can become shells unless concrete schemas require meaningful fields.",
+        mitigation: "Concrete document schemas require industry-profile sections and semantic verification rejects placeholder prose.",
+      },
+    },
+    technical_debt: {
+      "legacy-doc-names": "Older generic or compact document names must remain rejected by coherency checks after the v2 hard cut.",
+    },
+    diagrams: {
+      "context-diagram": {
+        kind: "context",
+        syntax: "mermaid",
+        text: "C4-style context diagram source for the root system, canonical docs, signature, and verifier.",
+        source: "flowchart LR\n  Root[.loopo/system.yaml] --> Docs[Canonical YAML Docs]\n  Docs --> Signature[.loopo/signature.yaml]\n  Verifier[verify_system_model] --> Root\n  Verifier --> Docs\n  Verifier --> Signature",
+      },
+    },
+    examples: {
+      "canonical-resource-link": {
+        language: "yaml",
+        text: "Example canonical document resource linked from the root system model.",
+        source: "resources:\n  - id: software-architecture\n    kind: document\n    role: canonical\n    location: .loopo/docs/software/architecture.yaml\n    schema_ref: loopo://schemas/docs/software-architecture.yaml",
+      },
+    },
+    decision_refs: ["resource:decisions"],
+    glossary: {
+      canonical: "Canonical files are durable source-of-truth YAML resources covered by the signature sidecar.",
+    },
+  };
+}
+
+function defaultDecisionLogDoc(repoRoot: string): Record<string, unknown> {
+  const title = defaultSystemTitle(repoRoot);
+  return {
+    schema_version: 2,
+    id: "decisions",
+    title: "Decision Records",
+    text: `Architecture-significant decision records for ${title}.`,
+    links: {
+      about: ["object:system-model"],
+    },
+    standard_alignment: {
+      adr: "Aligns with ADR practice by recording context, drivers, considered options, the decision, rationale, and consequences.",
+    },
+    decisions: {
+      "initial-system-root-decision": {
+        state: "accepted",
+        date: "2026-06-08",
+        title: "Use a compact semantic root with concrete canonical docs",
+        context: "The system needs durable knowledge that stays readable to agents without putting every detail into a single root file.",
+        drivers: [
+          "The canonical source must be readable to LLM agents without large external instructions.",
+        ],
+        options: {
+          "root-only": {
+            text: "Put all durable detail into the root system file.",
+            tradeoffs: [
+              "This makes one file complete, but quickly bloats first-read context and weakens task locality.",
+            ],
+          },
+          "concrete-docs": {
+            text: "Use a compact semantic root and concrete canonical docs covered by a root signature sidecar.",
+            tradeoffs: [
+              "This keeps first-read context small while preserving full industry-profile documentation through typed resources.",
+            ],
+          },
+        },
+        decision: "Use a compact semantic root and concrete canonical docs covered by a root signature sidecar.",
+        rationale: "This gives agents a stable first-read context while preserving schema-shaped detail and tamper-evident canonical docs.",
+        consequences: [
+          "The root must declare canonical document resources.",
+          "The runtime must refresh signature coverage after canonical writes.",
+        ],
+      },
+    },
+  };
+}
+
+function systemResources(
   repoRoot: string,
-  requestId = "system",
-  writerCommand = "loopo system",
+): Array<SystemResourceEntry & Record<string, unknown>> {
+  const system = parseYamlFile(resolve(repoRoot, LOOPO_SYSTEM_FILE));
+  const resources = Array.isArray(system?.resources) ? system.resources : [];
+  return resources
+    .map((item) => asRecord(item))
+    .filter((item): item is SystemResourceEntry & Record<string, unknown> =>
+      Boolean(
+        item && typeof item.location === "string" && typeof item.id === "string",
+      ),
+    );
+}
+
+function schemaPathForResource(repoRoot: string, schemaRef: string): string {
+  if (schemaRef === "self") return "";
+  if (schemaRef.startsWith("loopo://schemas/")) {
+    return schemaRef.slice("loopo://".length);
+  }
+  return "";
+}
+
+function canonicalManagedEntries(repoRoot: string): Array<{
+  resource_ref?: string;
+  path: string;
+  schema: string;
+  schema_path: string;
+  role: string;
+}> {
+  const shippedSchemaEntries = [
+    "schemas/system.yaml",
+    "schemas/signature.yaml",
+    "schemas/system-pack.yaml",
+    "schemas/semantic-rules.yaml",
+    "schemas/docs/software-architecture.yaml",
+    "schemas/docs/decision-records.yaml",
+    "schemas/docs/workflow-spec.yaml",
+    "schemas/docs/agent-system-card.yaml",
+    "schemas/docs/knowledge-report.yaml",
+    "schemas/docs/dataset-datasheet.yaml",
+    "schemas/docs/model-card.yaml",
+    "schemas/docs/business-architecture.yaml",
+    "schemas/docs/artifact-bom.yaml",
+  ].map((path) => ({
+    path,
+    schema: "self",
+    schema_path: path,
+    role: "canonical",
+  }));
+  const resourceEntries = systemResources(repoRoot)
+    .filter((entry) => entry.role === "canonical")
+    .filter((entry) => entry.location !== LOOPO_ROOT_MANIFEST_FILE)
+    .filter((entry) => !String(entry.location).startsWith("http"))
+    .map((entry) => ({
+      resource_ref: `resource:${entry.id}`,
+      path: String(entry.location),
+      schema: String(entry.schema_ref),
+      schema_path:
+        String(entry.schema_ref) === "self"
+          ? String(entry.location)
+          : schemaPathForResource(repoRoot, String(entry.schema_ref)),
+      role: String(entry.role),
+    }));
+  const byPath = new Map<string, (typeof shippedSchemaEntries)[number] | (typeof resourceEntries)[number]>();
+  for (const entry of [...shippedSchemaEntries, ...resourceEntries]) byPath.set(entry.path, entry);
+  return [...byPath.values()];
+}
+
+export function rootManagedFiles(repoRoot: string): string[] {
+  const files = [resolve(repoRoot, LOOPO_SYSTEM_FILE)];
+  for (const entry of canonicalManagedEntries(repoRoot)) {
+    files.push(resolve(repoRoot, entry.path));
+  }
+  return files;
+}
+
+export function writeSystemManifest(
+  repoRoot: string,
+  _requestId = "system",
+  _writerCommand = "system_update",
 ): string {
   const manifestPath = resolve(repoRoot, LOOPO_ROOT_MANIFEST_FILE);
-  const previous = readJson(manifestPath) as Record<string, unknown> | null;
+  const previous = parseYamlFile(manifestPath);
   const previousHead =
     typeof previous?.receipt_head === "string" ? previous.receipt_head : null;
-  const files: Record<string, string> = {};
-  for (const file of rootManagedFiles(repoRoot)) {
-    files[manifestPathKey(repoRoot, file)] = hashText(readText(file));
-  }
+  const systemPath = resolve(repoRoot, LOOPO_SYSTEM_FILE);
+  const rootDigest = canonicalYamlDigest(systemPath);
+  const entries = canonicalManagedEntries(repoRoot).map((entry) => ({
+    resource_ref: entry.resource_ref,
+    path: entry.path,
+    schema: entry.schema,
+    role: entry.role,
+    digest: canonicalYamlDigest(resolve(repoRoot, entry.path)),
+  }));
   const receiptHead = hashText(
     [
       previousHead ?? "",
-      requestId,
-      writerCommand,
-      ...Object.entries(files)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, hash]) => `${name}:${hash}`),
+      "system_update",
+      manifestPathKey(repoRoot, systemPath),
+      rootDigest,
+      ...entries
+        .slice()
+        .sort((left, right) => left.path.localeCompare(right.path))
+        .map((entry) => `${entry.path}:${entry.digest}`),
     ].join("\n"),
   );
-  writeJson(manifestPath, {
-    schema_version: 1,
-    generated_at: nowIso(),
-    generated_by: "loopo",
-    writer_command: writerCommand,
-    request_id: requestId,
+  writeText(manifestPath, renderYamlDocument({
+    schema_version: 2,
+    canonicalization: "loopo-canonical-json-v1",
     hash_algorithm: "sha256",
+    root: {
+      path: manifestPathKey(repoRoot, systemPath),
+      schema: "loopo://schemas/system.yaml",
+      digest: rootDigest,
+    },
+    entries,
     previous_receipt_head: previousHead,
     receipt_head: receiptHead,
-    files,
-  });
+    signed_at: nowIso(),
+    signer: "system_update",
+    signature: signManifestReceipt(receiptHead),
+  }));
   return manifestPath;
 }
 
 export function ensureSystemScaffold(repoRoot: string): string[] {
   const touched: string[] = [];
-  for (const doc of SYSTEM_DOCS) {
-    const path = systemDocPath(repoRoot, doc.file);
-    if (!existsSync(path)) {
-      writeText(path, renderSystemDocYaml(doc));
-      touched.push(path);
-    }
-  }
   const systemPath = resolve(repoRoot, LOOPO_SYSTEM_FILE);
-  const nextIndex = renderSystemIndexYaml(repoRoot);
-  if (!existsSync(systemPath) || readText(systemPath) !== nextIndex) {
-    writeText(systemPath, nextIndex);
+  if (!existsSync(systemPath)) {
+    writeText(systemPath, renderSystemYaml(defaultSystemRoot(repoRoot)));
     touched.push(systemPath);
   }
-  touched.push(writeRootManifest(repoRoot, "system-scaffold", "loopo init"));
+  const architecturePath = resolve(repoRoot, ".loopo/docs/software/architecture.yaml");
+  if (!existsSync(architecturePath)) {
+    mkdirSync(dirname(architecturePath), { recursive: true });
+    writeText(architecturePath, renderSystemDocYaml(defaultArchitectureDoc(repoRoot)));
+    touched.push(architecturePath);
+  }
+  const decisionLogPath = resolve(repoRoot, ".loopo/docs/decisions/records.yaml");
+  if (!existsSync(decisionLogPath)) {
+    mkdirSync(dirname(decisionLogPath), { recursive: true });
+    writeText(decisionLogPath, renderSystemDocYaml(defaultDecisionLogDoc(repoRoot)));
+    touched.push(decisionLogPath);
+  }
+  touched.push(writeSystemManifest(repoRoot, "system-scaffold", "loopo init"));
   return touched;
 }
 
@@ -402,33 +954,64 @@ export function verifyRootManifest(repoRoot: string): {
   errors: string[];
 } {
   const manifestPath = resolve(repoRoot, LOOPO_ROOT_MANIFEST_FILE);
-  const manifest = readJson(manifestPath) as Record<string, any> | null;
+  const manifest = parseYamlFile(manifestPath) as Record<string, any> | null;
   if (!manifest || typeof manifest !== "object") {
-    return { ok: false, errors: [`missing root manifest: ${manifestPath}`] };
+    return { ok: false, errors: [`missing root signature: ${manifestPath}`] };
   }
-  const files =
-    manifest.files && typeof manifest.files === "object"
-      ? (manifest.files as Record<string, string>)
-      : {};
   const errors: string[] = [];
-  const managed = rootManagedFiles(repoRoot);
-  const managedKeys = managed.map((file) => manifestPathKey(repoRoot, file));
-  const useRelativeKeys = managedKeys.some((key) => files[key] != null);
-  for (const file of managed) {
-    const key = useRelativeKeys ? manifestPathKey(repoRoot, file) : file;
-    const expected = files[key];
-    if (!expected) {
-      errors.push(`root manifest missing file entry: ${key}`);
+  const root = asRecord(manifest.root);
+  if (!root || typeof root.path !== "string" || typeof root.digest !== "string") {
+    return { ok: false, errors: [`invalid root signature entry: ${manifestPath}`] };
+  }
+  if (root.schema !== "loopo://schemas/system.yaml") {
+    errors.push(`root signature schema must be loopo://schemas/system.yaml: ${manifestPath}`);
+  }
+  const systemPath = resolve(repoRoot, String(root.path));
+  if (!existsSync(systemPath)) {
+    errors.push(`root signature missing root file: ${root.path}`);
+  } else if (canonicalYamlDigest(systemPath) !== String(root.digest)) {
+    errors.push(`unauthorized/tampered root file: ${systemPath}`);
+  }
+  const expectedEntries = canonicalManagedEntries(repoRoot).sort((left, right) =>
+    left.path.localeCompare(right.path),
+  );
+  const actualEntries = Array.isArray(manifest.entries)
+    ? (manifest.entries as Array<Record<string, unknown>>)
+    : [];
+  const actualByPath = new Map(
+    actualEntries
+      .map((entry) => [String(entry.path ?? ""), entry])
+      .filter(([path]) => path.length > 0),
+  );
+  for (const entry of expectedEntries) {
+    const actual = actualByPath.get(entry.path);
+    if (!actual) {
+      errors.push(`root signature missing file entry: ${entry.path}`);
       continue;
     }
-    const actual = hashText(readText(file));
-    if (actual !== expected)
-      errors.push(`unauthorized/tampered root file: ${file}`);
+    if (entry.resource_ref && actual.resource_ref !== entry.resource_ref) {
+      errors.push(`root signature entry resource_ref mismatch: ${entry.path}`);
+    }
+    if (actual.schema !== entry.schema) {
+      errors.push(`root signature entry schema mismatch: ${entry.path}`);
+    }
+    if (actual.role !== entry.role) {
+      errors.push(`root signature entry role mismatch: ${entry.path}`);
+    }
+    const fullPath = resolve(repoRoot, entry.path);
+    if (!existsSync(fullPath)) {
+      errors.push(`root signature references missing file: ${entry.path}`);
+      continue;
+    }
+    if (canonicalYamlDigest(fullPath) !== String(actual.digest ?? "")) {
+      errors.push(`unauthorized/tampered root file: ${fullPath}`);
+    }
   }
-  const managedSet = new Set(useRelativeKeys ? managedKeys : managed);
-  for (const file of Object.keys(files)) {
-    if (!managedSet.has(file)) {
-      errors.push(`root manifest contains unmanaged file entry: ${file}`);
+  const expectedPaths = new Set(expectedEntries.map((entry) => entry.path));
+  for (const entry of actualEntries) {
+    const path = String(entry.path ?? "");
+    if (path && !expectedPaths.has(path)) {
+      errors.push(`root signature contains unmanaged file entry: ${path}`);
     }
   }
   const expectedHead = hashText(
@@ -436,135 +1019,109 @@ export function verifyRootManifest(repoRoot: string): {
       typeof manifest.previous_receipt_head === "string"
         ? manifest.previous_receipt_head
         : "",
-      String(manifest.request_id ?? ""),
-      String(manifest.writer_command ?? ""),
-      ...Object.entries(files)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, hash]) => `${name}:${hash}`),
+      String(manifest.signer ?? ""),
+      String(root.path ?? ""),
+      String(root.digest ?? ""),
+      ...actualEntries
+        .slice()
+        .sort((left, right) =>
+          String(left.path ?? "").localeCompare(String(right.path ?? "")),
+        )
+        .map((entry) => `${String(entry.path ?? "")}:${String(entry.digest ?? "")}`),
     ].join("\n"),
   );
   if (manifest.receipt_head !== expectedHead) {
-    errors.push(`root manifest receipt chain mismatch: ${manifestPath}`);
+    errors.push(`root signature receipt chain mismatch: ${manifestPath}`);
+  }
+  const signature = asRecord(manifest.signature);
+  if (
+    manifest.signer !== "system_update" ||
+    signature?.algorithm !== "ed25519" ||
+    typeof signature?.key_id !== "string" ||
+    typeof signature?.value !== "string" ||
+    !signature.value
+  ) {
+    errors.push(`root signature must include a system_update ed25519 signature: ${manifestPath}`);
   }
   return { ok: errors.length === 0, errors };
 }
-
-function renderSystemUpdateSections(
-  updates: Array<Record<string, unknown>>,
-): string[] {
-  const lines: string[] = [];
-  if (!updates.length) {
-    lines.push("sections: []");
-    return lines;
-  }
-  lines.push("sections:");
-  updates.forEach((update, index) => {
-    const id = String(update.id ?? update.section_id ?? `update-${index + 1}`);
-    lines.push(`  - id: ${yamlScalar(normalizeName(id))}`);
-    lines.push(
-      `    title: ${yamlScalar(String(update.title ?? "System update"))}`,
-    );
-    lines.push(`    summary: ${yamlScalar(String(update.summary ?? ""))}`);
-    const refs = asStringList(
-      update.refs ?? update.references ?? update.source_refs,
-    );
-    lines.push(`    refs: ${yamlStringList(refs)}`);
-  });
-  return lines;
-}
-
-function renderUpdatedSystemDocYaml(
-  doc: SystemDocDef,
-  updates: Array<Record<string, unknown>>,
-): string {
-  if (doc.id === "system-behaviours") {
-    const behaviours = updates.flatMap((update, index) => {
-      const explicit = Array.isArray(update.behaviours)
-        ? (update.behaviours as Array<Record<string, unknown>>)
-        : [];
-      if (explicit.length) return explicit;
-      const summary = String(update.summary ?? "").trim();
-      if (!summary) return [];
-      return [
-        {
-          id: update.id ?? `behaviour-${index + 1}`,
-          statement: summary,
-          test_refs: update.test_refs ?? update.refs ?? [],
-        },
-      ];
-    });
-    const lines = ["schema_version: 1", "behaviours:"];
-    if (!behaviours.length) {
-      lines.push("  []");
-    } else {
-      for (const behaviour of behaviours) {
-        lines.push(
-          `  - id: ${yamlScalar(normalizeName(String(behaviour.id ?? "behaviour")))}`,
-        );
-        lines.push(
-          `    statement: ${yamlScalar(String(behaviour.statement ?? ""))}`,
-        );
-        lines.push(
-          `    test_refs: ${yamlStringList(asStringList(behaviour.test_refs))}`,
-        );
-      }
-    }
-    lines.push("pending_proposals: []");
-    lines.push("");
-    return lines.join("\n");
-  }
-
-  const title = doc.id
-    .split("-")
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(" ");
-  return [
-    "schema_version: 1",
-    `id: ${yamlScalar(doc.id)}`,
-    `title: ${yamlScalar(title)}`,
-    ...renderSystemUpdateSections(updates),
-    `updated_at: ${yamlScalar(nowIso())}`,
-    "",
-  ].join("\n");
-}
-
 export function applySystemUpdate(
   repoRoot: string,
   update: Record<string, unknown>,
   requestId: string,
 ): string[] {
+  if (String(update.mode ?? "") === "no_change") return [];
   const touched: string[] = [];
-  const updates = Array.isArray(update.updates)
-    ? (update.updates as Array<Record<string, unknown>>)
-    : [];
-  for (const doc of SYSTEM_DOCS) {
-    const docUpdates = updates.filter((item) => item.doc_id === doc.id);
-    if (!docUpdates.length) continue;
-    const path = systemDocPath(repoRoot, doc.file);
-    writeText(path, renderUpdatedSystemDocYaml(doc, docUpdates));
-    touched.push(path);
+  const root = asRecord(update.root);
+  if (!root) {
+    throw new Error("system_update replace mode requires root");
+  }
+  const systemErrors = validateSchemaPath(
+    root as Record<string, any>,
+    "schemas/system.yaml",
+  );
+  if (systemErrors.length) {
+    throw new Error(`system_update root schema validation failed: ${systemErrors.join("; ")}`);
   }
   const systemPath = resolve(repoRoot, LOOPO_SYSTEM_FILE);
-  writeText(systemPath, renderSystemIndexYaml(repoRoot));
+  writeText(systemPath, renderSystemYaml(root));
   touched.push(systemPath);
-  touched.push(writeRootManifest(repoRoot, requestId, "loopo quest next"));
+
+  const externalDocs = Array.isArray(update.external_docs)
+    ? (update.external_docs as Array<Record<string, unknown>>)
+    : [];
+  const rootResources = Array.isArray(root.resources)
+    ? (root.resources as Array<Record<string, unknown>>)
+    : [];
+  const resourceByRef = new Map(
+    rootResources
+      .map((resource) => [`resource:${String(resource.id ?? "")}`, resource] as const)
+      .filter(([ref]) => ref !== "resource:"),
+  );
+  for (const item of externalDocs) {
+    const op = String(item.op ?? "");
+    const resourceRef = String(item.resource_ref ?? "").trim();
+    const resource = resourceByRef.get(resourceRef);
+    if (!resource) {
+      throw new Error(`system_update external doc references unknown resource: ${resourceRef}`);
+    }
+    const relativePath = String(resource.location ?? "").trim();
+    const schemaRef = String(resource.schema_ref ?? "").trim();
+    if (!relativePath || !schemaRef) {
+      throw new Error(`system_update resource requires location and schema_ref: ${resourceRef}`);
+    }
+    if (schemaRef === "self") {
+      throw new Error(`system_update external doc resource cannot use schema self: ${resourceRef}`);
+    }
+    const fullPath = resolve(repoRoot, relativePath);
+    if (op === "delete") {
+      rmSync(fullPath, { force: true });
+      continue;
+    }
+    const document = asRecord(item.document);
+    if (!document) {
+      throw new Error(`system_update upsert requires document: ${relativePath}`);
+    }
+    const schemaPath = schemaPathForResource(repoRoot, schemaRef);
+    if (!schemaPath) {
+      throw new Error(`system_update cannot resolve schema ${schemaRef} for ${resourceRef}`);
+    }
+    const documentErrors = validateSchemaPath(
+      document as Record<string, any>,
+      schemaPath,
+    );
+    if (documentErrors.length) {
+      throw new Error(
+        `system_update document schema validation failed for ${relativePath}: ${documentErrors.join("; ")}`,
+      );
+    }
+    mkdirSync(dirname(fullPath), { recursive: true });
+    writeText(fullPath, renderSystemDocYaml(document));
+    touched.push(fullPath);
+  }
+
+  touched.push(writeSystemManifest(repoRoot, requestId, "loopo quest next"));
   return touched;
-}
-
-export function renderSystemBehavioursYaml(): string {
-  return [
-    "schema_version: 1",
-    "behaviours: []",
-    "pending_proposals: []",
-    "",
-  ].join("\n");
-}
-
-export function ensureSystemBehaviours(repoRoot: string): string {
-  ensureSystemScaffold(repoRoot);
-  const path = resolve(repoRoot, LOOPO_SYSTEM_BEHAVIOURS_FILE);
-  if (!existsSync(path)) writeText(path, renderSystemBehavioursYaml());
-  return path;
 }
 
 export function renderMinimalSkillMd(): string {
@@ -607,12 +1164,21 @@ function defaultQuestPlanDetail(): QuestPlanDetail {
     scope: "",
     summary: "",
     rationale: "",
-    af: {},
-    of: {},
+    system_context: defaultQuestSystemContext(),
     high_impact_unknowns: [],
     defaulted_unknowns: [],
     verification_targets: [],
     decomposition_rationale: "",
+  };
+}
+
+function defaultQuestSystemContext(): QuestSystemContext {
+  return {
+    relevant_object_refs: [],
+    relevant_assertion_refs: [],
+    relevant_resource_refs: [],
+    relevant_memory_refs: [],
+    durable_implications: [],
   };
 }
 
@@ -634,20 +1200,13 @@ function normalizeQuestQuestion(value: unknown): QuestQuestion | null {
   if (String(row.impact ?? "").trim()) result.impact = String(row.impact).trim();
   if (String(row.default ?? "").trim())
     result.default = String(row.default).trim();
-  return result;
-}
-
-function normalizeQuestAnswer(value: unknown): QuestAnswer | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Record<string, unknown>;
-  const answer = String(row.answer ?? "").trim();
-  if (!answer) return null;
-  const result: QuestAnswer = { answer };
-  if (String(row.id ?? "").trim()) result.id = String(row.id).trim();
-  if (String(row.question_id ?? "").trim())
-    result.question_id = String(row.question_id).trim();
-  if (String(row.question ?? "").trim())
-    result.question = String(row.question).trim();
+  const status = String(row.status ?? "").trim();
+  if (status === "open" || status === "answered" || status === "defaulted") {
+    result.status = status;
+  }
+  if (String(row.answer ?? "").trim()) {
+    result.answer = String(row.answer).trim();
+  }
   if (typeof row.accepted_default === "boolean") {
     result.accepted_default = row.accepted_default;
   }
@@ -669,6 +1228,81 @@ function normalizeQuestionRounds(value: unknown): QuestQuestionRound[] {
     .filter((row): row is QuestQuestionRound => Boolean(row));
 }
 
+function normalizeQuestDurableImplication(
+  value: unknown,
+): QuestDurableImplication | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const recordKind = String(row.record_kind ?? "").trim();
+  const text = String(row.text ?? "").trim();
+  if (!recordKind || !text) return null;
+  const expectedSystemUpdate = String(
+    row.expected_system_update ?? "none",
+  ).trim() as QuestDurableImplication["expected_system_update"];
+  const confidence = String(row.confidence ?? "medium").trim() as
+    | "low"
+    | "medium"
+    | "high";
+  const allowedUpdates = new Set([
+    "none",
+    "object_update",
+    "assertion_update",
+    "resource_update",
+    "memory_update",
+    "doc_update",
+    "system_update",
+  ]);
+  const allowedKinds = new Set([
+    "rule",
+    "behaviour",
+    "claim",
+    "assumption",
+    "limitation",
+    "area",
+    "actor",
+    "unit",
+    "interface",
+    "flow",
+    "store",
+    "asset",
+    "schema",
+    "document",
+    "artifact",
+    "evidence",
+    "preference",
+    "learning",
+    "observation",
+  ]);
+  const allowedConfidence = new Set(["low", "medium", "high"]);
+  return {
+    record_kind: allowedKinds.has(recordKind)
+      ? (recordKind as QuestDurableImplication["record_kind"])
+      : "rule",
+    text,
+    links: asLinkMap(row.links),
+    expected_system_update: allowedUpdates.has(expectedSystemUpdate)
+      ? expectedSystemUpdate
+      : "none",
+    confidence: allowedConfidence.has(confidence) ? confidence : "medium",
+  };
+}
+
+function normalizeQuestSystemContext(value: unknown): QuestSystemContext {
+  if (!value || typeof value !== "object") return defaultQuestSystemContext();
+  const row = value as Record<string, unknown>;
+  return {
+    relevant_object_refs: asStringList(row.relevant_object_refs),
+    relevant_assertion_refs: asStringList(row.relevant_assertion_refs),
+    relevant_resource_refs: asStringList(row.relevant_resource_refs),
+    relevant_memory_refs: asStringList(row.relevant_memory_refs),
+    durable_implications: Array.isArray(row.durable_implications)
+      ? row.durable_implications
+          .map(normalizeQuestDurableImplication)
+          .filter((entry): entry is QuestDurableImplication => Boolean(entry))
+      : [],
+  };
+}
+
 function normalizeTaskList(value: unknown): QuestTask[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -686,7 +1320,7 @@ export function renderTasksYaml(state: QuestState): string {
   const wtree = String(state.wtree ?? "").trim();
   return stringifyYaml(
     {
-      schema_version: 3,
+      schema_version: 4,
       wtree,
       quest_id: String(state.quest_id ?? wtree),
       flow_id: String(state.flow_id ?? "swe"),
@@ -712,7 +1346,6 @@ export function renderTasksYaml(state: QuestState): string {
       question_rounds: Array.isArray(state.question_rounds)
         ? state.question_rounds
         : [],
-      answers: Array.isArray(state.answers) ? state.answers : [],
       plan_detail: state.plan_detail ?? defaultQuestPlanDetail(),
       validation_receipt:
         state.validation_receipt ?? defaultQuestValidationReceipt(),
@@ -780,8 +1413,13 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
       "legacy quest state keys are unsupported; recreate or manually update the quest state to use wtree-only fields",
     );
   }
+  if ("answers" in raw) {
+    throw new Error(
+      "legacy top-level answers are unsupported; store answers inside question_rounds[].questions[]",
+    );
+  }
   const result: Partial<QuestState> = {
-    schema_version: 3,
+    schema_version: 4,
     wtree: String(raw.wtree ?? "").trim(),
     quest_id: String(raw.quest_id ?? raw.wtree ?? "").trim(),
     flow_id: String(raw.flow_id ?? "swe").trim() || "swe",
@@ -804,16 +1442,24 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
     assumptions: asStringList(raw.assumptions),
     constraints: asStringList(raw.constraints),
     question_rounds: normalizeQuestionRounds(raw.question_rounds),
-    answers: Array.isArray(raw.answers)
-      ? raw.answers
-          .map(normalizeQuestAnswer)
-          .filter((row): row is QuestAnswer => Boolean(row))
-      : [],
     plan_detail:
       raw.plan_detail && typeof raw.plan_detail === "object"
         ? {
-            ...defaultQuestPlanDetail(),
-            ...(raw.plan_detail as Record<string, unknown>),
+            classification: String(
+              (raw.plan_detail as Record<string, unknown>).classification ?? "",
+            ),
+            scope: String(
+              (raw.plan_detail as Record<string, unknown>).scope ?? "",
+            ),
+            summary: String(
+              (raw.plan_detail as Record<string, unknown>).summary ?? "",
+            ),
+            rationale: String(
+              (raw.plan_detail as Record<string, unknown>).rationale ?? "",
+            ),
+            system_context: normalizeQuestSystemContext(
+              (raw.plan_detail as Record<string, unknown>).system_context,
+            ),
             high_impact_unknowns: asStringList(
               (raw.plan_detail as Record<string, unknown>).high_impact_unknowns,
             ),
@@ -823,18 +1469,10 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
             verification_targets: asStringList(
               (raw.plan_detail as Record<string, unknown>).verification_targets,
             ),
-            af:
-              (raw.plan_detail as Record<string, unknown>).af &&
-              typeof (raw.plan_detail as Record<string, unknown>).af === "object"
-                ? ((raw.plan_detail as Record<string, unknown>)
-                    .af as Record<string, unknown>)
-                : {},
-            of:
-              (raw.plan_detail as Record<string, unknown>).of &&
-              typeof (raw.plan_detail as Record<string, unknown>).of === "object"
-                ? ((raw.plan_detail as Record<string, unknown>)
-                    .of as Record<string, unknown>)
-                : {},
+            decomposition_rationale: String(
+              (raw.plan_detail as Record<string, unknown>)
+                .decomposition_rationale ?? "",
+            ),
           }
         : defaultQuestPlanDetail(),
     validation_receipt:
@@ -902,7 +1540,7 @@ export function writeQuestManifest(
   requestId = "quest",
   writerCommand = "loopo quest",
 ): void {
-  const previous = readJson(files.manifest) as Record<string, unknown> | null;
+  const previous = parseYamlFile(files.manifest);
   const previousHead =
     typeof previous?.receipt_head === "string" ? previous.receipt_head : null;
   const hashes: Record<string, string> = {};
@@ -919,8 +1557,9 @@ export function writeQuestManifest(
         .map(([name, hash]) => `${name}:${hash}`),
     ].join("\n"),
   );
-  writeJson(files.manifest, {
+  writeText(files.manifest, renderYamlDocument({
     schema_version: 1,
+    canonicalization: "loopo-canonical-json-v1",
     generated_at: nowIso(),
     generated_by: "loopo",
     writer_command: writerCommand,
@@ -929,14 +1568,14 @@ export function writeQuestManifest(
     previous_receipt_head: previousHead,
     receipt_head: receiptHead,
     files: hashes,
-  });
+  }));
 }
 
 export function verifyQuestManifest(files: QuestFiles): {
   ok: boolean;
   errors: string[];
 } {
-  const manifest = readJson(files.manifest) as Record<string, any> | null;
+  const manifest = parseYamlFile(files.manifest) as Record<string, any> | null;
   if (!manifest || typeof manifest !== "object") {
     return { ok: false, errors: [`missing quest manifest: ${files.manifest}`] };
   }
@@ -1047,7 +1686,7 @@ export function applyQuestPlanToTasks(
     ? (plan!.tasks as Array<Record<string, unknown>>)
     : [];
   const nextState: QuestState = {
-    schema_version: 3,
+    schema_version: 4,
     wtree: files.wtree,
     quest_id: String(state.quest_id ?? files.wtree),
     flow_id: String(state.flow_id ?? "swe"),
@@ -1070,22 +1709,12 @@ export function applyQuestPlanToTasks(
     question_rounds: Array.isArray(state.question_rounds)
       ? state.question_rounds
       : [],
-    answers: Array.isArray(state.answers) ? state.answers : [],
     plan_detail: {
-      ...defaultQuestPlanDetail(),
-      ...(state.plan_detail ?? {}),
       classification: String(plan?.classification ?? ""),
       scope: String(plan?.scope ?? ""),
       summary: String(plan?.summary ?? plan?.scope ?? ""),
       rationale: String(plan?.summary ?? plan?.scope ?? ""),
-      af:
-        plan?.af && typeof plan.af === "object"
-          ? (plan.af as Record<string, unknown>)
-          : {},
-      of:
-        plan?.of && typeof plan.of === "object"
-          ? (plan.of as Record<string, unknown>)
-          : {},
+      system_context: normalizeQuestSystemContext(plan?.system_context),
       high_impact_unknowns: asStringList(plan?.high_impact_unknowns),
       defaulted_unknowns: asStringList(plan?.defaulted_unknowns),
       verification_targets: asStringList(plan?.verification_targets),
@@ -1122,7 +1751,7 @@ export function applyChildStatusToTasks(
   }
   const taskId = normalizeName(update.id);
   const nextState: QuestState = {
-    schema_version: 3,
+    schema_version: 4,
     wtree: files.wtree,
     quest_id: String(state.quest_id ?? files.wtree),
     flow_id: String(state.flow_id ?? "swe"),
@@ -1145,7 +1774,6 @@ export function applyChildStatusToTasks(
     question_rounds: Array.isArray(state.question_rounds)
       ? state.question_rounds
       : [],
-    answers: Array.isArray(state.answers) ? state.answers : [],
     plan_detail: state.plan_detail ?? defaultQuestPlanDetail(),
     validation_receipt:
       state.validation_receipt ?? defaultQuestValidationReceipt(),
@@ -1198,7 +1826,7 @@ export function applyLandingReceipt(
   >,
 ): QuestState {
   const nextState: QuestState = {
-    schema_version: 3,
+    schema_version: 4,
     wtree: files.wtree,
     quest_id: String(state.quest_id ?? files.wtree),
     flow_id: String(state.flow_id ?? "swe"),
@@ -1229,7 +1857,6 @@ export function applyLandingReceipt(
     question_rounds: Array.isArray(state.question_rounds)
       ? state.question_rounds
       : [],
-    answers: Array.isArray(state.answers) ? state.answers : [],
     plan_detail: state.plan_detail ?? defaultQuestPlanDetail(),
     validation_receipt:
       state.validation_receipt ?? defaultQuestValidationReceipt(),
@@ -1262,7 +1889,7 @@ export function createQuest(input: {
     throw new Error(`quest wtree already exists: ${input.wtree}`);
   }
   const state: QuestState = {
-    schema_version: 3,
+    schema_version: 4,
     wtree: input.wtree,
     quest_id: input.wtree,
     flow_id: input.flowId ?? "swe",
@@ -1283,7 +1910,6 @@ export function createQuest(input: {
     assumptions: [],
     constraints: [],
     question_rounds: [],
-    answers: [],
     plan_detail: defaultQuestPlanDetail(),
     validation_receipt: defaultQuestValidationReceipt(),
     verification_receipt: defaultQuestVerificationReceipt(),
@@ -1649,7 +2275,7 @@ export function ensureQuestFiles(
   const files = questFiles(repoRoot, wtree);
   if (!existsSync(files.tasks)) {
     const initial: QuestState = {
-      schema_version: 3,
+      schema_version: 4,
       wtree,
       quest_id: wtree,
       flow_id: "swe",
@@ -1670,7 +2296,6 @@ export function ensureQuestFiles(
       assumptions: [],
       constraints: [],
       question_rounds: [],
-      answers: [],
       plan_detail: defaultQuestPlanDetail(),
       validation_receipt: defaultQuestValidationReceipt(),
       verification_receipt: defaultQuestVerificationReceipt(),

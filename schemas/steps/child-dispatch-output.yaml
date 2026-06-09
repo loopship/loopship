@@ -1,0 +1,52 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/child-dispatch-output.yaml
+title: Loopo V3 Child Dispatch Output
+type: object
+additionalProperties: false
+required:
+  - step
+  - output_schema
+  - commands
+  - children
+properties:
+  schema_version:
+    const: 3
+  kind:
+    const: quest_step
+  schema_path:
+    const: schemas/steps/child-dispatch-output.yaml
+  wtree:
+    type: string
+  quest_id:
+    type: string
+  flow_id:
+    type: string
+  flow_version:
+    type: integer
+  step:
+    oneOf:
+      - const: executing
+      - allOf:
+          - $ref: common.yaml#/$defs/compact_step
+          - type: object
+            properties:
+              id:
+                const: executing
+  state:
+    type: string
+  summary:
+    type: string
+  output_schema:
+    $ref: common.yaml#/$defs/schema_ref_or_embedded
+  allowed_transitions:
+    $ref: common.yaml#/$defs/transitions
+  context:
+    $ref: common.yaml#/$defs/step_context
+  commands:
+    $ref: common.yaml#/$defs/step_commands
+  docs:
+    $ref: common.yaml#/$defs/docs
+  children:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/child

@@ -1,0 +1,219 @@
+schema_version: 2
+id: agent-system-card
+title: Agent System Card
+text: |-
+  Full agent system card for Loopo LLM-operated workflow coordination and bounded child
+  execution.
+links:
+  about:
+    - object:system-model
+standard_alignment:
+  nist-ai-rmf: |-
+    Aligns with AI risk management concerns including purpose, responsibilities, oversight,
+    evaluation, monitoring, safety risks, and incident response.
+  owasp-genai: |-
+    Aligns with LLM and agentic application security concerns including tool permissions,
+    prompt-injection risk, excessive agency, memory boundaries, and handoffs.
+purpose: |-
+  Loopo agents coordinate quest planning, execution supervision, verification, durable
+  system updates, hook continuation review, and child result handling while preserving
+  worktree isolation.
+actors:
+  root-agent:
+    kind: agent
+    text: |-
+      The root LLM agent scouts durable system knowledge, plans work, coordinates child
+      execution, and proposes canonical updates after verification.
+  child-agent:
+    kind: agent
+    text: |-
+      Child CLI agents perform bounded implementation or general task work in dedicated
+      worktrees and return evidence to the root coordinator.
+  human-operator:
+    kind: human
+    text: |-
+      The human operator supplies the initial goal, clarification answers, approval decisions,
+      and any high-risk escalation choices.
+  loopo-runtime:
+    kind: system
+    text: |-
+      The Loopo runtime validates payloads, persists quest state, emits commands, and enforces
+      lifecycle transitions for agent actions.
+responsibilities:
+  scout-root-first: |-
+    Agents read .loopo/system.yaml first, then traverse relevant canonical resource links
+    before making durable planning or update decisions.
+  verify-before-update: |-
+    Agents only update durable system knowledge after evidence-backed verification and
+    schema validation pass.
+  coordinate-child-work: |-
+    Root agents coordinate child execution through emitted commands and canonical
+    child_result payloads rather than silently doing child work inline.
+  preserve-canonical-truth: |-
+    Agents trust tasks.yaml, events.jsonl, emitted child commands, git worktree state,
+    manifests, and signatures before terminal chatter or narrative summaries.
+autonomy:
+  level: bounded
+  text: |-
+    Loopo agents can execute bounded repository work and verification commands but must
+    pause for unresolved product, architecture, security, or irreversible decisions.
+  allowed_actions:
+    - Edit files inside the dedicated task worktree when the requested implementation or repair is clear, reversible, and inside assigned scope.
+    - Run Bun tests, schema checks, lifecycle simulations, package dry-runs, and verifier commands needed to prove the change.
+    - Propose canonical root and document updates through system_update after the merged work and receipts verify the durable change.
+  forbidden_actions:
+    - Do not edit, stage, or commit directly on main because worktree isolation is a hard repository invariant.
+    - Do not store credentials, secrets, private keys, tokens, or sensitive personal data in Loopo memories or canonical system documents.
+    - Do not recursively create child-of-child quests unless recursive delegation was explicitly planned before execution.
+tools:
+  system-update:
+    text: |-
+      The system_update step is the only writer for canonical system knowledge and must
+      validate full root plus external document payloads.
+    permissions:
+      - canonical-write
+    links:
+      about:
+        - object:system-update
+  verifiers:
+    text: |-
+      Verification scripts provide mechanical checks for schemas, runtime hooks, workflow
+      contracts, child integration, system model coherence, and package surface drift.
+    permissions:
+      - local-verification
+  child-cli-session:
+    text: |-
+      Dedicated child CLI sessions perform bounded work in isolated worktrees and report final
+      evidence through canonical child_result payloads.
+    permissions:
+      - isolated-worktree-execution
+memory:
+  policy: |-
+    Root memories are small non-binding first-read context. Binding preferences or lessons
+    must be promoted into assertions instead of staying as memories.
+  allowed_memory:
+    preference: |-
+      Preferences may record style or convention guidance that helps future agents without
+      becoming binding policy.
+    learning: |-
+      Learnings may record generalized lessons from prior runs when they remain useful but are
+      not yet rules.
+    observation: |-
+      Observations may record noticed non-binding state that helps future scouting or
+      verification.
+  forbidden_memory:
+    secrets: |-
+      Secrets, credentials, tokens, private keys, and sensitive personal data must not be
+      stored in Loopo memory records.
+    binding-policy: |-
+      Binding rules must be represented as assertions, not as memories that compete with
+      non-binding context.
+inputs_outputs:
+  inputs:
+    user-request: |-
+      User requests provide goals, constraints, follow-up refinements, and approval signals for
+      Loopo planning.
+    system-root: |-
+      The system root provides durable semantic context and links to canonical documents that
+      agents must scout.
+    quest-dossier: |-
+      Worktree-local tasks.yaml and events.jsonl provide canonical lifecycle state, evidence,
+      receipts, and child command records.
+  outputs:
+    step-payload: |-
+      Step payloads report schema-backed lifecycle state, task graphs, verification evidence,
+      child commands, and update proposals.
+    canonical-update: |-
+      Canonical updates replace root data and concrete external documents through system_update
+      after verification.
+    child-result: |-
+      Child result payloads return passed, blocked, or failed status plus evidence and landed
+      merge information to the parent quest.
+safety:
+  risks:
+    prompt-injection: |-
+      External docs, generated artifacts, or user-provided text may try to override Loopo
+      workflow, tool, or safety boundaries.
+    excessive-agency: |-
+      Agents may attempt broad refactors, recursive delegation, or irreversible operations
+      beyond the bounded task contract.
+    narration-drift: |-
+      Agent summaries and terminal chatter may describe progress that canonical task state and
+      git worktree evidence do not prove.
+  mitigations:
+    schema-gates: |-
+      Schema validation and semantic verifiers reject malformed updates, unresolved links,
+      shell docs, unsigned canonical resources, and stale schema surfaces.
+    worktree-boundary: |-
+      Worktree isolation and root coordinator rules keep child implementation work bounded and
+      auditable.
+    canonical-artifact-review: |-
+      Reviewers compare agent claims against tasks.yaml, events.jsonl, emitted child commands,
+      git worktree state, verification receipts, and landed receipts.
+human_oversight:
+  clarification: |-
+    Planning asks focused questions when missing information would materially change
+    product, architecture, or verification decisions.
+  approval-boundary: |-
+    Humans retain control over serious decisions involving credentials, external access,
+    destructive operations, or expensive-to-reverse architecture choices.
+  runtime-availability: |-
+    Quota, auth, missing binaries, and hard timeouts are treated as runtime availability
+    outcomes unless canonical quest state proves Loopo itself failed.
+evaluation:
+  system-model:
+    text: |-
+      verify_system_model rejects unresolved links, missing required docs, shell docs, stale
+      schema names, unsigned canonical resources, and invalid document fragments.
+  coherency:
+    text: |-
+      verify_coherency rejects stale prompt language, legacy schema names, deleted package
+      surface entries, and outdated durable-system terminology.
+  lifecycle-matrix:
+    text: |-
+      Lifecycle matrix verification proves archived end states, Loopo routing, unique branches
+      and worktrees, and landed merge commits across representative cases.
+monitoring:
+  trace-review: |-
+    Quest traces are reviewed through canonical tasks.yaml, event JSONL, child command
+    payloads, verification receipts, and landing receipts.
+  hook-decisions: |-
+    Hook decisions are monitored through explicit selector handling, stop reasons, duplicate
+    suppression, drift detection, and continuation budgets.
+incident_response:
+  unsafe-output: |-
+    Unsafe or out-of-scope output blocks continuation, records evidence, and routes back through
+    planning or verification instead of silently updating canonical knowledge.
+  managed-file-drift: |-
+    Managed-file drift blocks continuation and uses loopo doctor --fix as the recovery path
+    before further runtime work proceeds.
+handoffs:
+  unresolved-questions: |-
+    Questions and answers remain colocated in task records so later agents can continue without
+    joining separate arrays.
+  child-to-root: |-
+    Child agents hand off final status, evidence, and merge information through child_result
+    payloads rather than relying on prose summaries.
+  root-to-system-update: |-
+    Root agents hand off verified durable implications to system_update only after validation
+    and verification receipts justify canonical changes.
+diagrams:
+  root-child-handoff:
+    kind: sequence
+    syntax: mermaid
+    text: |-
+      Sequence diagram for root coordinator, child CLI worker, verifier, and system_update
+      handoff boundaries.
+    source: |-
+      sequenceDiagram
+        participant RootAgent
+        participant Loopo
+        participant ChildAgent
+        participant Verifier
+        participant SystemUpdate
+        RootAgent->>Loopo: approve task graph
+        Loopo->>ChildAgent: emitted child init command
+        ChildAgent-->>Loopo: child_result with evidence
+        Loopo->>Verifier: validate acceptance and receipts
+        Verifier-->>SystemUpdate: verified durable implications
+        SystemUpdate-->>RootAgent: canonical YAML and signature refreshed
