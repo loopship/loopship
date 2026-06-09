@@ -41,6 +41,7 @@ import {
   ensureGlobalSkillFiles,
   ensureGitRootCommit,
   landingTargetWorktreePath,
+  LOOPO_ROOT_MANIFEST_FILE,
   parseTasksYaml,
   taskAssignmentBranchRef,
   taskAssignmentChildWtree,
@@ -64,17 +65,28 @@ import {
   flowStep,
   loadFlowDefinition,
   type LoadedLoopoFlow,
-} from "./loopo_flow.ts";
+} from "./loopo_workflow_runner.ts";
 import {
+  dereferencedSchemaSource,
   dereferencedV3Schema,
+  type LoopoSchemaSource,
+  validateSchemaSource,
   validateV3Input,
   v3SchemaPath,
   v3SchemaRef,
 } from "./loopo_schema.ts";
 import { runLoopoCmdproto } from "./loopo_cmdproto.ts";
+import { runHandbook } from "./loopo_handbook.ts";
 import { runSimCli } from "./loopo_sim.ts";
 
-type Command = "init" | "doctor" | "quest" | "hook" | "sim" | "cmdproto";
+type Command =
+  | "init"
+  | "doctor"
+  | "quest"
+  | "hook"
+  | "sim"
+  | "cmdproto"
+  | "handbook";
 
 type ParentQuestAssignment = {
   parent_wtree: string;
@@ -102,7 +114,10 @@ type DoctorArgs = {
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const NEXT_PAYLOAD_INSTRUCTION =
-  "Follow the instructions above, then construct one JSON payload matching callback_schema and send it to commands.next.";
+  "This step is reusable across flows. The orchestrator owns flow transitions and decides which step, if any, follows this callback. Follow the instructions above, then construct one JSON payload matching output_schema and send it to commands.next.";
+const TERMINAL_OUTPUT_INSTRUCTION =
+  "This terminal step is reusable across flows. The orchestrator owns terminal flow state. output_schema is null, so report the terminal output and do not invent a next payload.";
+const MAX_EMBEDDED_SCHEMA_BYTES = 64 * 1024;
 function usage(): void {
   console.log(`loopo
 
@@ -114,6 +129,7 @@ Usage:
   loopo sim quest next --wtree <name> --json <json|@file|@->
   loopo sim hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
   loopo doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
+  loopo handbook [--repo <path>] [--raw]
   loopo cmdproto --help [--json]
   loopo cmdproto execjson <path> <json|@file|@->
 `);
@@ -123,7 +139,7 @@ function parseCommand(argv: string[]): Command {
   const cmd = argv[0] as Command | undefined;
   if (
     !cmd ||
-    !["init", "doctor", "quest", "hook", "sim", "cmdproto"].includes(cmd)
+    !["init", "doctor", "quest", "hook", "sim", "cmdproto", "handbook"].includes(cmd)
   ) {
     usage();
     process.exit(1);
@@ -709,15 +725,15 @@ function stageToV3Step(stage: string, flow = loadFlowDefinition()): string {
 function inputSchemaForStage(
   stage: string,
   flow = loadFlowDefinition(),
-): string | null {
-  return flowStep(flow, stage).input_schema;
+): LoopoSchemaSource {
+  return flowStep(flow, stage).output_schema;
 }
 
 function outputSchemaForStage(
   stage: string,
   flow = loadFlowDefinition(),
 ): string {
-  return flowStep(flow, stage).output_schema;
+  return flowStep(flow, stage).result_schema;
 }
 
 function v3StepSummary(stage: string, flow = loadFlowDefinition()): string {
@@ -910,6 +926,7 @@ function v3InitRoute(input: {
     String(input.wtree ?? "").trim() || suggestedWtree(input.request),
   );
   const flow = loadFlowDefinition(input.flowId);
+  const compactSchema = process.env.LOOPO_COMPACT_INIT_SCHEMA === "1";
   const createQuestInput = {
     step: "select_quest",
     action: "create_quest",
@@ -936,7 +953,9 @@ function v3InitRoute(input: {
         "--json",
         JSON.stringify(createQuestInput),
       ]),
-      callback_schema: embeddedCallbackSchema("next-input"),
+      output_schema: compactSchema
+        ? { schema_path: v3SchemaPath("next-input") }
+        : boundedSchema(v3SchemaPath("next-input")),
       input: createQuestInput,
     },
   };
@@ -1111,11 +1130,31 @@ function compactStepData(
 }
 
 function stepInstructions(stepDef: ReturnType<typeof flowStep>): string {
-  return `${stepDef.instructions.trimEnd()}\n\n${NEXT_PAYLOAD_INSTRUCTION}`;
+  const callbackInstruction = stepDef.output_schema
+    ? NEXT_PAYLOAD_INSTRUCTION
+    : TERMINAL_OUTPUT_INSTRUCTION;
+  return `${stepDef.instructions.trimEnd()}\n\n${callbackInstruction}`;
 }
 
-function embeddedCallbackSchema(schemaName: string | null): unknown {
-  return schemaName ? dereferencedV3Schema(schemaName) : null;
+function schemaRefForSource(schemaSource: LoopoSchemaSource): unknown {
+  if (schemaSource == null) return null;
+  if (typeof schemaSource === "string") return { schema_path: schemaSource };
+  const schemaId = schemaSource.$id;
+  return typeof schemaId === "string" && schemaId.trim()
+    ? { schema_path: schemaId }
+    : schemaSource;
+}
+
+function boundedSchema(schemaSource: LoopoSchemaSource): unknown {
+  const embedded = dereferencedSchemaSource(schemaSource);
+  if (embedded == null) return null;
+  if (
+    typeof schemaSource === "string" &&
+    JSON.stringify(embedded).length > MAX_EMBEDDED_SCHEMA_BYTES
+  ) {
+    return schemaRefForSource(schemaSource);
+  }
+  return embedded;
 }
 
 function stepContextData(
@@ -1126,8 +1165,9 @@ function stepContextData(
     id: stepDef.id,
     handler: stepDef.handler,
     input_step: stepDef.input_step,
-    callback_schema: embeddedCallbackSchema(stepDef.input_schema),
-    output_schema: stepDef.output_schema,
+    input_schema: boundedSchema(stepDef.input_schema),
+    output_schema: boundedSchema(stepDef.output_schema),
+    result_schema_path: stepDef.result_schema,
     summary: stepDef.summary,
     instructions: stepInstructions(stepDef),
   };
@@ -1155,7 +1195,7 @@ function v3StepOutput(input: {
   if (!input.full) {
     const compactOutput: Record<string, unknown> = {
       step: compactStepData(stepDef),
-      callback_schema: embeddedCallbackSchema(stepDef.input_schema),
+      output_schema: boundedSchema(stepDef.output_schema),
       commands: {
         next: tokenCommand("loopo", nextArgs),
       },
@@ -1182,14 +1222,14 @@ function v3StepOutput(input: {
   const output: Record<string, unknown> = {
     schema_version: 3,
     kind: "quest_step",
-    schema_path: v3SchemaPath(schema),
+    schema_path: schema,
     wtree: input.files.wtree,
     flow_id: flow.id,
     flow_version: flow.version,
     step,
     state: stage,
     summary: v3StepSummary(stage, flow),
-    callback_schema: embeddedCallbackSchema(stepDef.input_schema),
+    output_schema: boundedSchema(stepDef.output_schema),
     commands: {
       next: tokenCommand("loopo", nextArgs),
     },
@@ -1229,7 +1269,7 @@ function v3StepOutput(input: {
     );
   }
   if (step === "archived") {
-    output.callback_schema = null;
+    output.output_schema = null;
     if (String(input.state.landed_commit ?? "").trim()) {
       output.landing = {
         source_branch: String(input.state.coordinator_branch ?? ""),
@@ -1332,8 +1372,7 @@ function validatePlan(
   for (const key of [
     "classification",
     "scope",
-    "af",
-    "of",
+    "system_context",
     "verification_targets",
     "task_graph",
   ]) {
@@ -1342,8 +1381,7 @@ function validatePlan(
   const highImpact = asArray(input.high_impact_unknowns);
   const defaulted = asArray(input.defaulted_unknowns);
   const questions = asArray(input.questions);
-  const hasRecordedAnswers =
-    Array.isArray(state.answers) && state.answers.length > 0;
+  const hasRecordedAnswers = hasAnsweredQuestions(state);
   const leafChild = isChildExecutionQuestPrompt(state.prompt);
   if (
     input.classification === "greenfield_app" &&
@@ -1371,6 +1409,65 @@ function validatePlan(
     }
   }
   return null;
+}
+
+function hasAnsweredQuestions(state: Partial<{ [key: string]: any }>): boolean {
+  return asArray(state.question_rounds).some((round) =>
+    asArray(round?.questions).some(
+      (question) => String(question?.answer ?? "").trim().length > 0,
+    ),
+  );
+}
+
+function answerKey(answer: Record<string, any>): string {
+  return String(answer.question_id ?? answer.id ?? "").trim();
+}
+
+function mergeAnswersIntoLatestQuestionRound(
+  state: Partial<{ [key: string]: any }>,
+  answers: Array<Record<string, any>>,
+): Array<Record<string, any>> {
+  const rounds = asArray(state.question_rounds).map((round) => ({
+    ...round,
+    questions: asArray(round?.questions),
+  }));
+  if (!rounds.length) {
+    throw new Error("questions input cannot be applied before a question round exists");
+  }
+  const latest = rounds[rounds.length - 1];
+  const questions = asArray(latest.questions);
+  const answerById = new Map<string, Record<string, any>>();
+  const answerByQuestion = new Map<string, Record<string, any>>();
+  for (const answer of answers) {
+    const text = String(answer.answer ?? "").trim();
+    if (!text) throw new Error("questions input answers require non-empty answer text");
+    const key = answerKey(answer);
+    if (key) answerById.set(key, answer);
+    const questionText = String(answer.question ?? "").trim();
+    if (questionText) answerByQuestion.set(questionText, answer);
+  }
+  const matched = new Set<Record<string, any>>();
+  latest.questions = questions.map((question) => {
+    const id = String(question.id ?? "").trim();
+    const questionText = String(question.question ?? "").trim();
+    const answer = answerById.get(id) ?? answerByQuestion.get(questionText);
+    if (!answer) return question;
+    matched.add(answer);
+    const acceptedDefault = Boolean(answer.accepted_default);
+    return {
+      ...question,
+      status: acceptedDefault ? "defaulted" : "answered",
+      answer: String(answer.answer ?? "").trim(),
+      accepted_default: acceptedDefault,
+    };
+  });
+  for (const answer of answers) {
+    if (!matched.has(answer)) {
+      const key = answerKey(answer) || String(answer.question ?? "").trim();
+      throw new Error(`questions input references unknown question: ${key || "<missing id>"}`);
+    }
+  }
+  return rounds;
 }
 
 function handlePlan(input: {
@@ -1410,13 +1507,10 @@ function handlePlan(input: {
     classification: String(input.payload.classification ?? ""),
     scope: String(input.payload.scope ?? ""),
     summary: String(input.payload.summary ?? input.payload.scope ?? ""),
-    af:
-      input.payload.af && typeof input.payload.af === "object"
-        ? input.payload.af
-        : {},
-    of:
-      input.payload.of && typeof input.payload.of === "object"
-        ? input.payload.of
+    system_context:
+      input.payload.system_context &&
+      typeof input.payload.system_context === "object"
+        ? input.payload.system_context
         : {},
     high_impact_unknowns: asArray(input.payload.high_impact_unknowns),
     defaulted_unknowns: asArray(input.payload.defaulted_unknowns),
@@ -1454,9 +1548,10 @@ function handleQuestions(input: {
     throw new Error("questions input requires answers array");
   }
   const current = parseTasksYaml(readText(input.files.tasks));
+  const answers = input.payload.answers as Array<Record<string, any>>;
   const nextState = {
     ...current,
-    answers: input.payload.answers,
+    question_rounds: mergeAnswersIntoLatestQuestionRound(current, answers),
   };
   writeText(input.files.tasks, renderTasksYaml(nextState as any));
   appendAuditEvent(
@@ -1464,7 +1559,7 @@ function handleQuestions(input: {
     "answers_submitted",
     String(current.stage ?? "awaiting_user_answers"),
     input.requestId,
-    { answer_count: input.payload.answers.length },
+    { answer_count: answers.length },
   );
   return updateQuestStage(
     input.files,
@@ -1967,8 +2062,9 @@ function handleSystemUpdate(input: {
     String(input.state.stage ?? "system_update_pending"),
     input.requestId,
     {
-      update_count: Array.isArray(input.payload.system_update?.updates)
-        ? input.payload.system_update.updates.length
+      update_mode: String(input.payload.system_update?.mode ?? ""),
+      external_doc_count: Array.isArray(input.payload.system_update?.external_docs)
+        ? input.payload.system_update.external_docs.length
         : 0,
     },
   );
@@ -2416,7 +2512,7 @@ export function runQuestNextV3(argv: string[]): number {
         questResponse(
           v3Error("quest does not exist; create it with select_quest input", {
             wtree,
-            expected_callback_schema: embeddedCallbackSchema("next-input"),
+            expected_output_schema: dereferencedV3Schema("next-input"),
           }),
         );
         return 1;
@@ -2424,7 +2520,7 @@ export function runQuestNextV3(argv: string[]): number {
       const schemaErrors = validateV3Input(payload, "next-input");
       if (schemaErrors.length) {
         questResponse(
-          v3Error("callback schema validation failed", {
+          v3Error("output schema validation failed", {
             wtree,
             schema: v3SchemaRef("next-input"),
             errors: schemaErrors,
@@ -2466,17 +2562,16 @@ export function runQuestNextV3(argv: string[]): number {
       return 0;
     }
 
-    const rootManifestPath = resolve(
+    const rootSignaturePath = resolve(
       questWorkspaceRoot(existing.files),
-      ".loopo",
-      "manifest.sign.json",
+      LOOPO_ROOT_MANIFEST_FILE,
     );
-    if (existsSync(rootManifestPath)) {
-      const rootManifest = verifyRootManifest(questWorkspaceRoot(existing.files));
-      if (!rootManifest.ok) {
+    if (existsSync(rootSignaturePath)) {
+      const rootSignature = verifyRootManifest(questWorkspaceRoot(existing.files));
+      if (!rootSignature.ok) {
         questResponse(
-          v3Error("root manifest verification failed", {
-            errors: rootManifest.errors,
+          v3Error("root signature verification failed", {
+            errors: rootSignature.errors,
           }),
         );
         return 2;
@@ -2505,20 +2600,23 @@ export function runQuestNextV3(argv: string[]): number {
         questResponse(v3Error(stepError, { wtree, state: state.stage }));
         return 1;
       }
-      const schemaName = inputSchemaForStage(currentStage, flow);
-      if (!schemaName) {
+      const schemaSource = inputSchemaForStage(currentStage, flow);
+      if (!schemaSource) {
         questResponse(
-          v3Error("current step does not accept a callback payload", { wtree }),
+          v3Error("current step does not accept an output payload", { wtree }),
         );
         return 1;
       }
-      const schemaErrors = validateV3Input(payload, schemaName);
+      const schemaErrors = validateSchemaSource(payload, schemaSource);
       if (schemaErrors.length) {
         questResponse(
-          v3Error("callback schema validation failed", {
+          v3Error("output schema validation failed", {
             wtree,
             state: state.stage,
-            schema: v3SchemaRef(schemaName),
+            schema:
+              typeof schemaSource === "string"
+                ? { schema_path: schemaSource }
+                : schemaSource,
             errors: schemaErrors,
           }),
         );
@@ -2829,6 +2927,7 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   if (cmd === "hook") return runHook(rest);
   if (cmd === "quest") return runQuest(rest);
   if (cmd === "sim") return runSimCli(rest);
+  if (cmd === "handbook") return runHandbook(rest);
   if (cmd === "cmdproto") return runLoopoCmdproto(rest);
   return runDoctor(rest);
 }

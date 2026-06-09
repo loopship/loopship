@@ -1,0 +1,69 @@
+document:
+  dsl: 1.0.3
+  namespace: loopo-steps
+  name: validation
+  version: 1.0.0
+  summary: Submit deterministic validation results only, including schemas, DAG,
+    tests, build, lint/typecheck, manifest, and behavior refs.
+  metadata:
+    loopo:
+      kind: step-workflow
+      stepId: validation
+do:
+  - validation:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/step-output.yaml
+      metadata:
+        loopo:
+          stepId: validation
+          handler: validation
+          inputStep: validation
+          summary: Submit deterministic validation results only, including schemas, DAG,
+            tests, build, lint/typecheck, manifest, and behavior refs.
+          instructions: >-
+            # Loopo Validation Step
+
+
+            Act as a top-class deterministic validation engineer for Loopo.
+            Treat this
+
+            instruction block as the validation step's system prompt: run
+            objective
+
+            checks, report their evidence, and return only the schema-valid
+            `validation`
+
+            callback.
+
+
+            ## Step-Local Callback Contract
+
+
+            This step is reusable across flows. The orchestrator owns flow
+            transitions
+
+            and decides which step, if any, follows this callback. Produce only
+            the JSON
+
+            payload that matches this step's current `output_schema`, then
+            submit it
+
+            through `commands.next`; do not shape output for a guessed
+            successor.
+
+
+            Run deterministic checks only: schemas, DAG, tests, build,
+            lint/typecheck,
+
+            manifest checks, and live behavior refs when applicable.
+          resultSchemaPath: schemas/steps/step-output.yaml
+      output:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/validation-input.yaml
+      call: loopo.internal.validation
+      with: {}

@@ -1,0 +1,159 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/docs/knowledge-report.yaml
+title: Loopo Knowledge Report Document v2
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - id
+  - title
+  - text
+  - standard_alignment
+  - abstract
+  - background
+  - research_questions
+  - methods
+  - sources
+  - claims
+  - evidence
+  - results
+  - discussion
+  - limitations
+  - reproducibility
+  - references
+properties:
+  schema_version:
+    const: 2
+  id:
+    $ref: loopo://schemas/system.yaml#/$defs/id
+  title:
+    type: string
+    minLength: 1
+    maxLength: 160
+  text:
+    $ref: "#/$defs/prose"
+  links:
+    $ref: loopo://schemas/system.yaml#/$defs/links
+  standard_alignment:
+    $ref: "#/$defs/prose_map"
+  abstract:
+    $ref: "#/$defs/prose"
+  background:
+    $ref: "#/$defs/prose_map"
+  research_questions:
+    $ref: "#/$defs/prose_map"
+  methods:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        limitations:
+          $ref: "#/$defs/prose_array"
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  sources:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        citation:
+          type: string
+          minLength: 1
+        resource_ref:
+          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  claims:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - confidence
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        confidence:
+          enum:
+            - low
+            - medium
+            - high
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  evidence:
+    $ref: "#/$defs/evidence_map"
+  results:
+    $ref: "#/$defs/prose_map"
+  discussion:
+    $ref: "#/$defs/prose_map"
+  limitations:
+    $ref: "#/$defs/prose_map"
+  reproducibility:
+    $ref: "#/$defs/evidence_map"
+  references:
+    $ref: "#/$defs/prose_map"
+$defs:
+  key:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._-]*$"
+  prose:
+    type: string
+    minLength: 20
+    pattern: "\\n"
+  prose_array:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 20
+  prose_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/prose"
+  evidence_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        kind:
+          enum:
+            - experiment
+            - citation
+            - observation
+            - review
+            - audit
+        text:
+          $ref: "#/$defs/prose"
+        resource_ref:
+          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links

@@ -1,0 +1,176 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/docs/dataset-datasheet.yaml
+title: Loopo Dataset Datasheet Document v2
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - id
+  - title
+  - text
+  - standard_alignment
+  - identity
+  - motivation
+  - composition
+  - collection
+  - preprocessing
+  - labeling
+  - splits
+  - quality
+  - uses
+  - distribution
+  - maintenance
+  - ethics_privacy
+  - provenance
+properties:
+  schema_version:
+    const: 2
+  id:
+    $ref: loopo://schemas/system.yaml#/$defs/id
+  title:
+    type: string
+    minLength: 1
+    maxLength: 160
+  text:
+    $ref: "#/$defs/prose"
+  standard_alignment:
+    $ref: "#/$defs/prose_map"
+  identity:
+    type: object
+    additionalProperties: false
+    required:
+      - title
+      - version
+      - creators
+      - publisher
+      - identifiers
+    properties:
+      title:
+        type: string
+        minLength: 1
+      version:
+        type: string
+        minLength: 1
+      creators:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          minLength: 1
+      publisher:
+        type: string
+        minLength: 1
+      identifiers:
+        type: object
+        minProperties: 1
+        propertyNames:
+          $ref: "#/$defs/key"
+        additionalProperties:
+          type: string
+          minLength: 1
+  motivation:
+    $ref: "#/$defs/prose"
+  composition:
+    type: object
+    additionalProperties: false
+    required:
+      - overview
+      - fields
+      - size
+    properties:
+      overview:
+        $ref: "#/$defs/prose"
+      fields:
+        type: object
+        minProperties: 1
+        propertyNames:
+          $ref: "#/$defs/key"
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          required:
+            - type
+            - text
+          properties:
+            type:
+              type: string
+              minLength: 1
+            text:
+              $ref: "#/$defs/prose"
+      size:
+        type: object
+        additionalProperties: false
+        required:
+          - text
+        properties:
+          rows:
+            type: integer
+            minimum: 0
+          bytes:
+            type: integer
+            minimum: 0
+          text:
+            $ref: "#/$defs/prose"
+  collection:
+    $ref: "#/$defs/prose"
+  preprocessing:
+    $ref: "#/$defs/prose"
+  labeling:
+    $ref: "#/$defs/prose"
+  splits:
+    $ref: "#/$defs/prose_map"
+  quality:
+    $ref: "#/$defs/prose_map"
+  uses:
+    type: object
+    additionalProperties: false
+    required:
+      - intended
+      - prohibited
+    properties:
+      intended:
+        $ref: "#/$defs/prose_array"
+      prohibited:
+        $ref: "#/$defs/prose_array"
+  distribution:
+    type: object
+    additionalProperties: false
+    required:
+      - access
+      - license
+      - location_ref
+    properties:
+      access:
+        $ref: "#/$defs/prose"
+      license:
+        type: string
+        minLength: 1
+      location_ref:
+        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+  maintenance:
+    $ref: "#/$defs/prose"
+  ethics_privacy:
+    $ref: "#/$defs/prose_map"
+  provenance:
+    $ref: "#/$defs/prose_map"
+$defs:
+  key:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._-]*$"
+  prose:
+    type: string
+    minLength: 20
+    pattern: "\\n"
+  prose_array:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 20
+  prose_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/prose"

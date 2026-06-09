@@ -1,0 +1,236 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/docs/workflow-spec.yaml
+title: Loopo Workflow Specification Document v2
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - id
+  - title
+  - text
+  - standard_alignment
+  - purpose
+  - participants
+  - triggers
+  - inputs
+  - outputs
+  - processes
+  - data_objects
+  - invariants
+  - exceptions
+  - monitoring
+  - diagrams
+  - examples
+properties:
+  schema_version:
+    const: 2
+  id:
+    $ref: loopo://schemas/system.yaml#/$defs/id
+  title:
+    type: string
+    minLength: 1
+    maxLength: 160
+  text:
+    $ref: "#/$defs/prose"
+  links:
+    $ref: loopo://schemas/system.yaml#/$defs/links
+  standard_alignment:
+    $ref: "#/$defs/prose_map"
+  purpose:
+    $ref: "#/$defs/prose"
+  participants:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - text
+      properties:
+        kind:
+          enum:
+            - human
+            - system
+            - agent
+            - service
+            - organization
+        text:
+          $ref: "#/$defs/prose"
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  triggers:
+    $ref: "#/$defs/prose_map"
+  inputs:
+    $ref: "#/$defs/schema_map"
+  outputs:
+    $ref: "#/$defs/schema_map"
+  processes:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - lanes
+        - steps
+        - gateways
+        - events
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        lanes:
+          $ref: "#/$defs/prose_map"
+        steps:
+          type: object
+          minProperties: 1
+          propertyNames:
+            $ref: "#/$defs/key"
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            required:
+              - lane
+              - text
+            properties:
+              lane:
+                $ref: "#/$defs/key"
+              text:
+                $ref: "#/$defs/prose"
+              links:
+                $ref: loopo://schemas/system.yaml#/$defs/links
+        gateways:
+          $ref: "#/$defs/prose_map"
+        events:
+          $ref: "#/$defs/prose_map"
+  data_objects:
+    $ref: "#/$defs/prose_map"
+  invariants:
+    $ref: "#/$defs/prose_map"
+  exceptions:
+    $ref: "#/$defs/prose_map"
+  monitoring:
+    $ref: "#/$defs/prose_map"
+  diagrams:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/diagram_block"
+  examples:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/example_block"
+$defs:
+  key:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._-]*$"
+  prose:
+    type: string
+    minLength: 20
+    pattern: "\\n"
+  prose_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/prose"
+  schema_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        schema_ref:
+          type: string
+          minLength: 1
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  diagram_block:
+    type: object
+    additionalProperties: false
+    required:
+      - kind
+      - syntax
+      - text
+      - source
+    properties:
+      kind:
+        $ref: "#/$defs/diagram_kind"
+      syntax:
+        $ref: "#/$defs/diagram_syntax"
+      text:
+        $ref: "#/$defs/prose"
+      source:
+        $ref: "#/$defs/prose"
+      rendered_ref:
+        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+      links:
+        $ref: loopo://schemas/system.yaml#/$defs/links
+  example_block:
+    type: object
+    additionalProperties: false
+    required:
+      - language
+      - text
+      - source
+    properties:
+      language:
+        $ref: "#/$defs/example_language"
+      text:
+        $ref: "#/$defs/prose"
+      source:
+        $ref: "#/$defs/prose"
+      links:
+        $ref: loopo://schemas/system.yaml#/$defs/links
+  diagram_kind:
+    enum:
+      - context
+      - container
+      - component
+      - deployment
+      - sequence
+      - state
+      - workflow
+      - dataflow
+      - class
+      - erd
+      - threat
+  diagram_syntax:
+    enum:
+      - mermaid
+      - plantuml
+      - graphviz
+      - d2
+  example_language:
+    enum:
+      - yaml
+      - json
+      - typescript
+      - javascript
+      - python
+      - bash
+      - sql
+      - markdown
+      - mermaid
+      - plantuml
+      - dockerfile
+      - hcl
+      - text

@@ -98,12 +98,13 @@ function main(): number {
     for (const name of [
       "tasks.yaml",
       "events.jsonl",
-      "manifest.sign.json",
+      "manifest.yaml",
       "hook-state.json",
     ]) {
       if (!existsSync(join(questDir, name))) fail(`missing ${name}`);
     }
     for (const legacy of [
+      "manifest.sign.json",
       "plan.yaml",
       "questions.jsonl",
       "plans.jsonl",
@@ -116,8 +117,8 @@ function main(): number {
       if (existsSync(join(questDir, legacy))) fail(`unexpected legacy file ${legacy}`);
     }
     const tasksYaml = readFileSync(join(questDir, "tasks.yaml"), "utf8");
-    if (!tasksYaml.includes("schema_version: 3")) {
-      fail("tasks.yaml must use v3 state");
+    if (!tasksYaml.includes("schema_version: 4")) {
+      fail("tasks.yaml must use v4 state");
     }
     if (tasksYaml.includes("session_id:")) {
       fail("tasks.yaml must not persist public session_id");

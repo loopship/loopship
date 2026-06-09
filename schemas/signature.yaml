@@ -1,0 +1,94 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/signature.yaml
+title: Loopo Signature Manifest
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - canonicalization
+  - hash_algorithm
+  - root
+  - entries
+  - receipt_head
+  - signed_at
+  - signer
+  - signature
+properties:
+  schema_version:
+    const: 2
+  canonicalization:
+    const: loopo-canonical-json-v1
+  hash_algorithm:
+    const: sha256
+  root:
+    type: object
+    additionalProperties: false
+    required:
+      - path
+      - schema
+      - digest
+    properties:
+      path:
+        const: .loopo/system.yaml
+      schema:
+        const: loopo://schemas/system.yaml
+      digest:
+        $ref: "#/$defs/sha256"
+  entries:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - path
+        - schema
+        - role
+        - digest
+      properties:
+        resource_ref:
+          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        path:
+          type: string
+          minLength: 1
+        schema:
+          type: string
+          minLength: 1
+          pattern: "^(self|loopo://schemas/[a-z0-9._/-]+\\.yaml)$"
+        role:
+          enum:
+            - canonical
+            - generated
+        digest:
+          $ref: "#/$defs/sha256"
+  previous_receipt_head:
+    type:
+      - string
+      - "null"
+    pattern: "^[a-f0-9]{64}$"
+  receipt_head:
+    $ref: "#/$defs/sha256"
+  signed_at:
+    type: string
+    format: date-time
+  signer:
+    const: system_update
+  signature:
+    type: object
+    additionalProperties: false
+    required:
+      - algorithm
+      - key_id
+      - value
+    properties:
+      algorithm:
+        const: ed25519
+      key_id:
+        type: string
+        minLength: 1
+      value:
+        type: string
+        minLength: 1
+$defs:
+  sha256:
+    type: string
+    pattern: "^[a-f0-9]{64}$"

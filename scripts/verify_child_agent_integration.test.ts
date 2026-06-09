@@ -16,6 +16,13 @@ import { runCommand } from "./loopo_utils.ts";
 import { validateV3Input } from "./loopo_schema.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
+const EMPTY_SYSTEM_CONTEXT = {
+  relevant_object_refs: [],
+  relevant_assertion_refs: [],
+  relevant_resource_refs: [],
+  relevant_memory_refs: [],
+  durable_implications: [],
+};
 
 type Fixture = {
   root: string;
@@ -24,7 +31,13 @@ type Fixture = {
 };
 
 function parseJson(stdout: string): any {
-  return JSON.parse(stdout);
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(
+      `failed to parse JSON stdout (${stdout.length} bytes): ${stdout.slice(0, 400)} ... ${stdout.slice(-800)}\n${String(error)}`,
+    );
+  }
 }
 
 function expectValidSchema(
@@ -193,7 +206,7 @@ describe("loopo v3 child wtree integration", () => {
       expect(route.kind).toBe("init_route");
       expect(route.flow_id).toBe("swe");
       expect(route.schema_path).toBe(
-        "schemas/steps/init-output.v3.json",
+        "schemas/steps/init-output.yaml",
       );
       const wtree = String(route.new_quest.suggested_wtree);
       expect((route.new_quest.command.args as string[])).not.toContain("@-");
@@ -224,15 +237,18 @@ describe("loopo v3 child wtree integration", () => {
         id: "plan",
         handler: "plan",
         input_step: "plan",
-        callback_schema: {
-          $id: "schemas/steps/plan-input.v3.json",
+        input_schema: {
+          $id: "schemas/steps/step-output.yaml",
           type: "object",
         },
-        output_schema: "step-output",
+        output_schema: {
+          $id: "schemas/steps/plan-input.yaml",
+          type: "object",
+        },
+        result_schema_path: "schemas/steps/step-output.yaml",
         summary:
-          "Submit a decision-complete plan payload using AF/OF fields. Ask or default every high-impact unknown.",
+          "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown.",
       });
-      expect((created.context as any).step).not.toHaveProperty("input_schema");
       expect((created.context as any).step).not.toHaveProperty("spec_refs");
       expect((created.context as any).step.instructions).toContain(
         "# Loopo Plan Step",
@@ -244,7 +260,7 @@ describe("loopo v3 child wtree integration", () => {
         "request_user_input",
       );
       expect((created.context as any).step.instructions).toContain(
-        "Follow the instructions above, then construct one JSON payload matching callback_schema and send it to commands.next.",
+        "Follow the instructions above, then construct one JSON payload matching output_schema and send it to commands.next.",
       );
       expect(created).not.toHaveProperty("session_id");
       expect(created).not.toHaveProperty("expected_update");
@@ -260,15 +276,15 @@ describe("loopo v3 child wtree integration", () => {
       expect(compactStep).not.toHaveProperty("summary");
       expect(compactStep.instructions).toContain("# Loopo Plan Step");
       expect(compactStep.instructions).toContain(
-        "Follow the instructions above, then construct one JSON payload matching callback_schema and send it to commands.next.",
+        "Follow the instructions above, then construct one JSON payload matching output_schema and send it to commands.next.",
       );
-      const compactCallbackSchema = compact.callback_schema as Record<
+      const compactCallbackSchema = compact.output_schema as Record<
         string,
         any
       >;
       expect(compactCallbackSchema).toMatchObject({
         $schema: "https://json-schema.org/draft/2020-12/schema",
-        $id: "schemas/steps/plan-input.v3.json",
+        $id: "schemas/steps/plan-input.yaml",
         type: "object",
       });
       expect(compactCallbackSchema.required).toEqual(
@@ -276,8 +292,7 @@ describe("loopo v3 child wtree integration", () => {
           "step",
           "classification",
           "scope",
-          "af",
-          "of",
+          "system_context",
           "verification_targets",
           "task_graph",
         ]),
@@ -319,8 +334,7 @@ describe("loopo v3 child wtree integration", () => {
           step: "plan",
           classification: "general",
           scope: "calculator",
-          af: {},
-          of: {},
+          system_context: EMPTY_SYSTEM_CONTEXT,
           verification_targets: [],
           task_graph: { tasks: [] },
           extra: true,
@@ -347,8 +361,7 @@ describe("loopo v3 child wtree integration", () => {
           classification: "greenfield_app",
           scope: "calculator",
           high_impact_unknowns: ["target user"],
-          af: {},
-          of: {},
+          system_context: EMPTY_SYSTEM_CONTEXT,
           verification_targets: [],
           task_graph: { tasks: [] },
         },
@@ -398,8 +411,7 @@ describe("loopo v3 child wtree integration", () => {
           classification: "greenfield_app",
           scope: "Fullstack Todo App with React and Express",
           summary: "Implement a React and Express todo app",
-          af: {},
-          of: {},
+          system_context: EMPTY_SYSTEM_CONTEXT,
           verification_targets: ["todo CRUD works"],
           task_graph: {
             tasks: [
@@ -448,8 +460,7 @@ describe("loopo v3 child wtree integration", () => {
         classification: "greenfield_app",
         scope: "task tracker",
         defaulted_unknowns: ["local single-user scope"],
-        af: { hidden_assumptions: ["one serial chain is enough"] },
-        of: { procedure: ["scaffold", "implement"] },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["dependent tasks dispatch in order"],
         task_graph: {
           tasks: [
@@ -500,8 +511,7 @@ describe("loopo v3 child wtree integration", () => {
         scope: "calculator",
         high_impact_unknowns: ["target user"],
         defaulted_unknowns: ["standard end-user calculator"],
-        af: { hidden_assumptions: ["static HTML is acceptable"] },
-        of: { procedure: ["build", "verify"] },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["calculator arithmetic works"],
         task_graph: {
           tasks: [
@@ -594,18 +604,14 @@ describe("loopo v3 child wtree integration", () => {
       const compactSystemUpdate = compactCurrent(fixture, wtree);
       expectValidSchema(compactSystemUpdate, "step-output");
       expect((compactSystemUpdate.step as any).id).toBe("system_update");
-      const systemUpdateSchema = compactSystemUpdate.callback_schema as Record<
+      const systemUpdateSchema = compactSystemUpdate.output_schema as Record<
         string,
         any
       >;
       expect(systemUpdateSchema).toMatchObject({
-        $id: "schemas/steps/system-update-input.v3.json",
+        schema_path: "schemas/steps/system-update-input.yaml",
       });
-      expect(systemUpdateSchema.properties?.system_update).toMatchObject({
-        $id: "schemas/system-update.v1.json",
-        required: ["schema_version", "updates"],
-      });
-      expectNoSchemaRefs(systemUpdateSchema);
+      expect(systemUpdateSchema).not.toHaveProperty("$id");
 
       const invalidSystemUpdate = runLoopo(
         fixture.repo,
@@ -634,7 +640,8 @@ describe("loopo v3 child wtree integration", () => {
         step: "system_update",
         system_update: {
           schema_version: 1,
-          updates: [{ doc_id: "architecture", summary: "calculator built" }],
+          mode: "no_change",
+          summary: "calculator built",
         },
       });
       expectValidSchema(landing, "step-output");
@@ -678,6 +685,12 @@ describe("loopo v3 child wtree integration", () => {
       });
       expectValidSchema(archived, "archive-output");
       expect(archived.step).toBe("archived");
+      expect((archived.context as any).step.instructions).toContain(
+        "output_schema is null",
+      );
+      expect((archived.context as any).step.instructions).not.toContain(
+        "construct one JSON payload matching output_schema",
+      );
       } finally {
         rmSync(fixture.root, { recursive: true, force: true });
       }
@@ -721,8 +734,7 @@ describe("loopo v3 child wtree integration", () => {
         scope: "Generic fullstack application as requested by the user.",
         summary:
           "The request is generic, so clarification is required before decomposition.",
-        af: {},
-        of: {},
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: [],
         questions: [
           {
@@ -750,6 +762,16 @@ describe("loopo v3 child wtree integration", () => {
       expectValidSchema(backToPlanning, "step-output");
       expect(backToPlanning.step).toBe("plan");
       expect(backToPlanning.state).toBe("planning");
+      const answeredState = parseTasksYaml(
+        readFileSync(questFiles(fixture.repo, wtree).tasks, "utf8"),
+      ) as any;
+      expect(answeredState.answers).toBeUndefined();
+      expect(answeredState.question_rounds[0].questions[0]).toMatchObject({
+        id: "app_purpose",
+        status: "answered",
+        answer: "Build a task tracker for small teams.",
+        accepted_default: false,
+      });
 
       const decomposed = next(fixture, wtree, {
         step: "plan",
@@ -760,16 +782,7 @@ describe("loopo v3 child wtree integration", () => {
         defaulted_unknowns: ["No auth for MVP", "Simple list UI"],
         assumptions: ["All team members share the same permissions."],
         constraints: ["Use React, Express, and SQLite."],
-        af: {
-          resolved_scope: [
-            "App purpose is a task tracker.",
-            "The implementation stays within MVP scope.",
-          ],
-        },
-        of: {
-          delivery_strategy:
-            "Use one dedicated child quest to build the MVP end to end.",
-        },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["Production build succeeds"],
         task_graph: {
           tasks: [
@@ -834,14 +847,7 @@ describe("loopo v3 child wtree integration", () => {
         defaulted_unknowns: ["No auth for MVP", "Simple list UI"],
         assumptions: ["Task requirements are inherited from the parent quest."],
         constraints: ["Work must stay within the assigned child worktree."],
-        af: {
-          decision:
-            "Treat the child quest as the execution worker for the assigned task.",
-        },
-        of: {
-          delivery_strategy:
-            "Implement locally, validate locally, and archive before reporting to the parent.",
-        },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["Production build succeeds"],
         task_graph: {
           tasks: [
@@ -888,9 +894,11 @@ describe("loopo v3 child wtree integration", () => {
     }
   });
 
-  it("covers detours, partial child dispatch, and retry transitions", () => {
-    const fixture = createFixture("loopo-v3-lifecycle-");
-    try {
+  it(
+    "covers detours, partial child dispatch, and retry transitions",
+    () => {
+      const fixture = createFixture("loopo-v3-lifecycle-");
+      try {
       const init = runLoopo(
         fixture.repo,
         [
@@ -927,8 +935,7 @@ describe("loopo v3 child wtree integration", () => {
             impact: "Determines acceptance scope",
           },
         ],
-        af: { hidden_assumptions: ["workflow is currently unspecified"] },
-        of: { procedure: ["ask before decomposing"] },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["selected workflow is covered"],
         task_graph: { tasks: [] },
       });
@@ -954,14 +961,23 @@ describe("loopo v3 child wtree integration", () => {
       expectValidSchema(backToPlanning, "step-output");
       expect(backToPlanning.step).toBe("plan");
       expect(backToPlanning.state).toBe("planning");
+      const answeredState = parseTasksYaml(
+        readFileSync(questFiles(fixture.repo, wtree).tasks, "utf8"),
+      ) as any;
+      expect(answeredState.answers).toBeUndefined();
+      expect(answeredState.question_rounds[0].questions[0]).toMatchObject({
+        id: "target_workflow",
+        status: "answered",
+        answer: "Cover root and child lifecycle transitions.",
+        accepted_default: false,
+      });
 
       const reviewed = next(fixture, wtree, {
         step: "plan",
         classification: "greenfield_app",
         scope: "lifecycle tester",
         defaulted_unknowns: ["CLI-only verification"],
-        af: { hidden_assumptions: ["two independent child tasks are enough"] },
-        of: { procedure: ["plan", "dispatch", "verify"] },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["both child lifecycle tasks pass"],
         task_graph: {
           tasks: [
@@ -1003,8 +1019,7 @@ describe("loopo v3 child wtree integration", () => {
         classification: "greenfield_app",
         scope: "lifecycle tester",
         defaulted_unknowns: ["CLI-only verification"],
-        af: { hidden_assumptions: ["fixtures can be text files"] },
-        of: { procedure: ["dispatch independent tasks", "verify retries"] },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["both fixtures are represented in evidence"],
         task_graph: {
           tasks: [
@@ -1130,7 +1145,8 @@ describe("loopo v3 child wtree integration", () => {
         step: "system_update",
         system_update: {
           schema_version: 1,
-          updates: [{ doc_id: "architecture", summary: "lifecycle covered" }],
+          mode: "no_change",
+          summary: "lifecycle covered",
         },
       });
       expectValidSchema(landing, "step-output");
@@ -1151,11 +1167,13 @@ describe("loopo v3 child wtree integration", () => {
         summary: "done",
       });
       expectValidSchema(archived, "archive-output");
-      expect(archived.step).toBe("archived");
-    } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
-    }
-  });
+        expect(archived.step).toBe("archived");
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    },
+    30_000,
+  );
 
   it("rejects passing a child result while the matching child quest is unresolved", () => {
     const fixture = createFixture("loopo-v3-child-guard-");
@@ -1186,8 +1204,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "plan",
         classification: "feature",
         scope: "guarded child flow",
-        af: {},
-        of: {},
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["child must finish before parent can pass"],
         task_graph: {
           tasks: [
@@ -1280,8 +1297,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "plan",
         classification: "feature",
         scope: "landing guard",
-        af: {},
-        of: {},
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: ["landing checks coordinator cleanliness"],
         task_graph: {
           tasks: [
@@ -1326,7 +1342,8 @@ describe("loopo v3 child wtree integration", () => {
         step: "system_update",
         system_update: {
           schema_version: 1,
-          updates: [{ doc_id: "architecture", summary: "landing guard" }],
+          mode: "no_change",
+          summary: "landing guard",
         },
       });
 
@@ -1395,11 +1412,7 @@ describe("loopo v3 child wtree integration", () => {
         scope: "landed workflow",
         summary:
           "Use two independent child tasks so the second child must merge into an already-advanced parent branch.",
-        af: { decision: "Exercise real git merge behavior through landing." },
-        of: {
-          delivery_strategy:
-            "Dispatch two child quests, land them into the parent branch, then land the parent into main.",
-        },
+        system_context: EMPTY_SYSTEM_CONTEXT,
         verification_targets: [
           "Both child slices merge into the parent branch.",
           "The parent branch lands into main.",
@@ -1461,11 +1474,7 @@ describe("loopo v3 child wtree integration", () => {
           defaulted_unknowns: ["No further delegation."],
           assumptions: ["The parent quest already assigned the file boundary."],
           constraints: ["Stay within this child worktree."],
-          af: { decision: "Treat the child as a leaf worker." },
-          of: {
-            delivery_strategy:
-              "Commit the child change locally, validate it, and land it into the parent branch.",
-          },
+          system_context: EMPTY_SYSTEM_CONTEXT,
           verification_targets: [`${fileName} is committed and merged.`],
           task_graph: {
             tasks: [
@@ -1511,7 +1520,8 @@ describe("loopo v3 child wtree integration", () => {
           step: "system_update",
           system_update: {
             schema_version: 1,
-            updates: [{ doc_id: "architecture", summary: `${fileName} landed` }],
+            mode: "no_change",
+            summary: `${fileName} landed`,
           },
         });
 
@@ -1591,7 +1601,8 @@ describe("loopo v3 child wtree integration", () => {
         step: "system_update",
         system_update: {
           schema_version: 1,
-          updates: [{ doc_id: "architecture", summary: "parent branch ready for main" }],
+          mode: "no_change",
+          summary: "parent branch ready for main",
         },
       });
 

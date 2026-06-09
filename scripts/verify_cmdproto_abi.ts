@@ -1,6 +1,13 @@
 #!/usr/bin/env bun
 
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,6 +128,7 @@ function main(): number {
     : [];
   const expectedPaths = [
     "doctor",
+    "handbook",
     "hook",
     "init",
     "quest next",
@@ -157,6 +165,100 @@ function main(): number {
   if (controlHelpText.status !== 0) fail(controlHelpText.stderr || controlHelpText.stdout);
   if (!controlHelpText.stdout.includes("cmdproto execjson <path> <json|@file|@->")) {
     fail(`unexpected cmdproto text help: ${JSON.stringify(controlHelpText.stdout)}`);
+  }
+
+  const handbook = runLoopo(
+    process.cwd(),
+    ["handbook", "--repo", process.cwd()],
+    undefined,
+    process.env as Record<string, string>,
+  );
+  if (handbook.status !== 0) fail(handbook.stderr || handbook.stdout);
+  if (!handbook.stdout.startsWith("handbook: file://")) {
+    fail(`handbook must print a file URL: ${JSON.stringify(handbook.stdout)}`);
+  }
+  const handbookUrl = handbook.stdout.trim().slice("handbook: ".length);
+  const handbookPath = fileURLToPath(handbookUrl);
+  if (!existsSync(handbookPath)) {
+    fail(`handbook file must exist: ${handbookPath}`);
+  }
+  const handbookMarkdown = readFileSync(handbookPath, "utf8");
+    if (
+      !handbookMarkdown.includes("# Loopo Handbook") ||
+      !handbookMarkdown.includes("# Software Architecture")
+    ) {
+      fail(`handbook file missing rendered sections: ${handbookMarkdown.slice(0, 400)}`);
+    }
+    if (handbookMarkdown.includes("\n## Text\n")) {
+      fail("handbook must render document text as introductory prose, not a raw Text section");
+    }
+
+  const rawHandbook = runLoopo(
+    process.cwd(),
+    ["handbook", "--repo", process.cwd(), "--raw"],
+    undefined,
+    process.env as Record<string, string>,
+  );
+  if (rawHandbook.status !== 0) fail(rawHandbook.stderr || rawHandbook.stdout);
+    if (
+      !rawHandbook.stdout.includes("# Loopo Handbook") ||
+      !rawHandbook.stdout.includes("# Workflow Specification")
+    ) {
+      fail(`raw handbook must print Markdown: ${rawHandbook.stdout.slice(0, 400)}`);
+    }
+    if (rawHandbook.stdout.includes("\n## Text\n")) {
+      fail("raw handbook must not render document text as a raw Text section");
+    }
+
+  const cmdprotoHandbook = runLoopo(
+    process.cwd(),
+    [
+      "cmdproto",
+      "execjson",
+      "handbook",
+      JSON.stringify({
+        repo: process.cwd(),
+      }),
+    ],
+    undefined,
+    process.env as Record<string, string>,
+  );
+  if (cmdprotoHandbook.status !== 0) {
+    fail(cmdprotoHandbook.stderr || cmdprotoHandbook.stdout);
+  }
+  const cmdprotoHandbookJson = parseJson(cmdprotoHandbook.stdout);
+  if (
+    typeof cmdprotoHandbookJson.file_url !== "string" ||
+    !String(cmdprotoHandbookJson.file_url).startsWith("file://") ||
+    typeof cmdprotoHandbookJson.path !== "string" ||
+    !existsSync(String(cmdprotoHandbookJson.path))
+  ) {
+    fail(`cmdproto handbook must return path and file_url: ${cmdprotoHandbook.stdout}`);
+  }
+
+  const cmdprotoRawHandbook = runLoopo(
+    process.cwd(),
+    [
+      "cmdproto",
+      "execjson",
+      "handbook",
+      JSON.stringify({
+        repo: process.cwd(),
+        raw: true,
+      }),
+    ],
+    undefined,
+    process.env as Record<string, string>,
+  );
+  if (cmdprotoRawHandbook.status !== 0) {
+    fail(cmdprotoRawHandbook.stderr || cmdprotoRawHandbook.stdout);
+  }
+  const cmdprotoRawJson = parseJson(cmdprotoRawHandbook.stdout);
+  if (
+    typeof cmdprotoRawJson.markdown !== "string" ||
+    !cmdprotoRawJson.markdown.includes("# Agent System Card")
+  ) {
+    fail(`cmdproto raw handbook must return Markdown JSON: ${cmdprotoRawHandbook.stdout}`);
   }
 
   const fixture = createFixture("loopo-cmdproto-");

@@ -1,0 +1,154 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/docs/business-architecture.yaml
+title: Loopo Business Architecture Document v2
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - id
+  - title
+  - text
+  - standard_alignment
+  - mission
+  - stakeholders
+  - capabilities
+  - value_streams
+  - organization
+  - information
+  - products_services
+  - policies
+  - initiatives
+  - metrics
+  - processes
+  - systems
+  - governance
+  - risks
+  - diagrams
+properties:
+  schema_version:
+    const: 2
+  id:
+    $ref: loopo://schemas/system.yaml#/$defs/id
+  title:
+    type: string
+    minLength: 1
+    maxLength: 160
+  text:
+    $ref: "#/$defs/prose"
+  standard_alignment:
+    $ref: "#/$defs/prose_map"
+  mission:
+    $ref: "#/$defs/prose"
+  stakeholders:
+    $ref: "#/$defs/prose_map"
+  capabilities:
+    $ref: "#/$defs/prose_map"
+  value_streams:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - stages
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        stages:
+          $ref: "#/$defs/prose_map"
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  organization:
+    type: object
+    additionalProperties: false
+    required:
+      - units
+      - roles
+    properties:
+      units:
+        $ref: "#/$defs/prose_map"
+      roles:
+        $ref: "#/$defs/prose_map"
+  information:
+    $ref: "#/$defs/prose_map"
+  products_services:
+    $ref: "#/$defs/prose_map"
+  policies:
+    $ref: "#/$defs/prose_map"
+  initiatives:
+    $ref: "#/$defs/prose_map"
+  metrics:
+    $ref: "#/$defs/prose_map"
+  processes:
+    $ref: "#/$defs/prose_map"
+  systems:
+    $ref: "#/$defs/prose_map"
+  governance:
+    $ref: "#/$defs/prose_map"
+  risks:
+    $ref: "#/$defs/prose_map"
+  diagrams:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/diagram_block"
+$defs:
+  key:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._-]*$"
+  prose:
+    type: string
+    minLength: 20
+    pattern: "\\n"
+  prose_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/prose"
+  diagram_block:
+    type: object
+    additionalProperties: false
+    required:
+      - kind
+      - syntax
+      - text
+      - source
+    properties:
+      kind:
+        $ref: "#/$defs/diagram_kind"
+      syntax:
+        $ref: "#/$defs/diagram_syntax"
+      text:
+        $ref: "#/$defs/prose"
+      source:
+        $ref: "#/$defs/prose"
+      rendered_ref:
+        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+      links:
+        $ref: loopo://schemas/system.yaml#/$defs/links
+  diagram_kind:
+    enum:
+      - context
+      - container
+      - component
+      - deployment
+      - sequence
+      - state
+      - workflow
+      - dataflow
+      - class
+      - erd
+      - threat
+  diagram_syntax:
+    enum:
+      - mermaid
+      - plantuml
+      - graphviz
+      - d2

@@ -1,22 +1,190 @@
-schema_version: 1
-docs:
-  - id: "high-level-design"
-    path: ".loopo/docs/high-level-design.yaml"
-    schema_path: "schemas/system-high-level-design.v1.json"
-    digest: "f51970ca4dbfc605ae60f1f475d92c531613a3ecafbeed8fed439fa6959e85f6"
-  - id: "low-level-design"
-    path: ".loopo/docs/low-level-design.yaml"
-    schema_path: "schemas/system-low-level-design.v1.json"
-    digest: "f81a68d9995744b6a2ae3f66f5fb2b13b71ee3292b970c1e4a5e51149f42ef96"
-  - id: "architecture"
-    path: ".loopo/docs/architecture.yaml"
-    schema_path: "schemas/system-architecture.v1.json"
-    digest: "aeb6f94c0cdfd1a429587a45a838f733e162af282b33d345997882990b9d86c5"
-  - id: "system-behaviours"
-    path: ".loopo/docs/system-behaviours.yaml"
-    schema_path: "schemas/system-behaviours.v1.json"
-    digest: "35b40ca1eff292cddcbd088b0692c79cd27238a3ac58f4ffe1e45a5631c3a3a9"
-  - id: "design-system"
-    path: ".loopo/docs/design-system.yaml"
-    schema_path: "schemas/system-design-system.v1.json"
-    digest: "b90aa63c07c28a88e429a5236766a0aeb5c12a45a34de57e621dea71e34e1e4b"
+schema_version: 2
+id: loopo
+title: Loopo
+kinds:
+  - software
+  - workflow
+  - agent
+text: |-
+  Deterministic workflow launcher for
+  worktree-based quest flows and agentic delivery.
+scope_in:
+  - Quest lifecycle orchestration.
+  - Worktree-local runtime management.
+  - Hook continuation logic.
+  - Planning and system-update control contracts.
+scope_out:
+  - Generated application product behavior outside Loopo runtime.
+  - Third-party runtime internals not controlled by Loopo.
+objects:
+  - id: system-model
+    kind: unit
+    text: |-
+      Durable semantic frontier using objects, assertions, resources, memories, links,
+      concrete canonical docs, and signature integrity.
+  - id: swe-flow
+    kind: flow
+    text: |-
+      Root workflow covering planning, clarification, task graph approval, execution,
+      validation, verification, system update, landing, and archive.
+    links:
+      part_of:
+        - object:system-model
+  - id: quest-runtime
+    kind: store
+    text: |-
+      Worktree-local quest runtime that stores tasks, events, manifest receipts, hook state,
+      and lock state.
+    links:
+      part_of:
+        - object:system-model
+  - id: system-update
+    kind: unit
+    text: |-
+      Canonical writer that replaces durable system root state and external docs after
+      verified work.
+    links:
+      part_of:
+        - object:system-model
+  - id: cli-interface
+    kind: interface
+    text: |-
+      Human and agent command surface for init, quest next, hook, sim, doctor, and cmdproto
+      execjson.
+    links:
+      part_of:
+        - object:system-model
+assertions:
+  - id: canonical-docs-are-signed
+    kind: rule
+    level: must
+    text: |-
+      Canonical Loopo documents must be declared as canonical resources and covered by
+      .loopo/signature.yaml.
+    links:
+      about:
+        - object:system-model
+      supported_by:
+        - resource:software-architecture#/constraints
+  - id: required-doc-schemas-are-kind-derived
+    kind: rule
+    level: must
+    text: |-
+      The verifier must require the union of concrete canonical document schemas implied by
+      the root system kinds.
+    links:
+      about:
+        - object:system-model
+      supported_by:
+        - resource:decisions#/decisions/concrete-doc-schemas
+  - id: planning-scouts-system-knowledge
+    kind: rule
+    level: must
+    text: |-
+      Planning must scout .loopo/system.yaml and relevant canonical docs before making durable
+      execution decisions.
+    links:
+      about:
+        - object:swe-flow
+      supported_by:
+        - resource:workflow-spec#/invariants/planning-before-execution
+  - id: system-update-writes-canonical-knowledge
+    kind: rule
+    level: must
+    text: |-
+      Durable Loopo knowledge changes must be written through the system_update step after
+      verified evidence.
+    links:
+      about:
+        - object:system-update
+      supported_by:
+        - resource:workflow-spec#/processes/root-quest-flow/steps/system-update
+  - id: concrete-docs-prevent-shells
+    kind: rule
+    level: must
+    text: |-
+      Canonical external docs must use concrete industry-shaped schemas that require
+      meaningful typed fields instead of generic empty section shells.
+    links:
+      about:
+        - object:system-model
+      supported_by:
+        - resource:decisions#/decisions/concrete-doc-schemas
+  - id: child-quests-are-leaf-workers
+    kind: behaviour
+    level: must
+    text: |-
+      Child quests created for task execution are leaf workers and must not recursively create
+      child quests unless explicitly planned.
+    links:
+      about:
+        - object:swe-flow
+      supported_by:
+        - resource:agent-system-card#/responsibilities/coordinate-child-work
+resources:
+  - id: software-architecture
+    kind: document
+    role: canonical
+    location: .loopo/docs/software/architecture.yaml
+    schema_ref: loopo://schemas/docs/software-architecture.yaml
+    text: |-
+      Full software architecture source using arc42 and C4-aligned concerns for Loopo runtime,
+      structure, interfaces, quality, risks, and diagrams.
+    links:
+      about:
+        - object:system-model
+    media: application/yaml
+  - id: decisions
+    kind: document
+    role: canonical
+    location: .loopo/docs/decisions/records.yaml
+    schema_ref: loopo://schemas/docs/decision-records.yaml
+    text: |-
+      Architecture-significant
+      decisions for Loopo.
+    links:
+      about:
+        - object:system-model
+    media: application/yaml
+  - id: workflow-spec
+    kind: document
+    role: canonical
+    location: .loopo/docs/workflow/spec.yaml
+    schema_ref: loopo://schemas/docs/workflow-spec.yaml
+    text: |-
+      Full workflow specification covering participants, triggers, inputs, outputs, processes,
+      invariants, exceptions, monitoring, and diagrams.
+    links:
+      about:
+        - object:swe-flow
+    media: application/yaml
+  - id: agent-system-card
+    kind: document
+    role: canonical
+    location: .loopo/docs/agent/system-card.yaml
+    schema_ref: loopo://schemas/docs/agent-system-card.yaml
+    text: |-
+      Full agent system card covering responsibilities, autonomy, tools, memory, safety,
+      oversight, evaluation, monitoring, incidents, and handoffs.
+    links:
+      about:
+        - object:system-model
+    media: application/yaml
+  - id: verify-system-model
+    kind: evidence
+    role: reference
+    location: scripts/verify_system_model.ts
+    schema_ref: loopo://schemas/docs/artifact-bom.yaml
+    text: |-
+      Semantic verifier for concrete canonical docs, signature coverage, typed links, and
+      anti-shell rules.
+    links:
+      about:
+        - object:system-model
+    media: text/typescript
+memories:
+  - id: prefer-specific-doc-schemas
+    kind: preference
+    text: |-
+      Prefer concrete industry-shaped document
+      schemas over generic profile or section docs.

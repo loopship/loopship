@@ -1,0 +1,52 @@
+document:
+  dsl: 1.0.3
+  namespace: loopo-steps
+  name: archived
+  version: 1.0.0
+  summary: Report final quest state only.
+  metadata:
+    loopo:
+      kind: step-workflow
+      stepId: archived
+do:
+  - archived:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/archive-output.yaml
+      metadata:
+        loopo:
+          stepId: archived
+          handler: archived
+          inputStep: null
+          summary: Report final quest state only.
+          instructions: >-
+            # Loopo Archived Step
+
+
+            Act as a top-class quest closure reporter for Loopo. Treat this
+            instruction
+
+            block as the archived step's system prompt: report final state only
+            and do
+
+            not mutate `.loopo/**` directly.
+
+
+            ## Terminal Output Contract
+
+
+            This step is reusable across flows. The orchestrator owns terminal
+            flow
+
+            state; `output_schema` is null here, so do not invent a next payload
+            or
+
+            assume another step follows. Report only the final quest state
+            required by
+
+            this step's `output_schema`.
+          resultSchemaPath: schemas/steps/archive-output.yaml
+      call: loopo.internal.archived
+      with: {}

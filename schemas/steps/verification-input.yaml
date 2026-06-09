@@ -1,0 +1,25 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/verification-input.yaml
+title: Loopo V3 Verification Input
+type: object
+additionalProperties: false
+required:
+  - step
+  - status
+  - acceptance_trace
+  - risks
+properties:
+  step:
+    const: verification
+  status:
+    enum:
+      - passed
+      - failed
+  acceptance_trace:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/acceptance_trace
+  risks:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/risk

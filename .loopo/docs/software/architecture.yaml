@@ -1,0 +1,481 @@
+schema_version: 2
+id: software-architecture
+title: Software Architecture
+text: |-
+  Full software architecture source for Loopo as a deterministic V3 workflow launcher,
+  worktree-based quest runtime, hook continuation system, and schema-backed durable
+  knowledge coordinator.
+links:
+  about:
+    - object:system-model
+standard_alignment:
+  arc42: |-
+    Aligns with arc42 architecture concerns including goals, stakeholders, constraints,
+    context, solution strategy, building blocks, runtime, deployment, quality, risks, and
+    glossary.
+  c4-model: |-
+    Aligns with C4-style system context, container, component, code, dynamic, and deployment
+    architecture views represented as compact validated YAML sections.
+goals:
+  - Loopo provides deterministic quest lifecycle orchestration for worktree-based delivery, including planning, child execution, verification, system update, landing, and archive.
+  - Public commands return compact JSON step output with schema-backed next actions, so humans and agents can continue lifecycle work without relying on prose reconstruction.
+  - Durable system knowledge remains readable to humans and LLM agents while still being schema-backed, signed, and mechanically verifiable.
+  - Runtime hooks continue work only when canonical quest state proves continuation is safe, non-duplicate, within budget, and free of managed-file drift.
+stakeholders:
+  human-operator:
+    role: human operator
+    text: |-
+      Human operators submit Loopo requests, answer clarifications, inspect compact JSON route
+      outputs, run verification commands, and make high-risk decisions.
+    concerns:
+      - Operators need a small public command surface based on loopo init, loopo quest next, loopo hook, loopo sim, loopo doctor, and loopo cmdproto execjson.
+      - Operators need canonical task, event, signature, and system files to identify truth when agent narration and runtime state disagree.
+  root-agent:
+    role: root coordinator agent
+    text: |-
+      The root assistant acts as coordinator and team lead for intake, planning, assignment,
+      monitoring, escalation, and system update.
+    concerns:
+      - The coordinator needs .loopo/system.yaml to stay small enough for first-read scouting while linking to complete canonical architecture, decision, workflow, and agent docs.
+      - The coordinator must launch dedicated child CLI sessions and normally must not merge child code or implement child work inline.
+  child-agent:
+    role: leaf implementation agent
+    text: |-
+      Child CLI agents implement, test, validate, self-review, land into the assigned merge
+      target, and report final evidence with the landed commit.
+    concerns:
+      - Child quests created from execute-child tasks are leaf workers by default and must not recursively create child quests unless explicitly planned.
+constraints:
+  - The root semantic file contains objects, assertions, resources, and optional memories; relation semantics live in relation-keyed typed links rather than a relations block.
+  - After init, loopo quest next --wtree <name> --json <json|@file|@-> is the only state-mutating quest command in the public contract.
+  - Implementation work happens inside dedicated task worktrees while root sessions remain coordinator-only during child execution.
+  - Agents must never edit .loopo/** directly; root and child state changes go through schema-valid quest payloads for the current step.
+  - Shipped schemas use stable loopo://schemas/... identifiers for cross-schema refs while runtime may resolve them from local repository paths.
+  - The root system schema is shipped at schemas/system.yaml and exposed as loopo://schemas/system.yaml for stable validation.
+  - Loopo's current software, workflow, and agent system kinds require canonical software architecture, decision records, workflow specification, and agent system card documents.
+  - Generated Markdown and generated artifacts may help humans and agents inspect behavior, but they must not satisfy canonical documentation, signature, or source-of-truth checks.
+  - Lifecycle behavior is owned by the SWF-shaped flow YAML and reusable step workflow YAML; Loopo must not add separate lifecycle stage specs for individual steps.
+context:
+  business: |-
+    Users submit goals through loopo init and expect Loopo to coordinate clarifications,
+    execution, verification, durable updates, and result reporting. Root agents coordinate
+    work, while child CLI agents execute bounded senior-developer tasks in dedicated worktrees.
+
+    Generated apps, child outputs, fixture repos, and landed artifacts are evidence about
+    Loopo behavior unless the user explicitly switches scope to those artifacts.
+  technical: |-
+    Bun executes the TypeScript CLI, workflow runner, simulation commands, schema validators,
+    and verification scripts. Git worktrees isolate child implementation state from root
+    coordination and protect the main branch from direct agent edits.
+
+    Hook integrations cover Codex CLI, Codex Desktop, Gemini CLI, Copilot CLI, and Copilot
+    in VS Code through runtime-specific JSON stdin and continuation responses. Cmdproto
+    execjson mirrors the public CLI as a machine interface without replacing the lifecycle.
+solution_strategy: |-
+  Loopo treats workflow steps, task payloads, child dispatches, system updates, and route
+  outputs as schema-backed contracts rather than loose prose conventions. Runtime
+  decisions trust task YAML, event JSONL, emitted child commands, git worktree state,
+  signatures, and runtime receipts before agent summaries or terminal chatter. Canonical
+  external docs use concrete industry-profile schemas instead of one generic profile
+  framework. The architecture YAML is now the canonical source for controller, lifecycle,
+  runtime hook, operations, and supervisor contracts that were previously maintained in
+  Markdown references.
+structure:
+  overview: |-
+    Loopo is organized as a CLI launcher, workflow definition library, worktree-local quest
+    runtime, hook continuation controller, canonical system knowledge surface, and verifier
+    suite. The root `.loopo/system.yaml` stays small; detailed industry-profile knowledge
+    lives in concrete canonical docs covered by `.loopo/signature.yaml`.
+  systems:
+    loopo: |-
+      Loopo is the workflow launcher, quest runtime coordinator, hook continuation controller,
+      and durable knowledge update boundary for worktree-based quest flows.
+  containers:
+    cli: |-
+      The CLI exposes init, quest next, hook, sim, doctor, and cmdproto execjson surfaces for
+      humans, agents, tests, and verification scripts.
+    flow-and-schema-library: |-
+      Workflow definition YAML, reusable step workflow YAML, and the schema library define
+      executable stages, transitions, handler metadata, schema refs, summaries, task payloads,
+      and concrete canonical document contracts.
+    runtime-state: |-
+      Runtime state stores task YAML, event JSONL, quest-local manifest receipts, hook state,
+      and lock state inside each worktree-local `.loopo/runtime` directory.
+    system-knowledge: |-
+      Durable system knowledge stores `.loopo/system.yaml`, concrete canonical docs, optional
+      packs, and `.loopo/signature.yaml`.
+    hook-integrations: |-
+      Runtime hook shims translate Codex, Gemini, and Copilot stop events into Loopo
+      continuation decisions.
+  components:
+    cli-routing: |-
+      Init and quest-next routing rank quest candidates, propose worktree names, emit
+      create-quest input, validate step payloads, mutate canonical quest state, and return the
+      next compact JSON command.
+    workflow-runner: |-
+      The workflow runner loads flow and step YAML, validates Serverless Workflow-shaped
+      records, and enforces step-local callback contracts.
+    system-update: |-
+      The system_update component validates replacement root data and external docs, writes
+      canonical files, and refreshes root signature coverage.
+    landing-and-archive: |-
+      Landing performs real git merges for child-to-parent and root-to-main flows, while
+      archive records landed commit, merge strategy, and terminal lifecycle output.
+    hook-and-doctor: |-
+      The hook controller selects quests from explicit worktree signals and continuation
+      guards, while doctor repairs scaffolding, hook installation, shims, signatures, and
+      managed drift.
+    verifiers: |-
+      Verification scripts enforce schema validity, runtime contract coherence, package
+      surface coherence, hook behavior, simulations, and durable system-model semantics.
+  code_units:
+    loopo-ts: |-
+      scripts/loopo.ts owns command parsing, init route output, quest next execution, hook
+      handling, simulation entrypoints, doctor behavior, and CLI JSON writing.
+    loopo-core: |-
+      scripts/loopo_core.ts owns quest state IO, task normalization, system scaffold
+      generation, signature writing, and system_update application logic.
+    flow-runtime: |-
+      scripts/loopo_flow.ts and scripts/loopo_workflow_runner.ts load flow definitions,
+      resolve step schemas, validate step workflow records, and compute flow transitions.
+    system-verifier: |-
+      scripts/verify_system_model.ts validates root semantics, concrete document schemas,
+      typed links, global record ids, signature coverage, and anti-shell rules.
+runtime:
+  overview: |-
+    The bundled SWE flow proceeds through planning, awaiting user answers, plan review, task
+    graph ready, validating, verification pending, system update pending, landing ready, and
+    archived. Replanning is the only detour for adding, removing, splitting, or materially
+    changing tasks after task graph approval.
+  scenarios:
+    init-route: |-
+      A user starts with loopo init, receives compact JSON containing route metadata,
+      candidate quests, a create-quest input, and the command for the next lifecycle step. The
+      route output includes schema_path and bounded schema references so downstream agents
+      avoid oversized embedded schemas.
+    swe-lifecycle: |-
+      Planning scouts `.loopo/system.yaml` and relevant canonical docs before deciding whether
+      questions or autonomous execution are appropriate. Task graph approval emits child
+      commands and accepts child result payloads. Validation records checks, verification
+      reviews acceptance traces and risks, system_update writes durable knowledge, landing
+      records the real merge, and archive reports landed commit plus merge strategy.
+    child-flow: |-
+      Child tasks start from parent-emitted children[].commands.init, execute in dedicated
+      worktrees, land into their merge target, and return via child_result. Each task YAML row
+      maps to exactly one child CLI-agent flow and one child worktree.
+    hook-continuation: |-
+      Hook continuation reads runtime stop events, selects a quest through explicit worktree
+      signals, and continues only when canonical state proves continuation is safe. Hooks use
+      tasks.yaml first, event JSONL second, and terminal task table state third.
+    system-update-flow: |-
+      system_update_pending flows from child summary to bin storage, root prompt, schema-valid
+      system_update payload, bin validation, canonical document writes, and signature refresh.
+  failure_scenarios:
+    hook-continuation-guards: |-
+      Hook continuation blocks on managed-file drift, duplicate hook snapshots, stale snapshot
+      fingerprints, exhausted continuation budgets, and stop reasons other than exactly none.
+      These guards prevent automatic continuation from rewriting state when canonical runtime
+      evidence is unsafe.
+    task-delegation-boundary: |-
+      Each task row maps to exactly one child CLI-agent flow and one child worktree. Hidden
+      task splitting and child-of-child delegation are rejected unless recursive delegation
+      was explicitly planned before execution.
+    shell-doc-rejection: |-
+      Title-only or template-only canonical docs fail schema or semantic verification before
+      satisfying required per-kind documentation.
+deployment:
+  environments:
+    repo-worktrees: |-
+      Root and child worktrees host package code, schemas, workflow assets, durable .loopo
+      system state, and isolated child implementation state. Child worktrees also carry
+      gitignored quest-local runtime files under .loopo/runtime.
+    simulation: |-
+      Simulation commands step selected lifecycle flows deterministically without requiring
+      live external CLI agents.
+    runtime-files: |-
+      Tracked durable files include .loopo/system.yaml, .loopo/docs/**/*.yaml, and
+      .loopo/signature.yaml. Quest-local ignored files include tasks.yaml, events.jsonl,
+      manifest.yaml, hook-state.json, and lock.json under .loopo/runtime.
+  nodes:
+    developer-machine: |-
+      The developer machine hosts Bun, Git, schema files, workflow assets, runtime hook shims,
+      optional external CLI runtimes, and verification commands.
+    runtime-hook-host: |-
+      Runtime hook hosts include Codex CLI/Desktop, Gemini CLI, Copilot CLI, and Copilot in VS
+      Code hook lanes.
+interfaces:
+  quest-commands:
+    kind: cli
+    text: |-
+      loopo init starts a quest and returns route output, while loopo quest next --wtree
+      <name> --json <json|@file|@-> is the only state-mutating quest command after init.
+      Public quest identity is wtree, the base worktree name.
+  hook-command:
+    kind: cli
+    text: |-
+      loopo hook --runtime <runtime> reads hook payload JSON from stdin and returns a
+      runtime-specific continuation decision.
+  ops-commands:
+    kind: cli
+    text: |-
+      loopo doctor --fix repairs scaffolding, hooks, shims, signatures, and drift. loopo sim
+      init, loopo sim quest next, and loopo sim hook provide deterministic selected-flow
+      stepping and hook passthrough behavior.
+  cmdproto-api:
+    kind: api
+    text: |-
+      loopo cmdproto execjson <path> <payload> mirrors the current public CLI as a machine
+      wrapper and introspection surface without replacing the V3 lifecycle.
+  task-yaml:
+    kind: file
+    text: |-
+      Runtime tasks.yaml is authoritative for quest stage, colocated Q&A, plan details, task
+      graph, validation, verification, landing, and archive receipts.
+  task-row:
+    kind: schema
+    text: |-
+      Minimal task rows carry id, title, type, status, acceptance, dependencies, scope_files,
+      spec_refs, context_refs, branch_ref, worktree_path, child_wtree, concurrency_group,
+      merge_target, merge_lease_id, merge_commit, and system_impact_ref.
+  child-result:
+    kind: schema
+    text: |-
+      Runtime child_result payloads accept child status passed, blocked, or failed and append
+      child evidence to the parent quest evidence log.
+  runtime-events:
+    kind: event
+    text: |-
+      Runtime events.jsonl and hook event payloads provide compact append-only quest and hook
+      audit history, runtime-specific stop events, and continuation decision inputs.
+  system-update:
+    kind: schema
+    text: |-
+      The system_update schema requires full root replacement on replace mode and validates
+      external docs against their concrete resource schema_ref.
+  execution-prompt:
+    kind: prompt
+    text: |-
+      Executing prompts must include the instruction to launch dedicated child CLI agent
+      sessions for independent tasks so the root coordinator supervises rather than doing
+      child work.
+data:
+  stores:
+    system-yaml: |-
+      `.loopo/system.yaml` is the first-read semantic frontier with object, assertion,
+      resource, and optional memory records.
+    canonical-docs: |-
+      `.loopo/docs/**/*.yaml` stores canonical external durable documents referenced from root
+      resources and validated by concrete schema refs.
+    root-signature: |-
+      `.loopo/signature.yaml` stores canonicalized digests for the root, schema files, and
+      canonical resources without adding integrity fields to the root.
+    quest-runtime-state: |-
+      Worktree-local runtime state includes tasks.yaml, events.jsonl, manifest.yaml,
+      hook-state.json, and lock.json. Together these files define quest truth, audit history,
+      managed-file hashes, duplicate suppression state, and concurrency guards.
+    task-qa: |-
+      Quest dossiers use tasks.yaml schema v4 with answers co-located inside
+      question_rounds[].questions[] rather than a top-level answers array.
+  flows:
+    init-flow: |-
+      Init requests flow into route output, candidate ranking, new quest creation input, and a
+      schema-backed next command.
+    child-result-flow: |-
+      Child summaries flow through bin storage, root prompts, child_result payloads, parent
+      validation, and verification receipts.
+    system-update-flow: |-
+      System update payloads validate root and external documents, write canonical YAML, and
+      regenerate the signature sidecar.
+    hook-flow: |-
+      Hook payloads flow through selector resolution, canonical state checks, duplicate and
+      budget guards, and runtime-specific continuation output.
+quality:
+  goals:
+    determinism: |-
+      Loopo prioritizes deterministic lifecycle transitions, explicit schemas, stable command
+      surfaces, and reproducible verification.
+    agent-readability: |-
+      YAML records prefer self-explaining field names, relation-keyed link maps, multiline
+      prose, and section-shaped industry docs for LLM comprehension.
+    tamper-evidence-and-locality: |-
+      Direct edits that do not match receipt chains are unauthorized or tampered state and
+      block continuation. Child implementation work and quest runtime state stay isolated in
+      dedicated worktrees so root coordination remains clean.
+  scenarios:
+    no-shell-docs: |-
+      Required canonical documents fail if mandatory industry-profile sections are absent,
+      empty, template-only, or too thin to be useful.
+    lifecycle-matrix: |-
+      Lifecycle matrix verification proves archived end states, Loopo routing, unique branches
+      and worktrees, and landed merge commits across representative cases.
+    runtime-availability: |-
+      Quota, auth, missing binaries, and hard timeouts are classified as runtime availability
+      outcomes unless canonical quest state proves Loopo failed.
+    canonical-artifact-truth: |-
+      When agent narration, terminal chatter, and Loopo state disagree, reviewers trust
+      canonical tasks.yaml, events.jsonl, emitted child commands, and git worktree state
+      first.
+    live-smoke: |-
+      Live runtime smoke tests use concrete no-clarification fixtures, execute the emitted
+      new_quest.command directly, and drive the CLI one lifecycle step per turn.
+risks:
+  root-growth:
+    text: |-
+      The root can grow into an overloaded architecture document if detailed decisions,
+      contracts, runtime rules, and diagrams are not externalized.
+    mitigation: |-
+      Keep the root to semantic frontier records and move full industry-profile content into
+      concrete canonical document resources or rare system packs.
+  schema-drift:
+    text: |-
+      Runtime prompts, schemas, fixtures, verifiers, and reference docs can drift during
+      hard-cut model migrations.
+    mitigation: |-
+      Coherency verification rejects stale schema names, legacy root sections, old document
+      directories, missing package files, and missing required document mappings.
+  hook-ambiguity:
+    text: |-
+      Hooks may fire from repo root, ambiguous cwd, missing selector payloads, or conflicting
+      worktree signals.
+    mitigation: |-
+      Hook selection no-ops unless an explicit, valid, non-conflicting worktree selector can
+      be resolved.
+  supervisor-overreach:
+    text: |-
+      The root coordinator may be tempted to implement child work inline or recursively split
+      child tasks.
+    mitigation: |-
+      Child execution prompts, integration tests, and durable agent guidance enforce dedicated
+      leaf child sessions and coordinator-only root behavior.
+  agent-narration-drift:
+    text: |-
+      Agent summaries and terminal chatter can claim progress that canonical quest state does
+      not prove, especially after clarification, failed runtime availability, or partial child
+      work.
+    mitigation: |-
+      Supervisors compare claims against tasks.yaml, events.jsonl, emitted child commands, git
+      worktree state, verification receipts, and landed receipts before changing Loopo
+      behavior.
+technical_debt:
+  generated-markdown-renderer: |-
+    Generated Markdown renderers for full human-readable architecture documents are not yet
+    implemented from the canonical YAML profiles.
+  diagram-rendering: |-
+    Diagram resources are represented as architecture records, but concrete C4, dynamic, and
+    deployment rendering pipelines remain future generated outputs.
+diagrams:
+  system-context:
+    kind: context
+    syntax: mermaid
+    text: |-
+      C4-style context diagram showing users, agents, Loopo, worktrees, hook runtimes, and
+      canonical system knowledge.
+    source: |-
+      flowchart LR
+        User[Human Operator] --> Loopo[Loopo CLI Runtime]
+        RootAgent[Root Agent] --> Loopo
+        Loopo --> Worktrees[Git Worktrees]
+        Loopo --> SystemKnowledge[.loopo/system.yaml and canonical docs]
+        Hooks[Codex/Gemini/Copilot Hooks] --> Loopo
+        ChildAgents[Child CLI Agents] --> Worktrees
+  quest-lifecycle-sequence:
+    kind: sequence
+    syntax: mermaid
+    text: |-
+      Sequence diagram for launch, planning, child execution, verification, system update,
+      landing, and archive.
+    source: |-
+      sequenceDiagram
+        participant User
+        participant Loopo
+        participant RootAgent
+        participant ChildAgent
+        participant SystemUpdate
+        User->>Loopo: loopo init request
+        Loopo->>RootAgent: plan with system context
+        RootAgent->>ChildAgent: launch child worktree task
+        ChildAgent-->>Loopo: child_result evidence
+        Loopo->>SystemUpdate: validated durable update
+        SystemUpdate-->>Loopo: canonical docs and signature refreshed
+        Loopo-->>User: archived landed receipt
+  component-map:
+    kind: component
+    syntax: mermaid
+    text: |-
+      Component diagram for the main Loopo
+      runtime modules and verification surfaces.
+    source: |-
+      flowchart TB
+        CLI[CLI Routing] --> Flow[Workflow Runner]
+        Flow --> State[Quest Runtime State]
+        Flow --> Update[system_update]
+        Flow --> Landing[Landing and Archive]
+        Hooks[Hook Controller] --> State
+        Doctor[Doctor Repair] --> State
+        Verifiers[Verifier Suite] --> State
+        Verifiers --> Docs[Canonical YAML Docs]
+  system-update-dataflow:
+    kind: dataflow
+    syntax: mermaid
+    text: |-
+      Dataflow diagram for verified evidence becoming canonical YAML and refreshed signature
+      coverage.
+    source: |-
+      flowchart LR
+        Evidence[Verified Child Evidence] --> Payload[system_update Payload]
+        Payload --> Validation[Schema and Semantic Validation]
+        Validation --> Root[.loopo/system.yaml]
+        Validation --> Docs[.loopo/docs/**/*.yaml]
+        Root --> Signature[.loopo/signature.yaml]
+        Docs --> Signature
+decision_refs:
+  - resource:decisions
+glossary:
+  canonical: |-
+    Canonical files are durable source-of-truth YAML resources validated by schema and
+    covered by `.loopo/signature.yaml`.
+  semantic-frontier: |-
+    The semantic frontier is the compact root knowledge model agents read first before
+    traversing concrete canonical resources.
+  quest-dossier: |-
+    The quest dossier is the worktree-local task YAML and event evidence that defines
+    current quest truth for planning, execution, validation, verification, landing, and
+    archive.
+  system-update-pending: |-
+    system_update_pending is the coordinator-led stage where verified child evidence becomes
+    a schema-valid system_update payload, canonical document writes, and refreshed signature
+    coverage.
+  runtime-availability: |-
+    Runtime availability covers quota, authentication, missing binaries, and hard timeouts;
+    these outcomes are separated from Loopo lifecycle defects unless canonical quest state
+    proves Loopo itself failed.
+examples:
+  canonical-resource-link:
+    language: yaml
+    text: |-
+      Canonical document resource linked from the root system model with a concrete schema
+      reference.
+    source: |-
+      resources:
+        - id: software-architecture
+          kind: document
+          role: canonical
+          location: .loopo/docs/software/architecture.yaml
+          schema_ref: loopo://schemas/docs/software-architecture.yaml
+  fragment-support-link:
+    language: yaml
+    text: |-
+      Must assertions can cite precise canonical document sections through resource JSON
+      Pointer fragments.
+    source: |-
+      links:
+        supported_by:
+          - resource:software-architecture#/constraints
+  quest-next-command:
+    language: bash
+    text: |-
+      The public state-mutating continuation command after init uses wtree identity and
+      schema-backed JSON input.
+    source: |-
+      loopo quest next --wtree build-the-app --json @request.json
+      # request.json conforms to the current step input schema.

@@ -1,0 +1,277 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: loopo://schemas/docs/agent-system-card.yaml
+title: Loopo Agent System Card Document v2
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - id
+  - title
+  - text
+  - standard_alignment
+  - purpose
+  - actors
+  - responsibilities
+  - autonomy
+  - tools
+  - memory
+  - inputs_outputs
+  - safety
+  - human_oversight
+  - evaluation
+  - monitoring
+  - incident_response
+  - handoffs
+  - diagrams
+properties:
+  schema_version:
+    const: 2
+  id:
+    $ref: loopo://schemas/system.yaml#/$defs/id
+  title:
+    type: string
+    minLength: 1
+    maxLength: 160
+  text:
+    $ref: "#/$defs/prose"
+  links:
+    $ref: loopo://schemas/system.yaml#/$defs/links
+  standard_alignment:
+    $ref: "#/$defs/prose_map"
+  purpose:
+    $ref: "#/$defs/prose"
+  actors:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - text
+      properties:
+        kind:
+          enum:
+            - agent
+            - human
+            - system
+            - service
+            - organization
+        text:
+          $ref: "#/$defs/prose"
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  responsibilities:
+    $ref: "#/$defs/prose_map"
+  autonomy:
+    type: object
+    additionalProperties: false
+    required:
+      - level
+      - text
+      - allowed_actions
+      - forbidden_actions
+    properties:
+      level:
+        enum:
+          - none
+          - assisted
+          - bounded
+          - autonomous
+      text:
+        $ref: "#/$defs/prose"
+      allowed_actions:
+        $ref: "#/$defs/prose_array"
+      forbidden_actions:
+        $ref: "#/$defs/prose_array"
+  tools:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - permissions
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        permissions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  memory:
+    type: object
+    additionalProperties: false
+    required:
+      - policy
+      - allowed_memory
+      - forbidden_memory
+    properties:
+      policy:
+        $ref: "#/$defs/prose"
+      allowed_memory:
+        $ref: "#/$defs/prose_map"
+      forbidden_memory:
+        $ref: "#/$defs/prose_map"
+  inputs_outputs:
+    type: object
+    additionalProperties: false
+    required:
+      - inputs
+      - outputs
+    properties:
+      inputs:
+        $ref: "#/$defs/prose_map"
+      outputs:
+        $ref: "#/$defs/prose_map"
+  safety:
+    type: object
+    additionalProperties: false
+    required:
+      - risks
+      - mitigations
+    properties:
+      risks:
+        $ref: "#/$defs/prose_map"
+      mitigations:
+        $ref: "#/$defs/prose_map"
+  human_oversight:
+    $ref: "#/$defs/prose_map"
+  evaluation:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        text:
+          $ref: "#/$defs/prose"
+        resource_ref:
+          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        links:
+          $ref: loopo://schemas/system.yaml#/$defs/links
+  monitoring:
+    $ref: "#/$defs/prose_map"
+  incident_response:
+    $ref: "#/$defs/prose_map"
+  handoffs:
+    $ref: "#/$defs/prose_map"
+  diagrams:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/diagram_block"
+  examples:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/example_block"
+$defs:
+  key:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._-]*$"
+  prose:
+    type: string
+    minLength: 20
+    pattern: "\\n"
+  prose_array:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 20
+  prose_map:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: "#/$defs/key"
+    additionalProperties:
+      $ref: "#/$defs/prose"
+  diagram_block:
+    type: object
+    additionalProperties: false
+    required:
+      - kind
+      - syntax
+      - text
+      - source
+    properties:
+      kind:
+        $ref: "#/$defs/diagram_kind"
+      syntax:
+        $ref: "#/$defs/diagram_syntax"
+      text:
+        $ref: "#/$defs/prose"
+      source:
+        $ref: "#/$defs/prose"
+      rendered_ref:
+        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+      links:
+        $ref: loopo://schemas/system.yaml#/$defs/links
+  example_block:
+    type: object
+    additionalProperties: false
+    required:
+      - language
+      - text
+      - source
+    properties:
+      language:
+        $ref: "#/$defs/example_language"
+      text:
+        $ref: "#/$defs/prose"
+      source:
+        $ref: "#/$defs/prose"
+      links:
+        $ref: loopo://schemas/system.yaml#/$defs/links
+  diagram_kind:
+    enum:
+      - context
+      - container
+      - component
+      - deployment
+      - sequence
+      - state
+      - workflow
+      - dataflow
+      - class
+      - erd
+      - threat
+  diagram_syntax:
+    enum:
+      - mermaid
+      - plantuml
+      - graphviz
+      - d2
+  example_language:
+    enum:
+      - yaml
+      - json
+      - typescript
+      - javascript
+      - python
+      - bash
+      - sql
+      - markdown
+      - mermaid
+      - plantuml
+      - dockerfile
+      - hcl
+      - text

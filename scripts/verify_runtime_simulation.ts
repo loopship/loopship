@@ -420,7 +420,7 @@ function assertCanonicalArtifacts(
     .map((record) => String(record.event ?? ""))
     .filter((event) => ["question_round", "answers_submitted"].includes(event));
   if (scenario.expect_question_round) {
-    for (const event of ["question_round", "answers"]) {
+    for (const event of ["question_round", "answers_submitted"]) {
       if (!questionEvents.includes(event)) {
         fail(`${label}: expected questions log to include ${event}`);
       }

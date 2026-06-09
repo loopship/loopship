@@ -11,9 +11,9 @@ service LoopoService {
       path: "init"
       summary: "Start or resume a Loopo quest from an objective."
       example: {
-        command: "init loopo:build-the-app --repo /repo --runtime codex --flow swe --wtree build-the-app"
+        command: "init loopo:build-the-app --repo . --runtime codex --flow swe --wtree build-the-app"
         description: "Start routing for a Loopo request."
-        request_json: "{\"request\":\"loopo:build-the-app\",\"repo\":\"/repo\",\"runtime\":\"codex\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
+        request_json: "{\"request\":\"loopo:build-the-app\",\"repo\":\".\",\"runtime\":\"codex\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
       }
     };
   }
@@ -23,9 +23,9 @@ service LoopoService {
       path: "quest next"
       summary: "Advance a quest with the next lifecycle payload."
       example: {
-        command: "quest next --wtree build-the-app --repo /repo --json {\"step\":\"<current_step>\",\"<callback_schema_fields>\":\"...\"}"
-        description: "Send the payload required by the current response's callback_schema; the response returns the next step instructions, callback_schema, and commands.next."
-        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\"/repo\",\"payload\":{\"step\":\"<current_step>\",\"<callback_schema_fields>\":\"...\"}}"
+        command: "quest next --wtree build-the-app --repo . --json {\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}"
+        description: "Send the payload required by the current response's output_schema; the response returns the next step instructions, output_schema, and commands.next."
+        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\".\",\"payload\":{\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}}"
       }
     };
   }
@@ -47,9 +47,21 @@ service LoopoService {
       path: "doctor"
       summary: "Inspect or repair Loopo runtime scaffolding."
       example: {
-        command: "doctor --repo /repo --runtime all --fix"
+        command: "doctor --repo . --runtime all --fix"
         description: "Repair Loopo runtime scaffolding in a repo."
-        request_json: "{\"repo\":\"/repo\",\"runtime\":\"all\",\"fix\":true}"
+        request_json: "{\"repo\":\".\",\"runtime\":\"all\",\"fix\":true}"
+      }
+    };
+  }
+
+  rpc Handbook(HandbookRequest) returns (HandbookResponse) {
+    option (cmdproto.v1.command) = {
+      path: "handbook"
+      summary: "Render the standalone Loopo handbook from canonical YAML."
+      example: {
+        command: "handbook --repo ."
+        description: "Generate handbook Markdown in a recoverable system temp path and return its file URL."
+        request_json: "{\"repo\":\".\"}"
       }
     };
   }
@@ -71,9 +83,9 @@ service LoopoService {
       path: "sim quest next"
       summary: "Advance a simulated quest with the next lifecycle payload."
       example: {
-        command: "sim quest next --wtree build-the-app --repo /tmp/loopo-sim --json {\"step\":\"<current_step>\",\"<callback_schema_fields>\":\"...\"}"
-        description: "Send the simulated payload required by the current response's callback_schema; the response pauses at the next selected-flow step."
-        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\"/tmp/loopo-sim\",\"payload\":{\"step\":\"<current_step>\",\"<callback_schema_fields>\":\"...\"}}"
+        command: "sim quest next --wtree build-the-app --repo /tmp/loopo-sim --json {\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}"
+        description: "Send the simulated payload required by the current response's output_schema; the response pauses at the next selected-flow step."
+        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\"/tmp/loopo-sim\",\"payload\":{\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}}"
       }
     };
   }
@@ -146,10 +158,10 @@ message QuestNextRequest {
   google.protobuf.Struct payload = 3 [
     (cmdproto.v1.param) = {
       json: { enabled: true }
-      help: "Quest callback payload matching the current callback_schema."
+      help: "Quest output payload matching the current output_schema."
     },
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"schemas/steps/next-input.v3.json\"}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"schemas/steps/next-input.yaml\"}"
     }
   ];
 }
@@ -210,6 +222,22 @@ message DoctorRequest {
   ];
 }
 
+message HandbookRequest {
+  string repo = 1 [
+    (cmdproto.v1.param) = {
+      flag: { long: "repo" }
+      help: "Repo root containing canonical .loopo system files."
+    }
+  ];
+
+  bool raw = 2 [
+    (cmdproto.v1.param) = {
+      flag: { long: "raw" }
+      help: "Return the rendered Markdown in the machine response instead of writing a temp file."
+    }
+  ];
+}
+
 message SimInitRequest {
   string request = 1 [
     (cmdproto.v1.param) = {
@@ -265,10 +293,10 @@ message SimQuestNextRequest {
   google.protobuf.Struct payload = 3 [
     (cmdproto.v1.param) = {
       json: { enabled: true }
-      help: "Simulated quest callback payload matching the current callback_schema."
+      help: "Simulated quest output payload matching the current output_schema."
     },
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"schemas/steps/next-input.v3.json\"}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"schemas/steps/next-input.yaml\"}"
     }
   ];
 
@@ -316,7 +344,7 @@ message SimHookRequest {
 message InitResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/init-output.v3.json\"},{\"type\":\"object\",\"required\":[\"mode\",\"files\"],\"properties\":{\"mode\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"additionalProperties\":true}]}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/init-output.yaml\"},{\"type\":\"object\",\"required\":[\"mode\",\"files\"],\"properties\":{\"mode\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"additionalProperties\":true}]}"
     }
   ];
 }
@@ -324,7 +352,7 @@ message InitResponse {
 message QuestNextResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/step-output.v3.json\"},{\"$ref\":\"schemas/steps/error-output.v3.json\"},{\"$ref\":\"schemas/steps/lock-error.v3.json\"}]}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/step-output.yaml\"},{\"$ref\":\"schemas/steps/error-output.yaml\"},{\"$ref\":\"schemas/steps/lock-error.yaml\"}]}"
     }
   ];
 }
@@ -332,7 +360,7 @@ message QuestNextResponse {
 message HookResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/hook-output.v3.json\"},{\"type\":\"object\",\"maxProperties\":0}]}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/hook-output.yaml\"},{\"type\":\"object\",\"maxProperties\":0}]}"
     }
   ];
 }
@@ -341,6 +369,14 @@ message DoctorResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
       json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"required\":[\"status\"],\"properties\":{\"status\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"rerun_with_fix\":{\"type\":\"boolean\"}},\"additionalProperties\":true}"
+    }
+  ];
+}
+
+message HandbookResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"oneOf\":[{\"required\":[\"path\",\"file_url\"],\"properties\":{\"path\":{\"type\":\"string\"},\"file_url\":{\"type\":\"string\"}},\"additionalProperties\":false},{\"required\":[\"markdown\"],\"properties\":{\"markdown\":{\"type\":\"string\"}},\"additionalProperties\":false}]}"
     }
   ];
 }

@@ -242,15 +242,15 @@ function main(): number {
       fail(`hook quest next step must omit summary: ${hook.stdout}`);
     }
     if (
-      !reason.callback_schema ||
-      typeof reason.callback_schema !== "object" ||
-      reason.callback_schema.$id !==
-        "schemas/steps/plan-input.v3.json"
+      !reason.output_schema ||
+      typeof reason.output_schema !== "object" ||
+      reason.output_schema.$id !==
+        "schemas/steps/plan-input.yaml"
     ) {
-      fail(`hook quest next output must embed callback schema: ${hook.stdout}`);
+      fail(`hook quest next output must embed output schema: ${hook.stdout}`);
     }
     if ("input_schema" in reason) {
-      fail(`hook quest next output must use callback_schema: ${hook.stdout}`);
+      fail(`hook quest next output must use output_schema: ${hook.stdout}`);
     }
 
     const duplicate = runLoopo(repo, ["hook", "--runtime", "codex"], {

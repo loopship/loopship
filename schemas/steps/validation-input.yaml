@@ -1,0 +1,20 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/validation-input.yaml
+title: Loopo V3 Validation Input
+type: object
+additionalProperties: false
+required:
+  - step
+  - status
+  - checks
+properties:
+  step:
+    const: validation
+  status:
+    enum:
+      - passed
+      - failed
+  checks:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/check

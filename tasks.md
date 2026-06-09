@@ -7,7 +7,7 @@ This ledger tracks the repo's worktree-first lifecycle coverage after the hard c
 - Public CLI selectors use `wtree` for quest identity.
 - Persisted quest state uses `wtree`, `parent_wtree`, and `child_wtree`.
 - Canonical quest runtime state is written under `worktrees/<wtree>/.loopo/runtime/`.
-- Only durable `.loopo` docs, system index, and root manifest are merged back to tracked root `.loopo/**`.
+- Only `.loopo/system.yaml`, canonical `.loopo/docs/**/*.yaml`, and `.loopo/signature.yaml` are merged back to tracked root `.loopo/**`.
 - Hook continuation counters live in worktree-local `.loopo/runtime/hook-state.json`.
 - Hook continuation output stays compact and does not expose legacy identity keys.
 - Simulation flows and child dispatch flows use `wtree` consistently.

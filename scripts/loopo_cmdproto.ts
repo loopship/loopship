@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { resolve } from "node:path";
+import { renderLoopoHandbook, writeLoopoHandbook } from "./loopo_handbook.ts";
 import { runSimCli } from "./loopo_sim.ts";
 import { expandHome, readStdinText, readText } from "./loopo_utils.ts";
 
@@ -8,6 +9,10 @@ const CMDPROTO_HELP_COMMANDS = [
   {
     path: "doctor",
     summary: "Inspect or repair Loopo runtime scaffolding.",
+  },
+  {
+    path: "handbook",
+    summary: "Render the standalone Loopo handbook from canonical YAML.",
   },
   {
     path: "hook",
@@ -345,6 +350,27 @@ async function invokeDoctor(params: Record<string, unknown>): Promise<CommandExe
   };
 }
 
+async function invokeHandbook(
+  params: Record<string, unknown>,
+): Promise<CommandExecution> {
+  const repo = stringValue(params.repo);
+  const payload =
+    params.raw === true
+      ? { markdown: renderLoopoHandbook(repo) }
+      : (() => {
+          const result = writeLoopoHandbook(repo);
+          return {
+            path: result.path,
+            file_url: result.file_url,
+          };
+        })();
+  return {
+    statusCode: 0,
+    stdout: renderJsonStdout(payload),
+    stderr: "",
+  };
+}
+
 async function invokeSimInit(params: Record<string, unknown>): Promise<CommandExecution> {
   const args = ["init"];
   const request = stringValue(params.request);
@@ -400,6 +426,7 @@ async function runExecJsonCommand(argv: string[]): Promise<CommandExecution> {
   const path = pathTokens.join(" ");
   if (path === "init") return await invokeInit(payload);
   if (path === "doctor") return await invokeDoctor(payload);
+  if (path === "handbook") return await invokeHandbook(payload);
   if (path === "hook") return await invokeHook(payload);
   if (path === "quest next") return await invokeQuestNext(payload);
   if (path === "sim hook") return await invokeSimHook(payload);

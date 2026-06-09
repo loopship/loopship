@@ -1,0 +1,234 @@
+schema_version: 2
+required_document_schemas_by_system_kind:
+  software:
+    - loopo://schemas/docs/software-architecture.yaml
+    - loopo://schemas/docs/decision-records.yaml
+  workflow:
+    - loopo://schemas/docs/workflow-spec.yaml
+  knowledge:
+    - loopo://schemas/docs/knowledge-report.yaml
+  data:
+    - loopo://schemas/docs/dataset-datasheet.yaml
+  model:
+    - loopo://schemas/docs/model-card.yaml
+  agent:
+    - loopo://schemas/docs/agent-system-card.yaml
+  organization:
+    - loopo://schemas/docs/business-architecture.yaml
+  artifact:
+    - loopo://schemas/docs/artifact-bom.yaml
+root_rules:
+  global_id_uniqueness_across_loaded_files: true
+  links_are_relation_keyed_maps: true
+  link_targets_are_typed_refs: true
+  links_must_resolve: true
+  reverse_links_are_generated: true
+  root_record_blocks_required:
+    - objects
+    - assertions
+    - resources
+  optional_arrays_must_be_omitted_when_empty: true
+  prose_fields_require_multiline_values: true
+  no_unknown_kinds: true
+  no_other_kind: true
+  no_root_decision_object_kind: true
+  no_root_view_object_kind: true
+resource_rules:
+  every_resource_requires_schema_ref: true
+  canonical_document_requires_concrete_schema_ref: true
+  canonical_document_requires_signature_entry: true
+  generated_resource_cannot_support_must_assertion: true
+  remote_resource_cannot_be_canonical_unless_snapshotted: true
+doc_rules:
+  concrete_doc_schemas_are_required_by_system_kind: true
+  standard_alignment_is_required: true
+  full_industry_profile_docs_are_required: true
+  system_doc_profile_schema_is_not_canonical: true
+  generic_slots_are_not_canonical: true
+  reject_placeholder_text: true
+  reject_title_only_docs: true
+  prose_fields_require_yaml_block_scalars: true
+  rich_blocks_are_render_ready: true
+  archived_markdown_is_not_live_canonical_guidance: true
+local_key_policy:
+  banned_keys:
+    - item
+    - section
+    - misc
+    - miscellaneous
+    - other
+    - note
+    - notes
+    - todo
+    - tbd
+    - placeholder
+    - temp
+    - default
+    - unknown
+  banned_patterns:
+    - "^[0-9]+$"
+    - "^item[-_][0-9]+$"
+    - "^section[-_][0-9]+$"
+    - "^point[-_][0-9]+$"
+    - "^note[-_][0-9]+$"
+  known_terms:
+    - adr
+    - agent
+    - api
+    - arc42
+    - bpmn
+    - bun
+    - c4
+    - clarification
+    - cli
+    - codex
+    - coherency
+    - canonical
+    - copilot
+    - d2
+    - determinism
+    - doctor
+    - execute
+    - gemini
+    - git
+    - graphviz
+    - hcl
+    - hook
+    - init
+    - json
+    - landing
+    - learning
+    - llm
+    - loopo
+    - mermaid
+    - observation
+    - plantuml
+    - plan
+    - preference
+    - runtime
+    - secrets
+    - signature
+    - simulation
+    - sql
+    - swe
+    - ui
+    - uml
+    - user
+    - validate
+    - verifiers
+    - verify
+    - wtree
+    - yaml
+  doc_anchor_budgets:
+    software-architecture:
+      max_total_local_keys: 80
+      maps:
+        standard_alignment: 4
+        stakeholders: 8
+        structure.systems: 4
+        structure.containers: 12
+        structure.components: 12
+        structure.code_units: 12
+        runtime.scenarios: 12
+        runtime.failure_scenarios: 12
+        deployment.environments: 8
+        deployment.nodes: 8
+        interfaces: 16
+        data.stores: 12
+        data.flows: 12
+        quality.goals: 8
+        quality.scenarios: 12
+        risks: 12
+        technical_debt: 8
+        diagrams: 8
+        examples: 8
+        glossary: 24
+    decision-records:
+      max_total_local_keys: 40
+      maps:
+        standard_alignment: 4
+        decisions: 25
+        decisions.*.options: 8
+    workflow-spec:
+      max_total_local_keys: 60
+      maps:
+        standard_alignment: 4
+        participants: 12
+        triggers: 8
+        inputs: 10
+        outputs: 10
+        processes: 8
+        processes.*.lanes: 8
+        processes.*.steps: 12
+        processes.*.gateways: 12
+        processes.*.events: 12
+        data_objects: 12
+        invariants: 12
+        exceptions: 12
+        monitoring: 12
+        diagrams: 6
+        examples: 6
+    agent-system-card:
+      max_total_local_keys: 60
+      maps:
+        standard_alignment: 4
+        actors: 12
+        responsibilities: 12
+        tools: 16
+        memory.allowed_memory: 8
+        memory.forbidden_memory: 8
+        inputs_outputs.inputs: 12
+        inputs_outputs.outputs: 12
+        safety.risks: 12
+        safety.mitigations: 12
+        human_oversight: 12
+        evaluation: 10
+        monitoring: 12
+        incident_response: 12
+        handoffs: 12
+        diagrams: 6
+        examples: 6
+    business-architecture:
+      max_total_local_keys: 80
+      maps:
+        standard_alignment: 4
+        stakeholders: 12
+        capabilities: 16
+        value_streams: 12
+        value_streams.*.stages: 12
+        organization.units: 16
+        organization.roles: 16
+        information: 16
+        products_services: 16
+        policies: 16
+        initiatives: 16
+        metrics: 16
+        processes: 16
+        systems: 16
+        governance: 16
+        risks: 16
+        diagrams: 8
+rich_block_requirements:
+  software-architecture:
+    min_diagrams: 1
+    min_examples: 1
+  workflow-spec:
+    min_diagrams: 1
+    min_examples: 1
+  agent-system-card:
+    min_diagrams: 1
+    min_examples: 0
+  business-architecture:
+    min_diagrams: 1
+    min_examples: 0
+system_pack_rules:
+  packs_are_for_record_sharding_at_scale: true
+  reject_empty_record_arrays: true
+  records_in_packs_participate_in_global_id_uniqueness: true
+assertion_rules:
+  active_must_assertions_require_supporting_link: true
+  behaviour_must_describe_operation_not_decision_history: true
+  binding_memory_must_be_promoted_to_assertion: true
+memory_rules:
+  root_memories_are_first_read_frontier_only: true
+  overflow_is_compacted_or_externalized_not_ttl_deleted: true
