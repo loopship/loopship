@@ -129,7 +129,7 @@ Usage:
   loopo sim quest next --wtree <name> --json <json|@file|@->
   loopo sim hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
   loopo doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
-  loopo handbook [--repo <path>] [--raw]
+  loopo handbook [--repo <path>] [--raw|--duplicates|--fix-duplicates] [--json] [--min-chars <n>]
   loopo cmdproto --help [--json]
   loopo cmdproto execjson <path> <json|@file|@->
 `);

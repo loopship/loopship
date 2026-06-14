@@ -248,8 +248,11 @@ function assertReadmeCommandSurface(): void {
   for (const needle of [
     "node index.ts handbook",
     "node index.ts handbook --raw",
+    "node index.ts handbook --duplicates --json",
+    "node index.ts handbook --fix-duplicates --json",
     "node index.ts cmdproto execjson handbook",
     "`loopo handbook` renders a standalone generated Markdown handbook",
+    "`loopo handbook --duplicates` reports exact normalized duplicate prose",
     "recoverable system temp path",
     "generated output, not canonical truth",
   ]) {

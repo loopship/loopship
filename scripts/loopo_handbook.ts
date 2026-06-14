@@ -5,7 +5,19 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
+import {
+  DEFAULT_DUPLICATE_MIN_CHARS,
+  detectHandbookDuplicates,
+  fixHandbookDuplicates,
+  renderDuplicateReport,
+  renderFixReport,
+} from "./loopo_handbook_duplicates.ts";
 import { hashText, readText, writeText } from "./loopo_utils.ts";
+
+export {
+  detectHandbookDuplicates,
+  fixHandbookDuplicates,
+} from "./loopo_handbook_duplicates.ts";
 
 type YamlMap = Record<string, unknown>;
 
@@ -388,6 +400,11 @@ export function writeLoopoHandbook(repo?: string): HandbookWriteResult {
 export function runHandbook(argv: string[]): number {
   let repo = "";
   let raw = false;
+  let duplicates = false;
+  let fixDuplicates = false;
+  let json = false;
+  let failOnDuplicates = false;
+  let minChars = DEFAULT_DUPLICATE_MIN_CHARS;
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--repo") {
@@ -398,7 +415,44 @@ export function runHandbook(argv: string[]): number {
       raw = true;
       continue;
     }
+    if (token === "--duplicates") {
+      duplicates = true;
+      continue;
+    }
+    if (token === "--fix-duplicates") {
+      fixDuplicates = true;
+      continue;
+    }
+    if (token === "--json") {
+      json = true;
+      continue;
+    }
+    if (token === "--fail-on-duplicates") {
+      failOnDuplicates = true;
+      continue;
+    }
+    if (token === "--min-chars") {
+      minChars = Number(argv[++i] ?? minChars);
+      if (!Number.isInteger(minChars) || minChars < 1) {
+        throw new Error("--min-chars must be a positive integer");
+      }
+      continue;
+    }
     throw new Error(`unknown handbook argument: ${token}`);
+  }
+  if (fixDuplicates) {
+    const report = fixHandbookDuplicates(repo, { minChars });
+    process.stdout.write(
+      json ? `${JSON.stringify(report, null, 2)}\n` : renderFixReport(report),
+    );
+    return failOnDuplicates && report.duplicate_count > 0 ? 2 : 0;
+  }
+  if (duplicates) {
+    const report = detectHandbookDuplicates(repo, { minChars });
+    process.stdout.write(
+      json ? `${JSON.stringify(report, null, 2)}\n` : renderDuplicateReport(report),
+    );
+    return failOnDuplicates && report.duplicate_count > 0 ? 2 : 0;
   }
   if (raw) {
     process.stdout.write(renderLoopoHandbook(repo));

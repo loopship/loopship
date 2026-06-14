@@ -171,8 +171,12 @@ evaluation:
       surface entries, and outdated durable-system terminology.
   lifecycle-matrix:
     text: |-
-      Lifecycle matrix verification proves archived end states, Loopo routing, unique branches
-      and worktrees, and landed merge commits across representative cases.
+      Agent evaluation uses the software architecture lifecycle-matrix quality scenario as
+      the canonical coverage target for archived states, routing, worktrees, and landing.
+    resource_ref: resource:software-architecture
+    links:
+      supported_by:
+        - resource:software-architecture#/quality/scenarios/lifecycle-matrix
 monitoring:
   trace-review: |-
     Quest traces are reviewed through canonical tasks.yaml, event JSONL, child command

@@ -1,7 +1,12 @@
 #!/usr/bin/env bun
 
 import { resolve } from "node:path";
-import { renderLoopoHandbook, writeLoopoHandbook } from "./loopo_handbook.ts";
+import {
+  detectHandbookDuplicates,
+  fixHandbookDuplicates,
+  renderLoopoHandbook,
+  writeLoopoHandbook,
+} from "./loopo_handbook.ts";
 import { runSimCli } from "./loopo_sim.ts";
 import { expandHome, readStdinText, readText } from "./loopo_utils.ts";
 
@@ -12,7 +17,7 @@ const CMDPROTO_HELP_COMMANDS = [
   },
   {
     path: "handbook",
-    summary: "Render the standalone Loopo handbook from canonical YAML.",
+    summary: "Render or inspect the standalone Loopo handbook from canonical YAML.",
   },
   {
     path: "hook",
@@ -354,6 +359,26 @@ async function invokeHandbook(
   params: Record<string, unknown>,
 ): Promise<CommandExecution> {
   const repo = stringValue(params.repo);
+  const minChars =
+    typeof params.min_chars === "number" && Number.isInteger(params.min_chars)
+      ? params.min_chars
+      : undefined;
+  if (params.fix_duplicates === true) {
+    const payload = fixHandbookDuplicates(repo, { minChars });
+    return {
+      statusCode: 0,
+      stdout: renderJsonStdout(payload),
+      stderr: "",
+    };
+  }
+  if (params.duplicates === true) {
+    const payload = detectHandbookDuplicates(repo, { minChars });
+    return {
+      statusCode: 0,
+      stdout: renderJsonStdout(payload),
+      stderr: "",
+    };
+  }
   const payload =
     params.raw === true
       ? { markdown: renderLoopoHandbook(repo) }
