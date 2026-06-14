@@ -28,7 +28,7 @@ stakeholders:
       Human operators submit Loopo requests, answer clarifications, inspect compact JSON route
       outputs, run verification commands, and make high-risk decisions.
     concerns:
-      - Operators need a small public command surface based on loopo init, loopo quest next, loopo hook, loopo sim, loopo doctor, and loopo cmdproto execjson.
+      - Operators need a small public command surface based on loopo init, loopo quest next, loopo hook, loopo sim, loopo doctor, loopo handbook, and loopo cmdproto execjson.
       - Operators need canonical task, event, signature, and system files to identify truth when agent narration and runtime state disagree.
   root-agent:
     role: root coordinator agent
@@ -218,9 +218,10 @@ interfaces:
   ops-commands:
     kind: cli
     text: |-
-      loopo doctor --fix repairs scaffolding, hooks, shims, signatures, and drift. loopo sim
-      init, loopo sim quest next, and loopo sim hook provide deterministic selected-flow
-      stepping and hook passthrough behavior.
+      loopo doctor --fix repairs scaffolding, hooks, shims, signatures, and drift. loopo
+      handbook renders canonical YAML into Markdown and reports or fixes schema-safe duplicate
+      prose references. loopo sim init, loopo sim quest next, and loopo sim hook provide
+      deterministic selected-flow stepping and hook passthrough behavior.
   cmdproto-api:
     kind: api
     text: |-

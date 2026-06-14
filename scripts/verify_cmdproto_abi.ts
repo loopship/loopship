@@ -206,9 +206,24 @@ function main(): number {
     ) {
       fail(`raw handbook must print Markdown: ${rawHandbook.stdout.slice(0, 400)}`);
     }
-    if (rawHandbook.stdout.includes("\n## Text\n")) {
-      fail("raw handbook must not render document text as a raw Text section");
-    }
+  if (rawHandbook.stdout.includes("\n## Text\n")) {
+    fail("raw handbook must not render document text as a raw Text section");
+  }
+
+  const duplicateReport = runLoopo(
+    process.cwd(),
+    ["handbook", "--repo", process.cwd(), "--duplicates", "--json"],
+    undefined,
+    process.env as Record<string, string>,
+  );
+  if (duplicateReport.status !== 0) fail(duplicateReport.stderr || duplicateReport.stdout);
+  const duplicateReportJson = parseJson(duplicateReport.stdout);
+  if (
+    duplicateReportJson.duplicate_count !== 0 ||
+    !Array.isArray(duplicateReportJson.duplicate_groups)
+  ) {
+    fail(`handbook duplicate report must be empty for canonical sources: ${duplicateReport.stdout}`);
+  }
 
   const cmdprotoHandbook = runLoopo(
     process.cwd(),
@@ -259,6 +274,31 @@ function main(): number {
     !cmdprotoRawJson.markdown.includes("# Agent System Card")
   ) {
     fail(`cmdproto raw handbook must return Markdown JSON: ${cmdprotoRawHandbook.stdout}`);
+  }
+
+  const cmdprotoDuplicateReport = runLoopo(
+    process.cwd(),
+    [
+      "cmdproto",
+      "execjson",
+      "handbook",
+      JSON.stringify({
+        repo: process.cwd(),
+        duplicates: true,
+      }),
+    ],
+    undefined,
+    process.env as Record<string, string>,
+  );
+  if (cmdprotoDuplicateReport.status !== 0) {
+    fail(cmdprotoDuplicateReport.stderr || cmdprotoDuplicateReport.stdout);
+  }
+  const cmdprotoDuplicateJson = parseJson(cmdprotoDuplicateReport.stdout);
+  if (
+    cmdprotoDuplicateJson.duplicate_count !== 0 ||
+    !Array.isArray(cmdprotoDuplicateJson.duplicate_groups)
+  ) {
+    fail(`cmdproto handbook duplicate report must be JSON: ${cmdprotoDuplicateReport.stdout}`);
   }
 
   const fixture = createFixture("loopo-cmdproto-");

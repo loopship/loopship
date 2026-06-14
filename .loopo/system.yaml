@@ -114,12 +114,13 @@ assertions:
     kind: behaviour
     level: must
     text: |-
-      Child quests created for task execution are leaf workers and must not recursively create
-      child quests unless explicitly planned.
+      Child quest delegation must follow the workflow child-leaf-boundary invariant, keeping
+      task workers non-recursive unless recursion is explicitly planned.
     links:
       about:
         - object:swe-flow
       supported_by:
+        - resource:workflow-spec#/invariants/child-leaf-boundary
         - resource:agent-system-card#/responsibilities/coordinate-child-work
 resources:
   - id: software-architecture

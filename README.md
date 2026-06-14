@@ -13,8 +13,10 @@ node index.ts sim hook --runtime codex
 node index.ts doctor --fix
 node index.ts handbook
 node index.ts handbook --raw
+node index.ts handbook --duplicates --json
+node index.ts handbook --fix-duplicates --json
 node index.ts cmdproto execjson init '{"request":"loopo:build-the-app","repo":"/repo","runtime":"codex"}'
-node index.ts cmdproto execjson handbook '{"repo":"/repo","raw":false}'
+node index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
 ```
 
 The launcher skill lives in
@@ -38,8 +40,11 @@ authoritative.
 `loopo handbook` renders a standalone generated Markdown handbook from
 `.loopo/system.yaml` and canonical document resources. By default it writes to a
 recoverable system temp path and prints a `file://` URL. Use
-`loopo handbook --raw` to print the Markdown to stdout. The handbook is
-generated output, not canonical truth.
+`loopo handbook --raw` to print the Markdown to stdout.
+`loopo handbook --duplicates` reports exact normalized duplicate prose from the
+canonical YAML sources with owner recommendations. `loopo handbook
+--fix-duplicates` applies only schema-safe reference rewrites and reports any
+remaining manual cases. The handbook is generated output, not canonical truth.
 
 Loopo lifecycle guidance lives in `assets/workflows/steps/*.yaml`; do not add
 separate stage spec files for the same instructions.

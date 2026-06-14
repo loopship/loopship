@@ -4,7 +4,7 @@ hash_algorithm: sha256
 root:
   path: .loopo/system.yaml
   schema: loopo://schemas/system.yaml
-  digest: ae3fe462e5f8a018874ad621a02e0b9e3a982e493f6b147f9f635052d8ad7de8
+  digest: 910a0bbd86f998d9a8f2a68bc0fb9dbcc13f1f89f799a09843367c0d23988a76
 entries:
   - path: schemas/system.yaml
     schema: self
@@ -62,7 +62,7 @@ entries:
     path: .loopo/docs/software/architecture.yaml
     schema: loopo://schemas/docs/software-architecture.yaml
     role: canonical
-    digest: 6b0d2d0a0df08b08754ced5a9972d20521b667355dfe22e9876b73748bc509a4
+    digest: 8881b4e92d67770a8c3b811099d125474ddacfb9f151e6df50d58dbf4daef5d8
   - resource_ref: resource:decisions
     path: .loopo/docs/decisions/records.yaml
     schema: loopo://schemas/docs/decision-records.yaml
@@ -77,12 +77,12 @@ entries:
     path: .loopo/docs/agent/system-card.yaml
     schema: loopo://schemas/docs/agent-system-card.yaml
     role: canonical
-    digest: 585d698fca6855afc2cd0792b109ef8d6a35590ed762468dc09d8cb56b35e525
-previous_receipt_head: 4f18afe3cf05440c030c16b04e5b2a4e77cc2ab4324538c8429b06c9c65561de
-receipt_head: 130007b657fb9738b7f23e0ba4ce2b308811e4c16051967f62b12884ebb8a782
-signed_at: 2026-06-09T07:21:44Z
+    digest: 67edd6607caa6a3e364a1ee827e5011521f09af85ac3e78c29f0eec0c232b153
+previous_receipt_head: e13fd5edfaf24d3041617ce7abc6c5219d144b6ea346399a723a2a78f1c01f47
+receipt_head: 71fbf01779af4ff562e69d817c48619e7d0fff79b288805e1bf298ba916ebfc6
+signed_at: 2026-06-14T04:47:43Z
 signer: system_update
 signature:
   algorithm: ed25519
   key_id: loopo-local-v2
-  value: 8HiLcFd0NVd+I92JwaFVJYo5yxnwRAlmhDItk4ur85GWJ196onz93ZAxgSUHWd5C0J/ouWJdIqJomOzYHA8JAg==
+  value: WtuHBrQrB2knYglGLwKySoslQ/XrgkrG5sv4REKKF/aVpw+8u0ETHDqW0kSo6Qp1EqkNoU9wN2WRkWqsUr7fCQ==
