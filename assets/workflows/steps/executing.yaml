@@ -1,12 +1,12 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: executing
   version: 1.0.0
   summary: Start the ready child wtree commands and submit child_result payloads
     as children finish.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: executing
 do:
@@ -17,17 +17,17 @@ do:
           document:
             $ref: ../../../schemas/steps/child-dispatch-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: executing
           handler: child_result
           inputStep: child_result
           summary: Start the ready child wtree commands and submit child_result payloads
             as children finish.
           instructions: >-
-            # Loopo Executing Step
+            # Loopship Executing Step
 
 
-            Act as a top-class execution coordinator for Loopo. Treat this
+            Act as a top-class execution coordinator for Loopship. Treat this
             instruction
 
             block as the executing step's system prompt: dispatch ready child
@@ -128,5 +128,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/child-result-input.yaml
-      call: loopo.internal.executing
+      call: loopship.internal.executing
       with: {}

@@ -11,14 +11,14 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLoopoShim, questFiles } from "./loopo_core.ts";
-import { runCommand } from "./loopo_utils.ts";
-import { validateSchemaPath, v3SchemaPath } from "./loopo_schema.ts";
+import { createLoopshipShim, questFiles } from "./loopship_core.ts";
+import { runCommand } from "./loopship_utils.ts";
+import { validateSchemaPath, v3SchemaPath } from "./loopship_schema.ts";
 import { DEFAULT_RUNTIME_REQUEST } from "./runtime_supervisor.ts";
 import { scenarioPayloadForStep } from "./sim_product_quest_scenarios.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SCRIPT = resolve(ROOT, "scripts", "loopo.ts");
+const SCRIPT = resolve(ROOT, "scripts", "loopship.ts");
 const ENTRYPOINT = resolve(ROOT, "index.ts");
 
 type Fixture = {
@@ -61,7 +61,7 @@ function stepId(value: unknown): string {
   return "";
 }
 
-function runLoopo(
+function runLoopship(
   repo: string,
   args: string[],
   input: Record<string, unknown> | undefined,
@@ -89,14 +89,14 @@ function createFixture(prefix: string): Fixture {
   const repo = join(root, "repo");
   const env = {
     HOME: join(root, "home"),
-    LOOPO_GLOBAL_BIN: join(root, "bin", "loopo"),
-    LOOPO_SCRIPT: SCRIPT,
+    LOOPSHIP_GLOBAL_BIN: join(root, "bin", "loopship"),
+    LOOPSHIP_SCRIPT: SCRIPT,
   };
   const initGit = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
   if (initGit.status !== 0) fail(initGit.stderr || initGit.stdout);
-  runGit(repo, ["config", "user.email", "loopo-test@example.invalid"], env);
-  runGit(repo, ["config", "user.name", "Loopo Cmdproto"], env);
-  writeFileSync(join(repo, "README.md"), "# loopo cmdproto fixture\n", "utf8");
+  runGit(repo, ["config", "user.email", "loopship-test@example.invalid"], env);
+  runGit(repo, ["config", "user.name", "Loopship Cmdproto"], env);
+  writeFileSync(join(repo, "README.md"), "# loopship cmdproto fixture\n", "utf8");
   runGit(repo, ["add", "README.md"], env);
   runGit(repo, ["commit", "-m", "fixture"], env);
   return { root, repo, env };
@@ -108,14 +108,14 @@ function prepareExistingGitRepoFixture(
 ): void {
   const initGit = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
   if (initGit.status !== 0) fail(initGit.stderr || initGit.stdout);
-  runGit(repo, ["config", "user.email", "loopo-sim@example.invalid"], env);
-  runGit(repo, ["config", "user.name", "Loopo Sim Fixture"], env);
+  runGit(repo, ["config", "user.email", "loopship-sim@example.invalid"], env);
+  runGit(repo, ["config", "user.name", "Loopship Sim Fixture"], env);
   runGit(repo, ["checkout", "-B", "main"], env);
   runGit(repo, ["commit", "--allow-empty", "-m", "sim fixture"], env);
 }
 
 function main(): number {
-  const help = runLoopo(
+  const help = runLoopship(
     process.cwd(),
     ["--help", "--json"],
     undefined,
@@ -145,7 +145,7 @@ function main(): number {
     fail(`unexpected root execjson usage: ${JSON.stringify(helpJson.execjson)}`);
   }
 
-  const controlHelp = runLoopo(
+  const controlHelp = runLoopship(
     process.cwd(),
     ["cmdproto", "--help", "--json"],
     undefined,
@@ -156,7 +156,7 @@ function main(): number {
   if (controlHelpJson.execjson?.usage !== "cmdproto execjson <path> <json|@file|@->") {
     fail(`unexpected cmdproto control help: ${JSON.stringify(controlHelpJson.execjson)}`);
   }
-  const controlHelpText = runLoopo(
+  const controlHelpText = runLoopship(
     process.cwd(),
     ["cmdproto", "--help"],
     undefined,
@@ -167,7 +167,7 @@ function main(): number {
     fail(`unexpected cmdproto text help: ${JSON.stringify(controlHelpText.stdout)}`);
   }
 
-  const handbook = runLoopo(
+  const handbook = runLoopship(
     process.cwd(),
     ["handbook", "--repo", process.cwd()],
     undefined,
@@ -184,7 +184,7 @@ function main(): number {
   }
   const handbookMarkdown = readFileSync(handbookPath, "utf8");
     if (
-      !handbookMarkdown.includes("# Loopo Handbook") ||
+      !handbookMarkdown.includes("# Loopship Handbook") ||
       !handbookMarkdown.includes("# Software Architecture")
     ) {
       fail(`handbook file missing rendered sections: ${handbookMarkdown.slice(0, 400)}`);
@@ -193,7 +193,7 @@ function main(): number {
       fail("handbook must render document text as introductory prose, not a raw Text section");
     }
 
-  const rawHandbook = runLoopo(
+  const rawHandbook = runLoopship(
     process.cwd(),
     ["handbook", "--repo", process.cwd(), "--raw"],
     undefined,
@@ -201,7 +201,7 @@ function main(): number {
   );
   if (rawHandbook.status !== 0) fail(rawHandbook.stderr || rawHandbook.stdout);
     if (
-      !rawHandbook.stdout.includes("# Loopo Handbook") ||
+      !rawHandbook.stdout.includes("# Loopship Handbook") ||
       !rawHandbook.stdout.includes("# Workflow Specification")
     ) {
       fail(`raw handbook must print Markdown: ${rawHandbook.stdout.slice(0, 400)}`);
@@ -210,7 +210,7 @@ function main(): number {
     fail("raw handbook must not render document text as a raw Text section");
   }
 
-  const duplicateReport = runLoopo(
+  const duplicateReport = runLoopship(
     process.cwd(),
     ["handbook", "--repo", process.cwd(), "--duplicates", "--json"],
     undefined,
@@ -225,7 +225,7 @@ function main(): number {
     fail(`handbook duplicate report must be empty for canonical sources: ${duplicateReport.stdout}`);
   }
 
-  const cmdprotoHandbook = runLoopo(
+  const cmdprotoHandbook = runLoopship(
     process.cwd(),
     [
       "cmdproto",
@@ -251,7 +251,7 @@ function main(): number {
     fail(`cmdproto handbook must return path and file_url: ${cmdprotoHandbook.stdout}`);
   }
 
-  const cmdprotoRawHandbook = runLoopo(
+  const cmdprotoRawHandbook = runLoopship(
     process.cwd(),
     [
       "cmdproto",
@@ -276,7 +276,7 @@ function main(): number {
     fail(`cmdproto raw handbook must return Markdown JSON: ${cmdprotoRawHandbook.stdout}`);
   }
 
-  const cmdprotoDuplicateReport = runLoopo(
+  const cmdprotoDuplicateReport = runLoopship(
     process.cwd(),
     [
       "cmdproto",
@@ -301,22 +301,22 @@ function main(): number {
     fail(`cmdproto handbook duplicate report must be JSON: ${cmdprotoDuplicateReport.stdout}`);
   }
 
-  const fixture = createFixture("loopo-cmdproto-");
+  const fixture = createFixture("loopship-cmdproto-");
   try {
-    createLoopoShim(fixture.env.LOOPO_GLOBAL_BIN, SCRIPT);
-    const shimUsage = runCommand(fixture.env.LOOPO_GLOBAL_BIN, [], {
+    createLoopshipShim(fixture.env.LOOPSHIP_GLOBAL_BIN, SCRIPT);
+    const shimUsage = runCommand(fixture.env.LOOPSHIP_GLOBAL_BIN, [], {
       cwd: fixture.repo,
       env: fixture.env,
       timeoutMs: 120_000,
     });
     if (shimUsage.status !== 1) {
-      fail(`loopo shim without args must exit 1; got ${shimUsage.status}`);
+      fail(`loopship shim without args must exit 1; got ${shimUsage.status}`);
     }
     if (!shimUsage.stdout.includes("Usage:")) {
-      fail(`loopo shim without args must print usage; got ${JSON.stringify(shimUsage.stdout)}`);
+      fail(`loopship shim without args must print usage; got ${JSON.stringify(shimUsage.stdout)}`);
     }
 
-    const removedHelp = runLoopo(
+    const removedHelp = runLoopship(
       fixture.repo,
       ["cmdproto", "execjson", "quest", "help", "{}"],
       undefined,
@@ -325,7 +325,7 @@ function main(): number {
     if (removedHelp.status === 0) {
       fail("cmdproto quest help must be removed");
     }
-    const removedSimHelp = runLoopo(
+    const removedSimHelp = runLoopship(
       fixture.repo,
       ["cmdproto", "execjson", "sim", "quest", "help", "{}"],
       undefined,
@@ -335,14 +335,14 @@ function main(): number {
       fail("cmdproto sim quest help must be removed");
     }
 
-    const init = runLoopo(
+    const init = runLoopship(
       fixture.repo,
       [
         "cmdproto",
         "execjson",
         "init",
         JSON.stringify({
-          request: "loopo: build the app",
+          request: "loopship: build the app",
           repo: fixture.repo,
           runtime: "codex",
           flow: "swe",
@@ -364,7 +364,7 @@ function main(): number {
       fail("init route missing next input payload");
     }
 
-    const next = runLoopo(
+    const next = runLoopship(
       fixture.repo,
       [
         "cmdproto",
@@ -391,7 +391,7 @@ function main(): number {
 
     const simRepo = join(fixture.root, "sim-repo");
     prepareExistingGitRepoFixture(simRepo, fixture.env);
-    const simStart = runLoopo(
+    const simStart = runLoopship(
       fixture.repo,
       [
         "cmdproto",
@@ -436,7 +436,7 @@ function main(): number {
       planRound: 0,
       landingRound: 0,
     });
-    const simNext = runLoopo(
+    const simNext = runLoopship(
       fixture.repo,
       [
         "cmdproto",
@@ -462,7 +462,7 @@ function main(): number {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 
-  console.log("loopo cmdproto ABI verification passed");
+  console.log("loopship cmdproto ABI verification passed");
   return 0;
 }
 

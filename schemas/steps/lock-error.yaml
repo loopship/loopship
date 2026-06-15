@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/lock-error.yaml
-title: Loopo V3 Lock Error
+title: Loopship V3 Lock Error
 type: object
 additionalProperties: false
 required:

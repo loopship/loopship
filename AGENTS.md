@@ -41,19 +41,19 @@
 <!-- END rules:spec:ts -->
 <!-- BEGIN rules:local -->
 
-# Loopo Agent Guide
+# Loopship Agent Guide
 
 ## Working Rules
 
-- This repo is `@omar391/loopo`, a deterministic V3 workflow launcher for worktree-based quest flows.
+- This repo is `@omar391/loopship`, a deterministic V3 workflow launcher for worktree-based quest flows.
 - Prefer `bun` for local execution and tests. The main verification commands are the scripts listed in `package.json`.
-- Do not edit `.loopo/**` state files directly unless you are intentionally repairing canonical runtime state.
-- For `loopo:` requests, use `loopo init "{request}" --runtime <runtime>` from the repo root and follow compact JSON step output.
-- Use `loopo init`, `loopo quest next`, `loopo hook`, `loopo sim`, and `loopo doctor --fix` to exercise lifecycle behavior instead of hand-editing runtime outputs.
+- Do not edit `.loopship/**` state files directly unless you are intentionally repairing canonical runtime state.
+- For `loopship:` requests, use `loopship init "{request}" --runtime <runtime>` from the repo root and follow compact JSON step output.
+- Use `loopship init`, `loopship quest next`, `loopship hook`, `loopship sim`, and `loopship doctor --fix` to exercise lifecycle behavior instead of hand-editing runtime outputs.
 - Keep changes aligned with the schema-backed workflow files in `schemas/**`, `assets/**`, and `scripts/**`.
 - When changing lifecycle logic, update or run the relevant verification scripts before finishing.
 - Treat `tasks.md` as the repo's lifecycle coverage ledger, not as a transient task checklist, unless the user explicitly asks to repurpose it.
-- Treat `.loopo/quests/*/tasks.yaml`, quest JSONL files, emitted child commands, and git worktree state as canonical evidence when prose and state disagree.
+- Treat `.loopship/quests/*/tasks.yaml`, quest JSONL files, emitted child commands, and git worktree state as canonical evidence when prose and state disagree.
 - Keep parent/root sessions coordinator-only during child execution; child CLI agents own implementation work in dedicated worktrees.
 - Keep edits ASCII unless a file already uses non-ASCII characters.
 - Avoid destructive git commands and do not revert unrelated user changes.
@@ -62,7 +62,7 @@
 
 - `README.md` for the user-facing CLI surface.
 - `tasks.md` for current lifecycle coverage notes.
-- `.loopo/docs/software/architecture.yaml`, `.loopo/docs/workflow/spec.yaml`, and `.loopo/docs/agent/system-card.yaml` for controller, lifecycle, runtime hook, ops, and supervisor contracts.
+- `.loopship/docs/software/architecture.yaml`, `.loopship/docs/workflow/spec.yaml`, and `.loopship/docs/agent/system-card.yaml` for controller, lifecycle, runtime hook, ops, and supervisor contracts.
 - `references/core/analytical-framework.md` for rigorous reasoning checks.
 - `references/core/optimization-framework.md` for deterministic execution discipline.
 - `agents/openai.yaml` for the Codex default invocation contract.

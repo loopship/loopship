@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/tasks.yaml
-title: Loopo Tasks YAML Model v4
+$id: loopship://schemas/tasks.yaml
+title: Loopship Tasks YAML Model v4
 type: object
 additionalProperties: false
 required:

@@ -1,21 +1,21 @@
 {
-  "name": "@omar391/loopo",
+  "name": "@omar391/loopship",
   "version": "0.1.0",
-  "description": "Deterministic V3 quest workflow CLI for Loopo launchers and runtime hooks.",
+  "description": "Spec workflows, looped until shipped.",
   "module": "index.ts",
   "type": "module",
   "bin": {
-    "loopo": "./index.ts"
+    "loopship": "./index.ts"
   },
   "exports": {
     ".": "./index.ts",
-    "./workflow-runner": "./scripts/loopo_workflow_runner.ts",
+    "./workflow-runner": "./scripts/loopship_workflow_runner.ts",
     "./package.json": "./package.json"
   },
   "files": [
-    ".loopo/system.yaml",
-    ".loopo/signature.yaml",
-    ".loopo/docs",
+    ".loopship/system.yaml",
+    ".loopship/signature.yaml",
+    ".loopship/docs",
     "README.md",
     "index.ts",
     "assets",
@@ -25,7 +25,7 @@
     "tsconfig.json"
   ],
   "keywords": [
-    "loopo",
+    "loopship",
     "cli",
     "workflow",
     "agent",

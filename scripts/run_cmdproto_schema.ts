@@ -3,11 +3,11 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand } from "./loopo_utils.ts";
+import { runCommand } from "./loopship_utils.ts";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const shimDir = resolve(PACKAGE_ROOT, "tmp", "cmdproto-bin");
-const shimPath = resolve(shimDir, "loopo");
+const shimPath = resolve(shimDir, "loopship");
 const cmdprotoBin = resolve(PACKAGE_ROOT, "node_modules", ".bin", "cmdproto");
 
 mkdirSync(shimDir, { recursive: true });
@@ -20,7 +20,7 @@ exec bun "${resolve(PACKAGE_ROOT, "index.ts")}" "$@"
 );
 chmodSync(shimPath, 0o755);
 
-if (process.env.LOOPO_CMDPROTO_DEBUG === "1") {
+if (process.env.LOOPSHIP_CMDPROTO_DEBUG === "1") {
   process.stderr.write(`cmdproto=${cmdprotoBin}\n`);
   process.stderr.write(`shim=${shimPath}\n`);
   process.stderr.write(`cwd=${PACKAGE_ROOT}\n`);
@@ -29,7 +29,7 @@ if (process.env.LOOPO_CMDPROTO_DEBUG === "1") {
 
 const result = runCommand(
   cmdprotoBin,
-  ["build", "--app-name", "loopo", "--out-dir", "assets/cmdproto"],
+  ["build", "--app-name", "loopship", "--out-dir", "assets/cmdproto"],
   {
     cwd: PACKAGE_ROOT,
     env: {

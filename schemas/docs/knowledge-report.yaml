@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/docs/knowledge-report.yaml
-title: Loopo Knowledge Report Document v2
+$id: loopship://schemas/docs/knowledge-report.yaml
+title: Loopship Knowledge Report Document v2
 type: object
 additionalProperties: false
 required:
@@ -25,7 +25,7 @@ properties:
   schema_version:
     const: 2
   id:
-    $ref: loopo://schemas/system.yaml#/$defs/id
+    $ref: loopship://schemas/system.yaml#/$defs/id
   title:
     type: string
     minLength: 1
@@ -33,7 +33,7 @@ properties:
   text:
     $ref: "#/$defs/prose"
   links:
-    $ref: loopo://schemas/system.yaml#/$defs/links
+    $ref: loopship://schemas/system.yaml#/$defs/links
   standard_alignment:
     $ref: "#/$defs/prose_map"
   abstract:
@@ -58,7 +58,7 @@ properties:
         limitations:
           $ref: "#/$defs/prose_array"
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   sources:
     type: object
     minProperties: 1
@@ -76,9 +76,9 @@ properties:
           type: string
           minLength: 1
         resource_ref:
-          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+          $ref: loopship://schemas/system.yaml#/$defs/resource_ref
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   claims:
     type: object
     minProperties: 1
@@ -99,7 +99,7 @@ properties:
             - medium
             - high
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   evidence:
     $ref: "#/$defs/evidence_map"
   results:
@@ -154,6 +154,6 @@ $defs:
         text:
           $ref: "#/$defs/prose"
         resource_ref:
-          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+          $ref: loopship://schemas/system.yaml#/$defs/resource_ref
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links

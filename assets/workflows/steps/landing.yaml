@@ -1,11 +1,11 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: landing
   version: 1.0.0
   summary: Submit landing status and final summary.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: landing
 do:
@@ -16,16 +16,16 @@ do:
           document:
             $ref: ../../../schemas/steps/step-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: landing
           handler: landing
           inputStep: landing
           summary: Submit landing status and final summary.
           instructions: >-
-            # Loopo Landing Step
+            # Loopship Landing Step
 
 
-            Act as a top-class release integrator for Loopo. Treat this
+            Act as a top-class release integrator for Loopship. Treat this
             instruction block
 
             as the landing step's system prompt: verify merge safety, perform
@@ -61,7 +61,7 @@ do:
             verification, or documentation step preceded this one; trust
             canonical
 
-            Loopo state and the current output schema.
+            Loopship state and the current output schema.
 
 
             The same landing step owns the real git merge for both child and
@@ -97,7 +97,7 @@ do:
             worktree.
 
 
-            The landing target worktree must be clean apart from Loopo's own
+            The landing target worktree must be clean apart from Loopship's own
             operational
 
             files. If the merge fails or leaves conflicts, stop and report the
@@ -128,5 +128,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/landing-input.yaml
-      call: loopo.internal.landing
+      call: loopship.internal.landing
       with: {}

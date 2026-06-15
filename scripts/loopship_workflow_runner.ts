@@ -12,22 +12,22 @@ import {
   loadFlowDefinition,
   loadFlowDefinitionFromPath,
   loadStepDefinitions,
-  type LoadedLoopoFlow,
-  type LoopoStepDefinition,
-} from "./loopo_flow.ts";
-import { FLOW_SCHEMA_PATH, validateSchemaPath } from "./loopo_schema.ts";
-import { readText } from "./loopo_utils.ts";
+  type LoadedLoopshipFlow,
+  type LoopshipStepDefinition,
+} from "./loopship_flow.ts";
+import { FLOW_SCHEMA_PATH, validateSchemaPath } from "./loopship_schema.ts";
+import { readText } from "./loopship_utils.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const WORKFLOW_SCHEMA_FILE = resolve(ROOT, FLOW_SCHEMA_PATH);
 
 type ValidationPhase =
-  | "loopo_schema"
+  | "loopship_schema"
   | "official_swf_schema"
-  | "loopo_semantics";
+  | "loopship_semantics";
 
-export type LoopoWorkflowValidationPolicy = {
+export type LoopshipWorkflowValidationPolicy = {
   facade: {
     entrypoint: string;
   };
@@ -36,17 +36,17 @@ export type LoopoWorkflowValidationPolicy = {
   allowedFeatures: string[];
 };
 
-export type LoopoWorkflowRecord = {
+export type LoopshipWorkflowRecord = {
   filePath: string;
   rawWorkflow: Record<string, unknown>;
   workflowId: string;
   workflowVersion: string;
   workflowKind: "flow" | "step-workflow" | null;
-  flow: LoadedLoopoFlow | null;
-  step: LoopoStepDefinition | null;
+  flow: LoadedLoopshipFlow | null;
+  step: LoopshipStepDefinition | null;
 };
 
-let cachedValidationPolicy: LoopoWorkflowValidationPolicy | null = null;
+let cachedValidationPolicy: LoopshipWorkflowValidationPolicy | null = null;
 
 function readYamlObject(path: string): Record<string, unknown> {
   const parsed = parseYaml(readText(path));
@@ -56,14 +56,14 @@ function readYamlObject(path: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-export function loadWorkflowValidationPolicy(): LoopoWorkflowValidationPolicy {
+export function loadWorkflowValidationPolicy(): LoopshipWorkflowValidationPolicy {
   if (cachedValidationPolicy) return cachedValidationPolicy;
   const rawSchema = readYamlObject(WORKFLOW_SCHEMA_FILE);
   const rawPolicy =
-    rawSchema["x-loopo-validation"] &&
-    typeof rawSchema["x-loopo-validation"] === "object" &&
-    !Array.isArray(rawSchema["x-loopo-validation"])
-      ? (rawSchema["x-loopo-validation"] as Record<string, unknown>)
+    rawSchema["x-loopship-validation"] &&
+    typeof rawSchema["x-loopship-validation"] === "object" &&
+    !Array.isArray(rawSchema["x-loopship-validation"])
+      ? (rawSchema["x-loopship-validation"] as Record<string, unknown>)
       : {};
   const rawFacade =
     rawPolicy.facade &&
@@ -74,9 +74,9 @@ export function loadWorkflowValidationPolicy(): LoopoWorkflowValidationPolicy {
   const phases = Array.isArray(rawPolicy.phases)
     ? rawPolicy.phases.filter(
         (phase): phase is ValidationPhase =>
-          phase === "loopo_schema" ||
+          phase === "loopship_schema" ||
           phase === "official_swf_schema" ||
-          phase === "loopo_semantics",
+          phase === "loopship_semantics",
       )
     : [];
   const allowedDslVersions = Array.isArray(rawPolicy.allowedDslVersions)
@@ -101,7 +101,7 @@ export function loadWorkflowValidationPolicy(): LoopoWorkflowValidationPolicy {
     },
     phases: phases.length
       ? phases
-      : ["loopo_schema", "official_swf_schema", "loopo_semantics"],
+      : ["loopship_schema", "official_swf_schema", "loopship_semantics"],
     allowedDslVersions: allowedDslVersions.length
       ? allowedDslVersions
       : ["1.0.3"],
@@ -117,7 +117,7 @@ export const WORKFLOW_VALIDATION_ENTRYPOINT =
 
 function detectWorkflowKind(
   rawWorkflow: Record<string, unknown>,
-): LoopoWorkflowRecord["workflowKind"] {
+): LoopshipWorkflowRecord["workflowKind"] {
   const document =
     rawWorkflow.document &&
     typeof rawWorkflow.document === "object" &&
@@ -130,16 +130,16 @@ function detectWorkflowKind(
     !Array.isArray(document.metadata)
       ? (document.metadata as Record<string, unknown>)
       : null;
-  const loopoMeta =
-    metadata?.loopo && typeof metadata.loopo === "object" && !Array.isArray(metadata.loopo)
-      ? (metadata.loopo as Record<string, unknown>)
+  const loopshipMeta =
+    metadata?.loopship && typeof metadata.loopship === "object" && !Array.isArray(metadata.loopship)
+      ? (metadata.loopship as Record<string, unknown>)
       : null;
   const kind =
-    loopoMeta && typeof loopoMeta.kind === "string" ? loopoMeta.kind : null;
+    loopshipMeta && typeof loopshipMeta.kind === "string" ? loopshipMeta.kind : null;
   return kind === "flow" || kind === "step-workflow" ? kind : null;
 }
 
-function loadSingleStepWorkflow(filePath: string): LoopoStepDefinition {
+function loadSingleStepWorkflow(filePath: string): LoopshipStepDefinition {
   const steps = loadStepDefinitions(dirname(filePath));
   const step = Object.values(steps)[0];
   if (!step) {
@@ -148,7 +148,7 @@ function loadSingleStepWorkflow(filePath: string): LoopoStepDefinition {
   return step;
 }
 
-export function loadWorkflowRecord(filePath: string): LoopoWorkflowRecord {
+export function loadWorkflowRecord(filePath: string): LoopshipWorkflowRecord {
   const rawWorkflow = readYamlObject(filePath);
   const document =
     rawWorkflow.document &&
@@ -172,8 +172,8 @@ export function loadWorkflowRecord(filePath: string): LoopoWorkflowRecord {
   };
 }
 
-function validateLoopoSemantics(
-  record: LoopoWorkflowRecord,
+function validateLoopshipSemantics(
+  record: LoopshipWorkflowRecord,
   errors: string[],
 ): void {
   if (record.workflowKind === "flow") {
@@ -193,17 +193,17 @@ function validateLoopoSemantics(
     return;
   }
   errors.push(
-    `${record.filePath} must set document.metadata.loopo.kind to flow or step-workflow`,
+    `${record.filePath} must set document.metadata.loopship.kind to flow or step-workflow`,
   );
 }
 
-export function validateWorkflowRecord(record: LoopoWorkflowRecord): void {
+export function validateWorkflowRecord(record: LoopshipWorkflowRecord): void {
   const policy = loadWorkflowValidationPolicy();
   const errors: string[] = [];
   for (const phase of policy.phases) {
     if (errors.length) break;
     switch (phase) {
-      case "loopo_schema": {
+      case "loopship_schema": {
         errors.push(...validateSchemaPath(record.rawWorkflow, FLOW_SCHEMA_PATH));
         break;
       }
@@ -216,8 +216,8 @@ export function validateWorkflowRecord(record: LoopoWorkflowRecord): void {
         );
         break;
       }
-      case "loopo_semantics": {
-        validateLoopoSemantics(record, errors);
+      case "loopship_semantics": {
+        validateLoopshipSemantics(record, errors);
         break;
       }
     }
@@ -231,7 +231,7 @@ export function validateWorkflowRecord(record: LoopoWorkflowRecord): void {
 
 export function loadBundledFlowRecord(
   flowId = DEFAULT_FLOW_ID,
-): LoopoWorkflowRecord {
+): LoopshipWorkflowRecord {
   const filePath = resolve(ROOT, "assets", "flows", `${flowId}.yaml`);
   return loadWorkflowRecord(filePath);
 }

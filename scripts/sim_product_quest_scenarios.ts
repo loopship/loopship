@@ -62,7 +62,7 @@ const CHILD_DONE_STATUSES = new Set([
 ]);
 
 function normalizedRequest(request: string): string {
-  return request.replace(/^loopo:\s*/i, "").trim().toLowerCase();
+  return request.replace(/^loopship:\s*/i, "").trim().toLowerCase();
 }
 
 function isConcretePythonCliRequest(request: string): boolean {
@@ -85,10 +85,10 @@ function isConcreteReactHabitTrackerRequest(request: string): boolean {
 }
 
 export const CONCRETE_PYTHON_CLI_REQUEST =
-  "loopo: build a tiny python cli named greet using argparse. Accept a required --name flag, print exactly 'hello, <name>!', add one pytest test, keep files minimal, and finish the full lifecycle without asking questions unless a safety-critical ambiguity blocks progress.";
+  "loopship: build a tiny python cli named greet using argparse. Accept a required --name flag, print exactly 'hello, <name>!', add one pytest test, keep files minimal, and finish the full lifecycle without asking questions unless a safety-critical ambiguity blocks progress.";
 
 export const CONCRETE_REACT_HABIT_TRACKER_REQUEST =
-  "loopo: build a sample React habit tracker using React with TypeScript, keep it single-user and local-first, no auth, responsive UI, and basic tests";
+  "loopship: build a sample React habit tracker using React with TypeScript, keep it single-user and local-first, no auth, responsive UI, and basic tests";
 
 export function selectSimProductQuestScenario(
   request: string,

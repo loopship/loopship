@@ -5,7 +5,7 @@ import {
   summarizeLifecycleMatrix,
 } from "./lifecycle_matrix.ts";
 
-describe("loopo lifecycle matrix", () => {
+describe("loopship lifecycle matrix", () => {
   it(
     "machine-checks the tasks.md lifecycle matrix scenarios",
     () => {
@@ -14,7 +14,7 @@ describe("loopo lifecycle matrix", () => {
 
     expect(summary.passed).toBe(summary.total);
     expect(summary.all_archived).toBe(true);
-    expect(summary.all_loopo_routed).toBe(true);
+    expect(summary.all_loopship_routed).toBe(true);
     expect(summary.all_merge_commits_recorded).toBe(true);
 
     const bugfix = results.find((result) => result.id === "bugfix");

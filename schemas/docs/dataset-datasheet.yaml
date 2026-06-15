@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/docs/dataset-datasheet.yaml
-title: Loopo Dataset Datasheet Document v2
+$id: loopship://schemas/docs/dataset-datasheet.yaml
+title: Loopship Dataset Datasheet Document v2
 type: object
 additionalProperties: false
 required:
@@ -26,7 +26,7 @@ properties:
   schema_version:
     const: 2
   id:
-    $ref: loopo://schemas/system.yaml#/$defs/id
+    $ref: loopship://schemas/system.yaml#/$defs/id
   title:
     type: string
     minLength: 1
@@ -146,7 +146,7 @@ properties:
         type: string
         minLength: 1
       location_ref:
-        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        $ref: loopship://schemas/system.yaml#/$defs/resource_ref
   maintenance:
     $ref: "#/$defs/prose"
   ethics_privacy:

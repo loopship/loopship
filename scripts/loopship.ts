@@ -24,8 +24,8 @@ import {
   writeJson,
   writeText,
   AUTO_CONTINUE_BUDGET,
-} from "./loopo_utils.ts";
-import type { Runtime } from "./loopo_utils.ts";
+} from "./loopship_utils.ts";
+import type { Runtime } from "./loopship_utils.ts";
 import {
   applyLandingReceipt,
   applyQuestPlanToTasks,
@@ -34,14 +34,14 @@ import {
   applySystemUpdate,
   appendJsonl,
   coordinatorWorktreePath,
-  createLoopoShim,
+  createLoopshipShim,
   createQuest,
   ensureCoordinatorWorkspace,
   ensureTaskWorkspace,
   ensureGlobalSkillFiles,
   ensureGitRootCommit,
   landingTargetWorktreePath,
-  LOOPO_ROOT_MANIFEST_FILE,
+  LOOPSHIP_ROOT_MANIFEST_FILE,
   parseTasksYaml,
   taskAssignmentBranchRef,
   taskAssignmentChildWtree,
@@ -51,33 +51,33 @@ import {
   questFiles,
   questWorkspaceRoot,
   renderTasksYaml,
-  resolveGlobalLoopoBinPath,
+  resolveGlobalLoopshipBinPath,
   normalizeName,
   updateQuestStage,
   verifyQuestManifest,
   verifyRootManifest,
   writeQuestManifest,
-} from "./loopo_core.ts";
+} from "./loopship_core.ts";
 import {
   DEFAULT_FLOW_ID,
   DEFAULT_FLOW_VERSION,
   flowStage,
   flowStep,
   loadFlowDefinition,
-  type LoadedLoopoFlow,
-} from "./loopo_workflow_runner.ts";
+  type LoadedLoopshipFlow,
+} from "./loopship_workflow_runner.ts";
 import {
   dereferencedSchemaSource,
   dereferencedV3Schema,
-  type LoopoSchemaSource,
+  type LoopshipSchemaSource,
   validateSchemaSource,
   validateV3Input,
   v3SchemaPath,
   v3SchemaRef,
-} from "./loopo_schema.ts";
-import { runLoopoCmdproto } from "./loopo_cmdproto.ts";
-import { runHandbook } from "./loopo_handbook.ts";
-import { runSimCli } from "./loopo_sim.ts";
+} from "./loopship_schema.ts";
+import { runLoopshipCmdproto } from "./loopship_cmdproto.ts";
+import { runHandbook } from "./loopship_handbook.ts";
+import { runSimCli } from "./loopship_sim.ts";
 
 type Command =
   | "init"
@@ -119,19 +119,19 @@ const TERMINAL_OUTPUT_INSTRUCTION =
   "This terminal step is reusable across flows. The orchestrator owns terminal flow state. output_schema is null, so report the terminal output and do not invent a next payload.";
 const MAX_EMBEDDED_SCHEMA_BYTES = 64 * 1024;
 function usage(): void {
-  console.log(`loopo
+  console.log(`loopship
 
 Usage:
-  loopo init "loopo: <request>" --runtime <codex|gemini|copilot|all> [--flow swe] [--wtree <name>]
-  loopo quest next --wtree <name> --json <json|@file|@->
-  loopo hook --runtime <codex|gemini|copilot>
-  loopo sim init "loopo: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
-  loopo sim quest next --wtree <name> --json <json|@file|@->
-  loopo sim hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
-  loopo doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
-  loopo handbook [--repo <path>] [--raw|--duplicates|--fix-duplicates] [--json] [--min-chars <n>]
-  loopo cmdproto --help [--json]
-  loopo cmdproto execjson <path> <json|@file|@->
+  loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow swe] [--wtree <name>]
+  loopship quest next --wtree <name> --json <json|@file|@->
+  loopship hook --runtime <codex|gemini|copilot>
+  loopship sim init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
+  loopship sim quest next --wtree <name> --json <json|@file|@->
+  loopship sim hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
+  loopship doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
+  loopship handbook [--repo <path>] [--raw|--duplicates|--fix-duplicates] [--json] [--min-chars <n>]
+  loopship cmdproto --help [--json]
+  loopship cmdproto execjson <path> <json|@file|@->
 `);
 }
 
@@ -185,8 +185,8 @@ function resolveRepoContext(input?: {
   if (input?.repo) return { repoRoot: ensureRepo(input.repo), source: "flag" };
   const payload = input?.payload ?? {};
   const candidates = [
-    payload.loopo_repo_root,
-    payload.loopoRepoRoot,
+    payload.loopship_repo_root,
+    payload.loopshipRepoRoot,
     payload.repo_root,
     payload.repoRoot,
     payload.cwd,
@@ -204,20 +204,20 @@ function resolveRepoContext(input?: {
         source: base ? "repo_worktree" : "git_root",
       };
     }
-    if (existsSync(resolve(resolved, ".loopo"))) {
+    if (existsSync(resolve(resolved, ".loopship"))) {
       const base = baseRepoRootFromWorktreeRoot(resolved);
       return {
         repoRoot: realpathSync(base ?? resolved),
-        source: base ? "repo_worktree" : "loopo_ancestor",
+        source: base ? "repo_worktree" : "loopship_ancestor",
       };
     }
     let cursor = resolved;
     while (true) {
-      if (existsSync(resolve(cursor, ".loopo"))) {
+      if (existsSync(resolve(cursor, ".loopship"))) {
         const base = baseRepoRootFromWorktreeRoot(cursor);
         return {
           repoRoot: realpathSync(base ?? cursor),
-          source: base ? "repo_worktree" : "loopo_ancestor",
+          source: base ? "repo_worktree" : "loopship_ancestor",
         };
       }
       const parent = dirname(cursor);
@@ -227,7 +227,7 @@ function resolveRepoContext(input?: {
     if (existsSync(resolved))
       return { repoRoot: realpathSync(resolved), source: "cwd" };
   }
-  throw new Error("cannot resolve loopo context");
+  throw new Error("cannot resolve loopship context");
 }
 
 const GENERIC_GREENFIELD_TOKENS = new Set([
@@ -284,7 +284,7 @@ const PROMPT_STOPWORDS = new Set([
 function normalizePromptText(value: unknown): string {
   return String(value ?? "")
     .toLowerCase()
-    .replace(/^loopo:\s*/, "")
+    .replace(/^loopship:\s*/, "")
     .replace(/\bfull\s+stack\b/g, "fullstack")
     .replace(/\bfront\s+end\b/g, "frontend")
     .replace(/\bback\s+end\b/g, "backend")
@@ -327,9 +327,9 @@ function parseInitArgs(argv: string[]): {
     if (arg === "--repo") repo = argv[++i] ?? repo;
     else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
-      throw new Error("loopo init no longer accepts --cwd; run it from the repo root or pass --repo");
+      throw new Error("loopship init no longer accepts --cwd; run it from the repo root or pass --repo");
     } else if (arg === "--session" || arg?.startsWith("--session=")) {
-      throw new Error("loopo init no longer accepts --session");
+      throw new Error("loopship init no longer accepts --session");
     } else if (arg === "--wtree") wtree = argv[++i] ?? null;
     else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
     else if (arg === "--flow") flowId = argv[++i] ?? flowId;
@@ -433,11 +433,11 @@ function installCodexHook(repoRoot: string, cmd: string): string {
       .replace(/['"]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  const isLoopoHookCommand = (value: unknown): boolean => {
+  const isLoopshipHookCommand = (value: unknown): boolean => {
     const normalized = normalizeCommand(value);
     if (!normalized) return false;
     if (/(^|\s)tasks_loop_hook\.(ts|py)(\s|$)/.test(normalized)) return true;
-    return normalized.includes("loopo") && /\bhook\b/.test(normalized);
+    return normalized.includes("loopship") && /\bhook\b/.test(normalized);
   };
   const normalized: Array<Record<string, unknown>> = [];
   for (const group of groups) {
@@ -446,7 +446,7 @@ function installCodexHook(repoRoot: string, cmd: string): string {
       : [];
     const kept = items.filter((item: any) => {
       const command = String(item?.command ?? "");
-      return !isLoopoHookCommand(command);
+      return !isLoopshipHookCommand(command);
     });
     if (kept.length) normalized.push({ ...group, hooks: kept });
   }
@@ -456,7 +456,7 @@ function installCodexHook(repoRoot: string, cmd: string): string {
         type: "command",
         command: cmd,
         timeout: 30,
-        statusMessage: "loopo: evaluating continuation",
+        statusMessage: "loopship: evaluating continuation",
       },
     ],
   });
@@ -477,11 +477,11 @@ function installGeminiHook(repoRoot: string, cmd: string): string {
       .replace(/['"]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  const isLoopoHookCommand = (value: unknown): boolean => {
+  const isLoopshipHookCommand = (value: unknown): boolean => {
     const normalized = normalizeCommand(value);
     if (!normalized) return false;
     if (/(^|\s)tasks_loop_hook\.(ts|py)(\s|$)/.test(normalized)) return true;
-    return normalized.includes("loopo") && /\bhook\b/.test(normalized);
+    return normalized.includes("loopship") && /\bhook\b/.test(normalized);
   };
   const normalized: Array<Record<string, unknown>> = [];
   for (const group of groups) {
@@ -490,18 +490,18 @@ function installGeminiHook(repoRoot: string, cmd: string): string {
       : [];
     const kept = items.filter((item: any) => {
       const command = String(item?.command ?? "");
-      return !isLoopoHookCommand(command);
+      return !isLoopshipHookCommand(command);
     });
     if (kept.length) normalized.push({ ...group, hooks: kept });
   }
   normalized.push({
     hooks: [
       {
-        name: "loopo-after-agent",
+        name: "loopship-after-agent",
         type: "command",
         command: cmd,
         timeout: 10000,
-        description: "Continue loopo when work remains",
+        description: "Continue loopship when work remains",
       },
     ],
   });
@@ -511,7 +511,7 @@ function installGeminiHook(repoRoot: string, cmd: string): string {
 }
 
 function installCopilotHook(repoRoot: string, cmd: string): string {
-  const path = resolve(repoRoot, ".github", "hooks", "loopo.json");
+  const path = resolve(repoRoot, ".github", "hooks", "loopship.json");
   writeJson(path, {
     version: 1,
     hooks: {
@@ -533,8 +533,8 @@ function installCopilotHook(repoRoot: string, cmd: string): string {
 
 export function runDoctor(argv: string[]): number {
   const args = parseDoctorArgs(argv);
-  const wrapperScript = resolve(SCRIPT_DIR, "loopo.ts");
-  const globalBin = resolveGlobalLoopoBinPath();
+  const wrapperScript = resolve(SCRIPT_DIR, "loopship.ts");
+  const globalBin = resolveGlobalLoopshipBinPath();
   const repoRoot = args.repo;
   const expectedFiles = [globalBin];
   const issues: string[] = [];
@@ -547,8 +547,8 @@ export function runDoctor(argv: string[]): number {
       issues.push("missing .codex/hooks.json");
     } else if (!args.hookScript && readText(codexPath).includes("node -e")) {
       issues.push("old codex hook command shells through node -e");
-    } else if (readText(codexPath).includes(".loopo/bin/loopo")) {
-      issues.push("old codex hook command uses .loopo/bin/loopo");
+    } else if (readText(codexPath).includes(".loopship/bin/loopship")) {
+      issues.push("old codex hook command uses .loopship/bin/loopship");
     } else if (
       readText(codexPath).includes("--cwd") ||
       readText(codexPath).includes("--repo")
@@ -562,8 +562,8 @@ export function runDoctor(argv: string[]): number {
       issues.push("missing .gemini/settings.json");
     } else if (!args.hookScript && readText(geminiPath).includes("node -e")) {
       issues.push("old gemini hook command shells through node -e");
-    } else if (readText(geminiPath).includes(".loopo/bin/loopo")) {
-      issues.push("old gemini hook command uses .loopo/bin/loopo");
+    } else if (readText(geminiPath).includes(".loopship/bin/loopship")) {
+      issues.push("old gemini hook command uses .loopship/bin/loopship");
     } else if (
       readText(geminiPath).includes("--cwd") ||
       readText(geminiPath).includes("--repo")
@@ -572,9 +572,9 @@ export function runDoctor(argv: string[]): number {
     }
   }
   if (args.runtime === "copilot" || args.runtime === "all") {
-    const copilotPath = resolve(repoRoot, ".github", "hooks", "loopo.json");
+    const copilotPath = resolve(repoRoot, ".github", "hooks", "loopship.json");
     if (!existsSync(copilotPath)) {
-      issues.push("missing .github/hooks/loopo.json");
+      issues.push("missing .github/hooks/loopship.json");
     } else if (!args.hookScript && readText(copilotPath).includes("node -e")) {
       issues.push("old copilot hook command shells through node -e");
     } else if (
@@ -587,16 +587,16 @@ export function runDoctor(argv: string[]): number {
 
   if (!args.fix) {
     if (!issues.length) {
-      console.log(`loopo doctor: status=healthy repo=${repoRoot}`);
+      console.log(`loopship doctor: status=healthy repo=${repoRoot}`);
       return 0;
     }
-    console.log(`loopo doctor: status=issues repo=${repoRoot}`);
+    console.log(`loopship doctor: status=issues repo=${repoRoot}`);
     for (const issue of issues) console.log(`- ${issue}`);
-    console.log("loopo doctor: rerun with --fix");
+    console.log("loopship doctor: rerun with --fix");
     return 2;
   }
 
-  createLoopoShim(globalBin, wrapperScript);
+  createLoopshipShim(globalBin, wrapperScript);
   const buildHookCommand = (runtime: Runtime): string => {
     if (args.hookScript) {
       const wrapJs =
@@ -622,7 +622,7 @@ export function runDoctor(argv: string[]): number {
     written.push(installCopilotHook(repoRoot, copilotCmd));
   }
 
-  console.log(`loopo doctor: status=fixed repo=${repoRoot}`);
+  console.log(`loopship doctor: status=fixed repo=${repoRoot}`);
   for (const path of written) console.log(`- ${path}`);
   return 0;
 }
@@ -643,7 +643,7 @@ function inferRepoRuntime(repoRoot: string): DoctorArgs["runtime"] {
   if (existsSync(resolve(repoRoot, ".gemini", "settings.json"))) {
     runtimes.push("gemini");
   }
-  if (existsSync(resolve(repoRoot, ".github", "hooks", "loopo.json"))) {
+  if (existsSync(resolve(repoRoot, ".github", "hooks", "loopship.json"))) {
     runtimes.push("copilot");
   }
   if (runtimes.length === 1) return runtimes[0];
@@ -714,7 +714,7 @@ function flowVersionForState(state: Partial<{ [key: string]: any }>): number {
 
 function loadStateFlow(
   state: Partial<{ [key: string]: any }>,
-): LoadedLoopoFlow {
+): LoadedLoopshipFlow {
   return loadFlowDefinition(flowIdForState(state));
 }
 
@@ -725,7 +725,7 @@ function stageToV3Step(stage: string, flow = loadFlowDefinition()): string {
 function inputSchemaForStage(
   stage: string,
   flow = loadFlowDefinition(),
-): LoopoSchemaSource {
+): LoopshipSchemaSource {
   return flowStep(flow, stage).output_schema;
 }
 
@@ -822,7 +822,7 @@ function requestTokens(value: string): Set<string> {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, " ")
       .split(/\s+/)
-      .filter((token) => token.length > 2 && token !== "loopo"),
+      .filter((token) => token.length > 2 && token !== "loopship"),
   );
 }
 
@@ -852,7 +852,7 @@ function rankQuestCandidates(
         flow_id: flowIdForState(quest?.state ?? {}),
         flow_version: flowVersionForState(quest?.state ?? {}),
         worktree_path: String(quest?.state.coordinator_worktree ?? ""),
-        command: compactCommand("loopo", [
+        command: compactCommand("loopship", [
           "quest",
           "next",
           "--wtree",
@@ -869,7 +869,7 @@ function rankQuestCandidates(
 }
 
 function suggestedWtree(request: string): string {
-  return normalizeName(request.replace(/^loopo:\s*/i, "") || "quest");
+  return normalizeName(request.replace(/^loopship:\s*/i, "") || "quest");
 }
 
 function validWtreeName(value: string): boolean {
@@ -898,9 +898,9 @@ function ensureV3Runtime(input: {
   skillHome?: string | null;
 }): void {
   ensureGlobalSkillFiles(input.skillHome);
-  const wrapperScript = resolve(SCRIPT_DIR, "loopo.ts");
-  const globalBin = resolveGlobalLoopoBinPath();
-  createLoopoShim(globalBin, wrapperScript);
+  const wrapperScript = resolve(SCRIPT_DIR, "loopship.ts");
+  const globalBin = resolveGlobalLoopshipBinPath();
+  createLoopshipShim(globalBin, wrapperScript);
   const buildHookCommand = (runtime: Runtime): string => {
     return simpleHookCommand(globalBin, runtime);
   };
@@ -926,7 +926,7 @@ function v3InitRoute(input: {
     String(input.wtree ?? "").trim() || suggestedWtree(input.request),
   );
   const flow = loadFlowDefinition(input.flowId);
-  const compactSchema = process.env.LOOPO_COMPACT_INIT_SCHEMA === "1";
+  const compactSchema = process.env.LOOPSHIP_COMPACT_INIT_SCHEMA === "1";
   const createQuestInput = {
     step: "select_quest",
     action: "create_quest",
@@ -945,7 +945,7 @@ function v3InitRoute(input: {
     candidates: rankQuestCandidates(input.repoRoot, input.request),
     new_quest: {
       suggested_wtree: wtree,
-      command: compactCommand("loopo", [
+      command: compactCommand("loopship", [
         "quest",
         "next",
         "--wtree",
@@ -1017,7 +1017,7 @@ function acquireWtreeLock(repoRoot: string, wtree: string): WtreeLock {
           lock: {
             path,
             pid,
-            retry: compactCommand("loopo", [
+            retry: compactCommand("loopship", [
               "quest",
               "next",
               "--wtree",
@@ -1076,11 +1076,11 @@ function readyChildrenForV3(
     const mergeTarget = String(task.merge_target || wtree);
     const parentContextRef = resolve(
       coordinatorWorktreePath(repoRoot, wtree),
-      ".loopo",
+      ".loopship",
       "runtime",
       "tasks.yaml",
     );
-    const request = `loopo: execute child task ${task.id}: ${task.title}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${mergeTarget} and return the merge_commit.`;
+    const request = `loopship: execute child task ${task.id}: ${task.title}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${mergeTarget} and return the merge_commit.`;
     return {
       task_id: task.id,
       title: task.title,
@@ -1094,7 +1094,7 @@ function readyChildrenForV3(
       merge_target_worktree: coordinatorWorktreePath(repoRoot, wtree),
       acceptance: task.acceptance,
       commands: {
-        init: command("loopo", [
+        init: command("loopship", [
           "init",
           request,
           "--wtree",
@@ -1104,7 +1104,7 @@ function readyChildrenForV3(
           "--flow",
           flowId,
         ]),
-        next: command("loopo", [
+        next: command("loopship", [
           "quest",
           "next",
           "--wtree",
@@ -1136,7 +1136,7 @@ function stepInstructions(stepDef: ReturnType<typeof flowStep>): string {
   return `${stepDef.instructions.trimEnd()}\n\n${callbackInstruction}`;
 }
 
-function schemaRefForSource(schemaSource: LoopoSchemaSource): unknown {
+function schemaRefForSource(schemaSource: LoopshipSchemaSource): unknown {
   if (schemaSource == null) return null;
   if (typeof schemaSource === "string") return { schema_path: schemaSource };
   const schemaId = schemaSource.$id;
@@ -1145,7 +1145,7 @@ function schemaRefForSource(schemaSource: LoopoSchemaSource): unknown {
     : schemaSource;
 }
 
-function boundedSchema(schemaSource: LoopoSchemaSource): unknown {
+function boundedSchema(schemaSource: LoopshipSchemaSource): unknown {
   const embedded = dereferencedSchemaSource(schemaSource);
   if (embedded == null) return null;
   if (
@@ -1197,7 +1197,7 @@ function v3StepOutput(input: {
       step: compactStepData(stepDef),
       output_schema: boundedSchema(stepDef.output_schema),
       commands: {
-        next: tokenCommand("loopo", nextArgs),
+        next: tokenCommand("loopship", nextArgs),
       },
     };
     if (step === "executing") {
@@ -1231,7 +1231,7 @@ function v3StepOutput(input: {
     summary: v3StepSummary(stage, flow),
     output_schema: boundedSchema(stepDef.output_schema),
     commands: {
-      next: tokenCommand("loopo", nextArgs),
+      next: tokenCommand("loopship", nextArgs),
     },
   };
   if (input.full) {
@@ -1241,7 +1241,7 @@ function v3StepOutput(input: {
       step: stepContextData(stepDef),
     };
     output.commands = {
-      next: compactCommand("loopo", nextArgs),
+      next: compactCommand("loopship", nextArgs),
     };
     output.docs = {
       state_yaml: input.files.tasks,
@@ -1305,7 +1305,7 @@ function isChildExecutionQuestPrompt(prompt: unknown): boolean {
     .trim()
     .toLowerCase();
   return (
-    normalized.startsWith("loopo: execute child task ") ||
+    normalized.startsWith("loopship: execute child task ") ||
     normalized.startsWith("execute child task ")
   );
 }
@@ -1338,7 +1338,7 @@ function appendV3Event(
 }
 
 function writeV3Manifest(files: QuestFiles, requestId: string): void {
-  writeQuestManifest(files, requestId, "loopo quest next");
+  writeQuestManifest(files, requestId, "loopship quest next");
 }
 
 function persistQuestState(
@@ -1500,7 +1500,7 @@ function handlePlan(input: {
       input.files,
       "awaiting_user_answers",
       input.requestId,
-      "loopo quest next",
+      "loopship quest next",
     );
   }
   const plan = {
@@ -1535,7 +1535,7 @@ function handlePlan(input: {
     input.files,
     "plan_review",
     input.requestId,
-    "loopo quest next",
+    "loopship quest next",
   );
 }
 
@@ -1565,7 +1565,7 @@ function handleQuestions(input: {
     input.files,
     "planning",
     input.requestId,
-    "loopo quest next",
+    "loopship quest next",
   );
 }
 
@@ -1610,51 +1610,51 @@ function isIgnorableOperationalDirtyPath(path: string): boolean {
   return (
     normalized === ".codex/hooks.json" ||
     normalized === ".gemini/settings.json" ||
-    normalized === ".github/hooks/loopo.json" ||
+    normalized === ".github/hooks/loopship.json" ||
     normalized === ".github/hooks" ||
-    normalized === ".loopo/runtime/hook-state.json" ||
-    normalized === ".loopo/runtime/lock.json" ||
+    normalized === ".loopship/runtime/hook-state.json" ||
+    normalized === ".loopship/runtime/lock.json" ||
     normalized.startsWith("worktrees/")
   );
 }
 
-function isDurableLoopoDirtyPath(path: string): boolean {
-  return path.replace(/\\/g, "/").startsWith(".loopo/");
+function isDurableLoopshipDirtyPath(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(".loopship/");
 }
 
-function nonLoopoGitDirtyEntries(path: string): string[] {
+function nonLoopshipGitDirtyEntries(path: string): string[] {
   return gitWorktreeDirtyEntries(path).filter((entry) => {
     const dirtyPath = dirtyEntryPath(entry);
     return (
       !isIgnorableOperationalDirtyPath(dirtyPath) &&
-      !isDurableLoopoDirtyPath(dirtyPath)
+      !isDurableLoopshipDirtyPath(dirtyPath)
     );
   });
 }
 
-function commitDurableLoopoState(cwd: string, message: string): string | null {
-  if (!existsSync(resolve(cwd, ".loopo"))) return null;
-  const add = runCommand("git", ["add", "--", ".loopo"], {
+function commitDurableLoopshipState(cwd: string, message: string): string | null {
+  if (!existsSync(resolve(cwd, ".loopship"))) return null;
+  const add = runCommand("git", ["add", "--", ".loopship"], {
     cwd,
     timeoutMs: 30_000,
   });
   if (add.status !== 0) {
-    throw new Error(add.stderr || add.stdout || "failed to stage .loopo state");
+    throw new Error(add.stderr || add.stdout || "failed to stage .loopship state");
   }
-  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ".loopo"], {
+  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ".loopship"], {
     cwd,
     timeoutMs: 15_000,
   });
   if (diff.status === 0) return null;
   if (diff.status !== 1) {
-    throw new Error(diff.stderr || diff.stdout || "failed to inspect staged .loopo state");
+    throw new Error(diff.stderr || diff.stdout || "failed to inspect staged .loopship state");
   }
   const commit = runCommand("git", ["commit", "-m", message], {
     cwd,
     timeoutMs: 60_000,
   });
   if (commit.status !== 0) {
-    throw new Error(commit.stderr || commit.stdout || "failed to commit .loopo state");
+    throw new Error(commit.stderr || commit.stdout || "failed to commit .loopship state");
   }
   return gitRevParse(cwd, "HEAD");
 }
@@ -1706,15 +1706,15 @@ function gitMergeIntoBranch(
       `landing target worktree ${targetWorktree} is on ${currentBranch || "unknown"} instead of ${targetBranch}`,
     );
   }
-  const dirtyTargetNonLoopoEntries = nonLoopoGitDirtyEntries(targetWorktree);
-  if (dirtyTargetNonLoopoEntries.length) {
+  const dirtyTargetNonLoopshipEntries = nonLoopshipGitDirtyEntries(targetWorktree);
+  if (dirtyTargetNonLoopshipEntries.length) {
     throw new Error(
-      `cannot merge into dirty landing target worktree ${targetWorktree}: ${dirtyTargetNonLoopoEntries.slice(0, 5).join(", ")}`,
+      `cannot merge into dirty landing target worktree ${targetWorktree}: ${dirtyTargetNonLoopshipEntries.slice(0, 5).join(", ")}`,
     );
   }
-  commitDurableLoopoState(
+  commitDurableLoopshipState(
     targetWorktree,
-    `chore(loopo): record ${targetBranch} target state`,
+    `chore(loopship): record ${targetBranch} target state`,
   );
   const sourceCommit = gitRevParse(repoRoot, sourceBranch);
   const targetCommit = gitRevParse(repoRoot, targetBranch);
@@ -1743,7 +1743,7 @@ function gitMergeIntoBranch(
     );
   }
   const landedCommit = gitRevParse(targetWorktree, "HEAD");
-  const dirtyAfterMerge = nonLoopoGitDirtyEntries(targetWorktree);
+  const dirtyAfterMerge = nonLoopshipGitDirtyEntries(targetWorktree);
   if (dirtyAfterMerge.length) {
     throw new Error(
       `landing target worktree ${targetWorktree} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
@@ -1815,7 +1815,7 @@ function handleTaskGraph(input: {
       input.files,
       "planning",
       input.requestId,
-      "loopo quest next",
+      "loopship quest next",
     );
   }
   const tasks = Array.isArray(input.state.tasks) ? input.state.tasks : [];
@@ -1826,14 +1826,14 @@ function handleTaskGraph(input: {
       input.files,
       "validating",
       input.requestId,
-      "loopo quest next",
+      "loopship quest next",
     );
   }
   return updateQuestStage(
     input.files,
     "task_graph_ready",
     input.requestId,
-    "loopo quest next",
+    "loopship quest next",
   );
 }
 
@@ -1950,7 +1950,7 @@ function handleChildResult(input: {
       input.files,
       "validating",
       input.requestId,
-      "loopo quest next",
+      "loopship quest next",
     );
   }
   writeV3Manifest(input.files, input.requestId);
@@ -1997,7 +1997,7 @@ function handleValidation(input: {
         ? "validating"
         : "task_graph_ready",
     input.requestId,
-    "loopo quest next",
+    "loopship quest next",
   );
 }
 
@@ -2042,7 +2042,7 @@ function handleVerification(input: {
     input.files,
     input.payload.status === "passed" ? "system_update_pending" : "validating",
     input.requestId,
-    "loopo quest next",
+    "loopship quest next",
   );
 }
 
@@ -2079,7 +2079,7 @@ function handleSystemUpdate(input: {
     input.files,
     "landing_ready",
     input.requestId,
-    "loopo quest next",
+    "loopship quest next",
   );
 }
 
@@ -2108,7 +2108,7 @@ function handleLanding(input: {
       );
     }
     const coordinatorWorktree = String(currentState.coordinator_worktree ?? "");
-    const dirtyCoordinatorEntries = nonLoopoGitDirtyEntries(
+    const dirtyCoordinatorEntries = nonLoopshipGitDirtyEntries(
       coordinatorWorktree,
     );
     if (dirtyCoordinatorEntries.length) {
@@ -2168,7 +2168,7 @@ function handleLanding(input: {
       input.files,
       "archived",
       input.requestId,
-      "loopo quest next",
+      "loopship quest next",
     );
     return { files: input.files, state: archived };
   }
@@ -2185,7 +2185,7 @@ function handleLanding(input: {
       input.files,
       "landing_ready",
       input.requestId,
-      "loopo quest next",
+      "loopship quest next",
     ),
   };
 }
@@ -2343,9 +2343,9 @@ function parseQuestRepoArg(argv: string[]): {
     if (arg === "--repo") repo = argv[++i] ?? null;
     else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
-      throw new Error("loopo no longer accepts --cwd; use --wtree and run from a repo/worktree context");
+      throw new Error("loopship no longer accepts --cwd; use --wtree and run from a repo/worktree context");
     } else if (arg === "--session" || arg?.startsWith("--session=")) {
-      throw new Error("loopo no longer accepts --session; use --wtree");
+      throw new Error("loopship no longer accepts --session; use --wtree");
     } else if (arg === "--wtree") wtree = argv[++i] ?? null;
     else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
     else if (arg === "--runtime") runtime = (argv[++i] as Runtime) ?? null;
@@ -2448,7 +2448,7 @@ function resolveHookWtree(input: {
   const explicit =
     stringField(input.explicitWtree) ||
     stringField(input.payload.wtree) ||
-    stringField(input.payload.loopo_wtree);
+    stringField(input.payload.loopship_wtree);
   if (explicit && !validWtreeName(explicit)) {
     return { ok: false, reason: "explicit wtree is not a base name", cwd };
   }
@@ -2564,7 +2564,7 @@ export function runQuestNextV3(argv: string[]): number {
 
     const rootSignaturePath = resolve(
       questWorkspaceRoot(existing.files),
-      LOOPO_ROOT_MANIFEST_FILE,
+      LOOPSHIP_ROOT_MANIFEST_FILE,
     );
     if (existsSync(rootSignaturePath)) {
       const rootSignature = verifyRootManifest(questWorkspaceRoot(existing.files));
@@ -2801,7 +2801,7 @@ export function runHook(argv: string[]): number {
       task_state: taskState,
       decision: null,
     });
-    writeQuestManifest(activeQuest.files, "hook", "loopo hook");
+    writeQuestManifest(activeQuest.files, "hook", "loopship hook");
     process.stdout.write("{}");
     return 0;
   }
@@ -2820,18 +2820,18 @@ export function runHook(argv: string[]): number {
     state: activeQuest.state,
   });
   const reason = JSON.stringify({
-    loopo: true,
+    loopship: true,
     command: "quest.next",
     ...stepDoc,
   });
   const budgetReason = JSON.stringify({
-    loopo: true,
+    loopship: true,
     command: "quest.next",
     wtree: activeQuest.files.wtree,
     step: stageToV3Step(stage, loadStateFlow(activeQuest.state)),
     stop_reason: "budget_exhausted",
     summary:
-      "Continuation budget exhausted. Resume manually with loopo quest next --wtree <name> --json @-.",
+      "Continuation budget exhausted. Resume manually with loopship quest next --wtree <name> --json @-.",
   });
   if (budgetExhausted) chain.budget_prompted = true;
   else chain.continuation_count = budgetUsed + 1;
@@ -2849,7 +2849,7 @@ export function runHook(argv: string[]): number {
     continuation_count: chain.continuation_count ?? budgetUsed,
     snapshot_fingerprint: snapshot,
   });
-  writeQuestManifest(activeQuest.files, "hook", "loopo hook");
+  writeQuestManifest(activeQuest.files, "hook", "loopship hook");
   process.stdout.write(
     JSON.stringify(
       hookOutput(
@@ -2899,8 +2899,8 @@ export function runInit(argv: string[]): number {
   ]);
   if (doctorStatus !== 0) return doctorStatus;
   const skill = ensureGlobalSkillFiles(args.skillHome);
-  console.log(`loopo init: repo=${args.repo}`);
-  console.log(`loopo init: mode=installer`);
+  console.log(`loopship init: repo=${args.repo}`);
+  console.log(`loopship init: mode=installer`);
   console.log(`- ${skill}`);
   return 0;
 }
@@ -2912,7 +2912,7 @@ export async function runCliCommand(argv: string[]): Promise<number> {
     argv.includes("--json") &&
     argv.every((token) => token === "--help" || token === "--json")
   ) {
-    return runLoopoCmdproto(argv, { control: false });
+    return runLoopshipCmdproto(argv, { control: false });
   }
   if (
     argv[0] !== "cmdproto" &&
@@ -2928,7 +2928,7 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   if (cmd === "quest") return runQuest(rest);
   if (cmd === "sim") return runSimCli(rest);
   if (cmd === "handbook") return runHandbook(rest);
-  if (cmd === "cmdproto") return runLoopoCmdproto(rest);
+  if (cmd === "cmdproto") return runLoopshipCmdproto(rest);
   return runDoctor(rest);
 }
 

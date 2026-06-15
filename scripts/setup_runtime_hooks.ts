@@ -2,10 +2,10 @@
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expandHome, runCommand, tsRunner } from "./loopo_utils.ts";
+import { expandHome, runCommand, tsRunner } from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const LOOPO_SCRIPT = resolve(SCRIPT_DIR, "loopo.ts");
+const LOOPSHIP_SCRIPT = resolve(SCRIPT_DIR, "loopship.ts");
 
 function parseArgs(argv: string[]): {
   repo: string;
@@ -24,7 +24,7 @@ function parseArgs(argv: string[]): {
       hookScript = resolve(expandHome(argv[++i] ?? ""));
     else if (arg === "--help" || arg === "-h") {
       console.log(
-        "Install loopo runtime hooks\n\nUsage: bun|node|npx tsx setup_runtime_hooks.ts --repo <path> --runtime <codex|gemini|copilot|all> [--hook-script <path>]",
+        "Install loopship runtime hooks\n\nUsage: bun|node|npx tsx setup_runtime_hooks.ts --repo <path> --runtime <codex|gemini|copilot|all> [--hook-script <path>]",
       );
       process.exit(0);
     } else {
@@ -44,7 +44,7 @@ function parseArgs(argv: string[]): {
 
 function main(): number {
   const args = parseArgs(process.argv.slice(2));
-  const launcher = tsRunner(LOOPO_SCRIPT, [
+  const launcher = tsRunner(LOOPSHIP_SCRIPT, [
     "doctor",
     "--repo",
     args.repo,
@@ -57,7 +57,7 @@ function main(): number {
   }
   const proc = runCommand(launcher.cmd, launcher.args, { timeoutMs: 60_000 });
   if (proc.status !== 0) {
-    throw new Error(proc.stderr || proc.stdout || "loopo doctor failed");
+    throw new Error(proc.stderr || proc.stdout || "loopship doctor failed");
   }
   process.stdout.write(proc.stdout);
   return 0;

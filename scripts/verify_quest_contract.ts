@@ -11,15 +11,15 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand } from "./loopo_utils.ts";
+import { runCommand } from "./loopship_utils.ts";
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 
 function fail(message: string): never {
   throw new Error(message);
 }
 
-function runLoopo(
+function runLoopship(
   repo: string,
   args: string[],
   input?: Record<string, unknown>,
@@ -40,22 +40,22 @@ function parseJson(stdout: string): any {
 }
 
 function main(): number {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopo-v3-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-v3-")));
   const repo = join(root, "repo");
   try {
     const git = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
     if (git.status !== 0) fail(git.stderr || git.stdout);
-    runCommand("git", ["config", "user.email", "loopo-test@example.invalid"], {
+    runCommand("git", ["config", "user.email", "loopship-test@example.invalid"], {
       cwd: repo,
     });
-    runCommand("git", ["config", "user.name", "Loopo Test"], { cwd: repo });
-    writeFileSync(join(repo, "README.md"), "# loopo v3\n", "utf8");
+    runCommand("git", ["config", "user.name", "Loopship Test"], { cwd: repo });
+    writeFileSync(join(repo, "README.md"), "# loopship v3\n", "utf8");
     runCommand("git", ["add", "README.md"], { cwd: repo });
     runCommand("git", ["commit", "-m", "fixture"], { cwd: repo });
 
-    const init = runLoopo(repo, [
+    const init = runLoopship(repo, [
       "init",
-      "loopo: verify deterministic v3",
+      "loopship: verify deterministic v3",
       "--runtime",
       "codex",
     ]);
@@ -64,7 +64,7 @@ function main(): number {
     if (route.kind !== "init_route") fail(`bad init output: ${init.stdout}`);
     const wtree = String(route.new_quest.suggested_wtree);
 
-    const create = runLoopo(
+    const create = runLoopship(
       repo,
       [
         "quest",
@@ -79,7 +79,7 @@ function main(): number {
         step: "select_quest",
         action: "create_quest",
         wtree,
-        request: "loopo: verify deterministic v3",
+        request: "loopship: verify deterministic v3",
       },
     );
     if (create.status !== 0) fail(create.stderr || create.stdout);
@@ -90,11 +90,11 @@ function main(): number {
       fail(`v3 output leaked v2 fields: ${create.stdout}`);
     }
 
-    const rootQuestDir = join(repo, ".loopo", "quests", wtree);
+    const rootQuestDir = join(repo, ".loopship", "quests", wtree);
     if (existsSync(rootQuestDir)) {
       fail(`quest state must be worktree-local, found root state: ${rootQuestDir}`);
     }
-    const questDir = join(repo, "worktrees", wtree, ".loopo", "runtime");
+    const questDir = join(repo, "worktrees", wtree, ".loopship", "runtime");
     for (const name of [
       "tasks.yaml",
       "events.jsonl",
@@ -124,7 +124,7 @@ function main(): number {
       fail("tasks.yaml must not persist public session_id");
     }
 
-    const removedHelp = runLoopo(repo, ["quest", "help"]);
+    const removedHelp = runLoopship(repo, ["quest", "help"]);
     if (removedHelp.status === 0) {
       fail("quest help must be removed from the public command surface");
     }
@@ -132,7 +132,7 @@ function main(): number {
       fail(`removed quest help must print usage: ${removedHelp.stdout}`);
     }
 
-    const bad = runLoopo(
+    const bad = runLoopship(
       repo,
       ["quest", "next", "--wtree", wtree, "--json", "@-"],
       { step: "child_result" },
@@ -143,14 +143,14 @@ function main(): number {
       join(questDir, "tasks.yaml"),
       `${readFileSync(join(questDir, "tasks.yaml"), "utf8")}# tamper\n`,
     );
-    const tampered = runLoopo(
+    const tampered = runLoopship(
       repo,
       ["quest", "next", "--wtree", wtree, "--json", "@-"],
       {},
     );
     if (tampered.status === 0) fail("tampered YAML must block continuation");
 
-    console.log("loopo quest v3 verification passed");
+    console.log("loopship quest v3 verification passed");
     return 0;
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/signature.yaml
-title: Loopo Signature Manifest
+$id: loopship://schemas/signature.yaml
+title: Loopship Signature Manifest
 type: object
 additionalProperties: false
 required:
@@ -17,7 +17,7 @@ properties:
   schema_version:
     const: 2
   canonicalization:
-    const: loopo-canonical-json-v1
+    const: loopship-canonical-json-v1
   hash_algorithm:
     const: sha256
   root:
@@ -29,9 +29,9 @@ properties:
       - digest
     properties:
       path:
-        const: .loopo/system.yaml
+        const: .loopship/system.yaml
       schema:
-        const: loopo://schemas/system.yaml
+        const: loopship://schemas/system.yaml
       digest:
         $ref: "#/$defs/sha256"
   entries:
@@ -46,14 +46,14 @@ properties:
         - digest
       properties:
         resource_ref:
-          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+          $ref: loopship://schemas/system.yaml#/$defs/resource_ref
         path:
           type: string
           minLength: 1
         schema:
           type: string
           minLength: 1
-          pattern: "^(self|loopo://schemas/[a-z0-9._/-]+\\.yaml)$"
+          pattern: "^(self|loopship://schemas/[a-z0-9._/-]+\\.yaml)$"
         role:
           enum:
             - canonical

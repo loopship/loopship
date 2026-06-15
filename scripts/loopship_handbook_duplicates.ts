@@ -7,8 +7,8 @@ import {
   renderSystemDocYaml,
   renderSystemYaml,
   writeSystemManifest,
-} from "./loopo_core.ts";
-import { hashText, readText, writeText } from "./loopo_utils.ts";
+} from "./loopship_core.ts";
+import { hashText, readText, writeText } from "./loopship_utils.ts";
 
 type YamlMap = Record<string, unknown>;
 
@@ -116,12 +116,12 @@ function parseYamlMap(text: string, label: string): YamlMap {
 function resolveRepoRoot(input?: string): string {
   let cursor = resolve(input || process.cwd());
   while (true) {
-    if (existsSync(join(cursor, ".loopo", "system.yaml"))) return cursor;
+    if (existsSync(join(cursor, ".loopship", "system.yaml"))) return cursor;
     const parent = resolve(cursor, "..");
     if (parent === cursor) break;
     cursor = parent;
   }
-  throw new Error("cannot find .loopo/system.yaml from current directory");
+  throw new Error("cannot find .loopship/system.yaml from current directory");
 }
 
 function humanize(value: string): string {
@@ -216,7 +216,7 @@ function safeFixReason(source: ProseSource, owner: ProseSource): string {
     return "root assertion can index the canonical resource section with links.supported_by";
   }
   if (
-    source.file === ".loopo/docs/agent/system-card.yaml" &&
+    source.file === ".loopship/docs/agent/system-card.yaml" &&
     /^\/evaluation\/[^/]+\/text$/.test(source.pointer) &&
     owner.owner_ref.startsWith("resource:")
   ) {
@@ -360,11 +360,11 @@ function collectRootRecordSources(
     if (!isMap(record) || typeof record.text !== "string") return;
     const id = typeof record.id === "string" ? record.id : `${recordType}-${index + 1}`;
     pushSource(sources, {
-      file: ".loopo/system.yaml",
+      file: ".loopship/system.yaml",
       pointer: jsonPointer([pointerKey, String(index), "text"]),
       parent_pointer: jsonPointer([pointerKey, String(index)]),
       text: record.text,
-      heading_path: ["Loopo Handbook", headingTitle, id],
+      heading_path: ["Loopship Handbook", headingTitle, id],
       owner_ref: `${recordType}:${id}`,
       owner_rank: 100,
       source_kind: "root",
@@ -377,17 +377,17 @@ function collectRootRecordSources(
 function loadHandbookSources(repo?: string): HandbookSourceState {
   const repoRoot = resolveRepoRoot(repo);
   const system = parseYamlMap(
-    readText(join(repoRoot, ".loopo", "system.yaml")),
-    ".loopo/system.yaml",
+    readText(join(repoRoot, ".loopship", "system.yaml")),
+    ".loopship/system.yaml",
   );
   const sources: ProseSource[] = [];
   if (typeof system.text === "string") {
     pushSource(sources, {
-      file: ".loopo/system.yaml",
+      file: ".loopship/system.yaml",
       pointer: "/text",
       parent_pointer: "",
       text: system.text,
-      heading_path: ["Loopo Handbook", "Root System"],
+      heading_path: ["Loopship Handbook", "Root System"],
       owner_ref: "root:system",
       owner_rank: 100,
       source_kind: "root",
@@ -539,7 +539,7 @@ function applyAgentEvaluationDuplicateFix(
   owner: ProseSource,
 ): string | null {
   if (
-    source.file !== ".loopo/docs/agent/system-card.yaml" ||
+    source.file !== ".loopship/docs/agent/system-card.yaml" ||
     !/^\/evaluation\/[^/]+\/text$/.test(source.pointer) ||
     !owner.owner_ref.startsWith("resource:")
   ) {
@@ -600,8 +600,8 @@ export function fixHandbookDuplicates(
   }
 
   let signaturePath: string | undefined;
-  if (applied.has(".loopo/system.yaml")) {
-    writeText(join(state.repoRoot, ".loopo", "system.yaml"), renderSystemYaml(state.system));
+  if (applied.has(".loopship/system.yaml")) {
+    writeText(join(state.repoRoot, ".loopship", "system.yaml"), renderSystemYaml(state.system));
   }
   for (const doc of state.docs) {
     if (!applied.has(doc.location)) continue;

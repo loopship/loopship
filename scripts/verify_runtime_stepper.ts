@@ -4,11 +4,11 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopo_core.ts";
+import { parseTasksYaml, questFiles } from "./loopship_core.ts";
 import { scenarioPayloadForStep } from "./sim_product_quest_scenarios.ts";
-import { readText, runCommand } from "./loopo_utils.ts";
+import { readText, runCommand } from "./loopship_utils.ts";
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 let commandEnv: Record<string, string> | undefined;
 let commandCwd: string | undefined;
 
@@ -62,7 +62,7 @@ function assertGuidedStep(step: Record<string, any>, repo: string): void {
     fail(`guided sim must expose the current step directly: ${JSON.stringify(step)}`);
   }
   const command = step.commands?.next;
-  if (!command || command.cmd !== "loopo") {
+  if (!command || command.cmd !== "loopship") {
     fail(`guided sim step must include commands.next: ${JSON.stringify(step)}`);
   }
   const args = Array.isArray(command.args) ? command.args : [];
@@ -90,12 +90,12 @@ function simArgsFromStep(step: Record<string, any>): string[] {
 
 function assertOldSimCommandsAreUnknown(): void {
   const cases = [
-    ["loopo: old top-level start"],
-    ["--repo", "/tmp/loopo-sim-old", "--json", "{}"],
-    ["start", "--request", "loopo: old path"],
-    ["next", "--repo", "/tmp/loopo-sim-old"],
-    ["callback", "--repo", "/tmp/loopo-sim-old", "--json", "{}"],
-    ["status", "--repo", "/tmp/loopo-sim-old"],
+    ["loopship: old top-level start"],
+    ["--repo", "/tmp/loopship-sim-old", "--json", "{}"],
+    ["start", "--request", "loopship: old path"],
+    ["next", "--repo", "/tmp/loopship-sim-old"],
+    ["callback", "--repo", "/tmp/loopship-sim-old", "--json", "{}"],
+    ["status", "--repo", "/tmp/loopship-sim-old"],
     ["quest", "help"],
   ];
   for (const args of cases) {
@@ -118,8 +118,8 @@ function prepareExistingGitRepoFixture(repo: string): void {
   const init = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
   if (init.status !== 0) fail(init.stderr || init.stdout);
   for (const [key, value] of [
-    ["user.email", "loopo-stepper@example.invalid"],
-    ["user.name", "Loopo Stepper Fixture"],
+    ["user.email", "loopship-stepper@example.invalid"],
+    ["user.name", "Loopship Stepper Fixture"],
   ] as const) {
     const config = runCommand("git", ["config", key, value], {
       cwd: repo,
@@ -147,14 +147,14 @@ function prepareExistingGitRepoFixture(repo: string): void {
 }
 
 function main(): number {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopo-stepper-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-stepper-")));
   const repo = join(root, "repo");
-  const request = "loopo: a fullstack app";
+  const request = "loopship: a fullstack app";
   commandEnv = {
     ...process.env,
     HOME: join(root, "home"),
-    LOOPO_GLOBAL_BIN: join(root, "bin", "loopo"),
-    LOOPO_SCRIPT: SCRIPT,
+    LOOPSHIP_GLOBAL_BIN: join(root, "bin", "loopship"),
+    LOOPSHIP_SCRIPT: SCRIPT,
   };
   try {
     assertOldSimCommandsAreUnknown();
@@ -172,8 +172,8 @@ function main(): number {
       "swe",
     ]);
     if (start.status !== 0) fail(start.stderr || start.stdout);
-    if (existsSync(join(repo, ".loopo", "sim-runtime"))) {
-      fail("guided sim must not create .loopo/sim-runtime");
+    if (existsSync(join(repo, ".loopship", "sim-runtime"))) {
+      fail("guided sim must not create .loopship/sim-runtime");
     }
     let current = parseJson(start.stdout);
     assertGuidedStep(current, repo);
@@ -245,7 +245,7 @@ function main(): number {
       fail(`guided sim must finish at archived: ${JSON.stringify(current)}`);
     }
 
-    console.log("loopo runtime stepper verification passed");
+    console.log("loopship runtime stepper verification passed");
     return 0;
   } finally {
     rmSync(root, { recursive: true, force: true });

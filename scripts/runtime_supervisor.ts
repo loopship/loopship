@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand, tsRunner, type RunResult } from "./loopo_utils.ts";
+import { runCommand, tsRunner, type RunResult } from "./loopship_utils.ts";
 
 export type Runtime = "codex" | "gemini" | "copilot";
 
@@ -21,9 +21,9 @@ export type InitRouteResult = {
 };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const LOOPO_SCRIPT = resolve(SCRIPT_DIR, "loopo.ts");
+const LOOPSHIP_SCRIPT = resolve(SCRIPT_DIR, "loopship.ts");
 export const DEFAULT_RUNTIME_REQUEST =
-  "loopo: build a tiny python cli named greet using argparse. Accept a required --name flag, print exactly 'hello, <name>!', add one pytest test, keep files minimal, and finish the full lifecycle without asking questions unless a safety-critical ambiguity blocks progress.";
+  "loopship: build a tiny python cli named greet using argparse. Accept a required --name flag, print exactly 'hello, <name>!', add one pytest test, keep files minimal, and finish the full lifecycle without asking questions unless a safety-critical ambiguity blocks progress.";
 
 function fail(message: string): never {
   throw new Error(message);
@@ -48,14 +48,14 @@ export function hookEventName(runtime: Runtime): string {
   return runtime === "gemini" ? "AfterAgent" : "Stop";
 }
 
-export function runLoopoCommand(
+export function runLoopshipCommand(
   repoRoot: string,
   env: Record<string, string | undefined>,
   args: string[],
   input?: Record<string, unknown>,
   timeoutMs = 60_000,
 ): RunResult {
-  const launch = tsRunner(LOOPO_SCRIPT, args);
+  const launch = tsRunner(LOOPSHIP_SCRIPT, args);
   return runCommand(launch.cmd, launch.args, {
     cwd: repoRoot,
     env,
@@ -97,7 +97,7 @@ export function readHookDecision(params: {
       cwd: params.cwd ?? params.repoRoot,
     };
   const envelope = normalizeHookEnvelope(raw, params.runtime, params.repoRoot);
-  const proc = runLoopoCommand(
+  const proc = runLoopshipCommand(
     params.repoRoot,
     params.env,
     ["hook", "--json", "@-"],
@@ -105,7 +105,7 @@ export function readHookDecision(params: {
     params.timeoutMs,
   );
   if (proc.status !== 0) {
-    fail(proc.stderr || proc.stdout || "loopo hook failed");
+    fail(proc.stderr || proc.stdout || "loopship hook failed");
   }
   const output = parseJsonObject(proc.stdout || "{}", "hook output");
   const reason =
@@ -138,7 +138,7 @@ export function routeQuestInit(params: {
   if (requestedWtree) {
     initArgs.push("--wtree", requestedWtree);
   }
-  const init = runLoopoCommand(
+  const init = runLoopshipCommand(
     params.repoRoot,
     params.env,
     initArgs,
@@ -146,7 +146,7 @@ export function routeQuestInit(params: {
     params.timeoutMs,
   );
   if (init.status !== 0) {
-    fail(init.stderr || init.stdout || "loopo init failed");
+    fail(init.stderr || init.stdout || "loopship init failed");
   }
   const route = parseJsonObject(init.stdout, "init output");
   const newQuest =
@@ -171,13 +171,13 @@ export function routeQuestInit(params: {
     !Array.isArray(args) ||
     args.some((arg) => typeof arg !== "string")
   ) {
-    fail("loopo init did not emit a runnable new_quest.command");
+    fail("loopship init did not emit a runnable new_quest.command");
   }
   const routeCmd =
-    cmd === "loopo" &&
-    typeof params.env.LOOPO_GLOBAL_BIN === "string" &&
-    params.env.LOOPO_GLOBAL_BIN.trim()
-      ? resolve(params.env.LOOPO_GLOBAL_BIN)
+    cmd === "loopship" &&
+    typeof params.env.LOOPSHIP_GLOBAL_BIN === "string" &&
+    params.env.LOOPSHIP_GLOBAL_BIN.trim()
+      ? resolve(params.env.LOOPSHIP_GLOBAL_BIN)
       : cmd;
 
   const routeProc = runCommand(routeCmd, args, {

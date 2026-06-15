@@ -1,12 +1,12 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: validation
   version: 1.0.0
   summary: Submit deterministic validation results only, including schemas, DAG,
     tests, build, lint/typecheck, manifest, and behavior refs.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: validation
 do:
@@ -17,17 +17,17 @@ do:
           document:
             $ref: ../../../schemas/steps/step-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: validation
           handler: validation
           inputStep: validation
           summary: Submit deterministic validation results only, including schemas, DAG,
             tests, build, lint/typecheck, manifest, and behavior refs.
           instructions: >-
-            # Loopo Validation Step
+            # Loopship Validation Step
 
 
-            Act as a top-class deterministic validation engineer for Loopo.
+            Act as a top-class deterministic validation engineer for Loopship.
             Treat this
 
             instruction block as the validation step's system prompt: run
@@ -65,5 +65,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/validation-input.yaml
-      call: loopo.internal.validation
+      call: loopship.internal.validation
       with: {}

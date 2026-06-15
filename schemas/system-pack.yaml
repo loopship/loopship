@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/system-pack.yaml
-title: Loopo Universal System Record Pack v2
+$id: loopship://schemas/system-pack.yaml
+title: Loopship Universal System Record Pack v2
 type: object
 additionalProperties: false
 required:
@@ -11,38 +11,38 @@ properties:
   schema_version:
     const: 2
   id:
-    $ref: loopo://schemas/system.yaml#/$defs/id
+    $ref: loopship://schemas/system.yaml#/$defs/id
   text:
     type: string
     minLength: 20
     maxLength: 800
     pattern: "\\n"
   links:
-    $ref: loopo://schemas/system.yaml#/$defs/links
+    $ref: loopship://schemas/system.yaml#/$defs/links
   objects:
     type: array
     minItems: 1
     maxItems: 256
     items:
-      $ref: loopo://schemas/system.yaml#/$defs/object
+      $ref: loopship://schemas/system.yaml#/$defs/object
   assertions:
     type: array
     minItems: 1
     maxItems: 256
     items:
-      $ref: loopo://schemas/system.yaml#/$defs/assertion
+      $ref: loopship://schemas/system.yaml#/$defs/assertion
   resources:
     type: array
     minItems: 1
     maxItems: 256
     items:
-      $ref: loopo://schemas/system.yaml#/$defs/resource
+      $ref: loopship://schemas/system.yaml#/$defs/resource
   memories:
     type: array
     minItems: 1
     maxItems: 128
     items:
-      $ref: loopo://schemas/system.yaml#/$defs/memory
+      $ref: loopship://schemas/system.yaml#/$defs/memory
 anyOf:
   - required:
       - objects

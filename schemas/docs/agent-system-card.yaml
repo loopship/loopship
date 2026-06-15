@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/docs/agent-system-card.yaml
-title: Loopo Agent System Card Document v2
+$id: loopship://schemas/docs/agent-system-card.yaml
+title: Loopship Agent System Card Document v2
 type: object
 additionalProperties: false
 required:
@@ -27,7 +27,7 @@ properties:
   schema_version:
     const: 2
   id:
-    $ref: loopo://schemas/system.yaml#/$defs/id
+    $ref: loopship://schemas/system.yaml#/$defs/id
   title:
     type: string
     minLength: 1
@@ -35,7 +35,7 @@ properties:
   text:
     $ref: "#/$defs/prose"
   links:
-    $ref: loopo://schemas/system.yaml#/$defs/links
+    $ref: loopship://schemas/system.yaml#/$defs/links
   standard_alignment:
     $ref: "#/$defs/prose_map"
   purpose:
@@ -62,7 +62,7 @@ properties:
         text:
           $ref: "#/$defs/prose"
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   responsibilities:
     $ref: "#/$defs/prose_map"
   autonomy:
@@ -107,7 +107,7 @@ properties:
             type: string
             minLength: 1
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   memory:
     type: object
     additionalProperties: false
@@ -160,9 +160,9 @@ properties:
         text:
           $ref: "#/$defs/prose"
         resource_ref:
-          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+          $ref: loopship://schemas/system.yaml#/$defs/resource_ref
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   monitoring:
     $ref: "#/$defs/prose_map"
   incident_response:
@@ -222,9 +222,9 @@ $defs:
       source:
         $ref: "#/$defs/prose"
       rendered_ref:
-        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        $ref: loopship://schemas/system.yaml#/$defs/resource_ref
       links:
-        $ref: loopo://schemas/system.yaml#/$defs/links
+        $ref: loopship://schemas/system.yaml#/$defs/links
   example_block:
     type: object
     additionalProperties: false
@@ -240,7 +240,7 @@ $defs:
       source:
         $ref: "#/$defs/prose"
       links:
-        $ref: loopo://schemas/system.yaml#/$defs/links
+        $ref: loopship://schemas/system.yaml#/$defs/links
   diagram_kind:
     enum:
       - context

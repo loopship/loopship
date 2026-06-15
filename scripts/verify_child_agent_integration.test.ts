@@ -11,11 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopo_core.ts";
-import { runCommand } from "./loopo_utils.ts";
-import { validateV3Input } from "./loopo_schema.ts";
+import { parseTasksYaml, questFiles } from "./loopship_core.ts";
+import { runCommand } from "./loopship_utils.ts";
+import { validateV3Input } from "./loopship_schema.ts";
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 const EMPTY_SYSTEM_CONTEXT = {
   relevant_object_refs: [],
   relevant_assertion_refs: [],
@@ -57,7 +57,7 @@ function expectNoSchemaRefs(value: unknown): void {
   for (const item of Object.values(value)) expectNoSchemaRefs(item);
 }
 
-function runLoopo(
+function runLoopship(
   cwd: string,
   args: string[],
   input?: Record<string, unknown>,
@@ -95,14 +95,14 @@ function createFixture(prefix: string): Fixture {
   const repo = join(root, "repo");
   const env = {
     HOME: join(root, "home"),
-    LOOPO_GLOBAL_BIN: join(root, "bin", "loopo"),
-    LOOPO_SCRIPT: SCRIPT,
+    LOOPSHIP_GLOBAL_BIN: join(root, "bin", "loopship"),
+    LOOPSHIP_SCRIPT: SCRIPT,
   };
   const initGit = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
   expect(initGit.status, initGit.stderr || initGit.stdout).toBe(0);
-  runGit(repo, ["config", "user.email", "loopo-test@example.invalid"]);
-  runGit(repo, ["config", "user.name", "Loopo Test"]);
-  writeFileSync(join(repo, "README.md"), "# loopo v3 integration\n", "utf8");
+  runGit(repo, ["config", "user.email", "loopship-test@example.invalid"]);
+  runGit(repo, ["config", "user.name", "Loopship Test"]);
+  writeFileSync(join(repo, "README.md"), "# loopship v3 integration\n", "utf8");
   runGit(repo, ["add", "README.md"]);
   runGit(repo, ["commit", "-m", "fixture"]);
   return { root, repo, env };
@@ -113,7 +113,7 @@ function next(
   wtree: string,
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
-  const proc = runLoopo(
+  const proc = runLoopship(
     fixture.repo,
     [
       "quest",
@@ -135,7 +135,7 @@ function compactCurrent(
   fixture: Fixture,
   wtree: string,
 ): Record<string, unknown> {
-  const proc = runLoopo(
+  const proc = runLoopship(
     fixture.repo,
     ["quest", "next", "--wtree", wtree, "--json", "@-"],
     {},
@@ -145,33 +145,33 @@ function compactCurrent(
   return parseJson(proc.stdout);
 }
 
-describe("loopo v3 child wtree integration", () => {
+describe("loopship v3 child wtree integration", () => {
   it("documents the v3 command flow in public usage", () => {
-    const fixture = createFixture("loopo-v3-help-");
+    const fixture = createFixture("loopship-v3-help-");
     try {
-      const usage = runLoopo(fixture.repo, [], undefined, fixture.env);
+      const usage = runLoopship(fixture.repo, [], undefined, fixture.env);
       expect(usage.status).toBe(1);
       const publicInitLines = usage.stdout
         .split("\n")
-        .filter((line) => line.trim().startsWith("loopo init "));
+        .filter((line) => line.trim().startsWith("loopship init "));
       expect(publicInitLines).toEqual([
-        '  loopo init "loopo: <request>" --runtime <codex|gemini|copilot|all> [--flow swe] [--wtree <name>]',
+        '  loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow swe] [--wtree <name>]',
       ]);
       const publicHookLines = usage.stdout
         .split("\n")
-        .filter((line) => line.trim().startsWith("loopo hook "));
+        .filter((line) => line.trim().startsWith("loopship hook "));
       expect(publicHookLines).toEqual([
-        "  loopo hook --runtime <codex|gemini|copilot>",
+        "  loopship hook --runtime <codex|gemini|copilot>",
       ]);
-      expect(usage.stdout).toContain("loopo quest next --wtree <name>");
-      expect(usage.stdout).toContain("loopo sim init");
-      expect(usage.stdout).toContain("loopo sim quest next");
-      expect(usage.stdout).toContain("loopo sim hook");
+      expect(usage.stdout).toContain("loopship quest next --wtree <name>");
+      expect(usage.stdout).toContain("loopship sim init");
+      expect(usage.stdout).toContain("loopship sim quest next");
+      expect(usage.stdout).toContain("loopship sim hook");
       expect(usage.stdout).not.toContain("quest help");
       expect(usage.stdout).not.toContain("sim quest help");
-      expect(usage.stdout).not.toContain("loopo spec");
+      expect(usage.stdout).not.toContain("loopship spec");
 
-      const removedHelp = runLoopo(
+      const removedHelp = runLoopship(
         fixture.repo,
         ["quest", "help"],
         undefined,
@@ -187,13 +187,13 @@ describe("loopo v3 child wtree integration", () => {
   it(
     "runs the bin-coordinated parent and child result flow",
     () => {
-      const fixture = createFixture("loopo-v3-child-");
+      const fixture = createFixture("loopship-v3-child-");
       try {
-      const init = runLoopo(
+      const init = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: build calculator",
+          "loopship: build calculator",
           "--runtime",
           "codex",
         ],
@@ -218,7 +218,7 @@ describe("loopo v3 child wtree integration", () => {
             action: "create_quest",
             wtree: wtree,
             flow_id: "swe",
-            request: "loopo: build calculator",
+            request: "loopship: build calculator",
           }),
         ]),
       );
@@ -227,7 +227,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: wtree,
-        request: "loopo: build calculator",
+        request: "loopship: build calculator",
       });
       expectValidSchema(created, "step-output");
       expect(created.step).toBe("plan");
@@ -251,7 +251,7 @@ describe("loopo v3 child wtree integration", () => {
       });
       expect((created.context as any).step).not.toHaveProperty("spec_refs");
       expect((created.context as any).step.instructions).toContain(
-        "# Loopo Plan Step",
+        "# Loopship Plan Step",
       );
       expect((created.context as any).step.instructions).toContain(
         "## Defaulting Rules",
@@ -274,7 +274,7 @@ describe("loopo v3 child wtree integration", () => {
       });
       const compactStep = compact.step as Record<string, string>;
       expect(compactStep).not.toHaveProperty("summary");
-      expect(compactStep.instructions).toContain("# Loopo Plan Step");
+      expect(compactStep.instructions).toContain("# Loopship Plan Step");
       expect(compactStep.instructions).toContain(
         "Follow the instructions above, then construct one JSON payload matching output_schema and send it to commands.next.",
       );
@@ -320,7 +320,7 @@ describe("loopo v3 child wtree integration", () => {
       expect(((compact.commands as any).next as any).args).toContain("next");
       expect((compact.commands as any).next).not.toHaveProperty("display");
 
-      const unknownField = runLoopo(
+      const unknownField = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -346,7 +346,7 @@ describe("loopo v3 child wtree integration", () => {
         "schema validation",
       );
 
-      const blockedProc = runLoopo(
+      const blockedProc = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -373,11 +373,11 @@ describe("loopo v3 child wtree integration", () => {
       expect(blocked.kind).toBe("error");
       expect(String(blocked.error)).toContain("high-impact");
 
-      const vagueInit = runLoopo(
+      const vagueInit = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: create a fullstack app",
+          "loopship: create a fullstack app",
           "--runtime",
           "codex",
         ],
@@ -391,12 +391,12 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: vagueWtree,
-        request: "loopo: create a fullstack app",
+        request: "loopship: create a fullstack app",
       });
       expectValidSchema(vagueCreated, "step-output");
       expect(vagueCreated.step).toBe("plan");
 
-      const vagueBlockedProc = runLoopo(
+      const vagueBlockedProc = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -432,11 +432,11 @@ describe("loopo v3 child wtree integration", () => {
       expect(vagueBlocked.kind).toBe("error");
       expect(String(vagueBlocked.error)).toContain("clarification round");
 
-      const serialInit = runLoopo(
+      const serialInit = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: build a task tracker",
+          "loopship: build a task tracker",
           "--runtime",
           "codex",
         ],
@@ -450,7 +450,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: serialWtree,
-        request: "loopo: build a task tracker",
+        request: "loopship: build a task tracker",
       });
       expectValidSchema(serialCreated, "step-output");
       expect(serialCreated.step).toBe("plan");
@@ -561,7 +561,7 @@ describe("loopo v3 child wtree integration", () => {
         dispatchedMergeTarget,
       );
 
-      const invalidValidation = runLoopo(
+      const invalidValidation = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -613,7 +613,7 @@ describe("loopo v3 child wtree integration", () => {
       });
       expect(systemUpdateSchema).not.toHaveProperty("$id");
 
-      const invalidSystemUpdate = runLoopo(
+      const invalidSystemUpdate = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -654,7 +654,7 @@ describe("loopo v3 child wtree integration", () => {
         "utf8",
       );
       runGit(fixture.repo, ["add", "worktrees/leaked.txt"]);
-      const leakedLanding = runLoopo(
+      const leakedLanding = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -699,13 +699,13 @@ describe("loopo v3 child wtree integration", () => {
   );
 
   it("allows decomposition after answered clarification for vague greenfield prompts", () => {
-    const fixture = createFixture("loopo-v3-vague-greenfield-");
+    const fixture = createFixture("loopship-v3-vague-greenfield-");
     try {
-      const init = runLoopo(
+      const init = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: a fullstack app",
+          "loopship: a fullstack app",
           "--runtime",
           "codex",
         ],
@@ -720,7 +720,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: wtree,
-        request: "loopo: a fullstack app",
+        request: "loopship: a fullstack app",
       });
       expectValidSchema(created, "step-output");
       expect(created.step).toBe("plan");
@@ -804,13 +804,13 @@ describe("loopo v3 child wtree integration", () => {
   });
 
   it("treats execute-child quests as leaf workers after task graph approval", () => {
-    const fixture = createFixture("loopo-v3-child-worker-");
+    const fixture = createFixture("loopship-v3-child-worker-");
     try {
-      const init = runLoopo(
+      const init = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: execute child task build-mvp-task-tracker: Build the MVP full-stack task tracker application",
+          "loopship: execute child task build-mvp-task-tracker: Build the MVP full-stack task tracker application",
           "--wtree",
           "a-fullstack-app-build-mvp-task-tracker",
           "--runtime",
@@ -826,7 +826,7 @@ describe("loopo v3 child wtree integration", () => {
         action: "create_quest",
         wtree: "a-fullstack-app-build-mvp-task-tracker",
         request:
-          "loopo: execute child task build-mvp-task-tracker: Build the MVP full-stack task tracker application",
+          "loopship: execute child task build-mvp-task-tracker: Build the MVP full-stack task tracker application",
       });
       expectValidSchema(created, "step-output");
       expect(created.step).toBe("plan");
@@ -897,13 +897,13 @@ describe("loopo v3 child wtree integration", () => {
   it(
     "covers detours, partial child dispatch, and retry transitions",
     () => {
-      const fixture = createFixture("loopo-v3-lifecycle-");
+      const fixture = createFixture("loopship-v3-lifecycle-");
       try {
-      const init = runLoopo(
+      const init = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: build lifecycle tester",
+          "loopship: build lifecycle tester",
           "--runtime",
           "codex",
         ],
@@ -918,7 +918,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: wtree,
-        request: "loopo: build lifecycle tester",
+        request: "loopship: build lifecycle tester",
       });
       expectValidSchema(created, "step-output");
       expect(created.step).toBe("plan");
@@ -1176,13 +1176,13 @@ describe("loopo v3 child wtree integration", () => {
   );
 
   it("rejects passing a child result while the matching child quest is unresolved", () => {
-    const fixture = createFixture("loopo-v3-child-guard-");
+    const fixture = createFixture("loopship-v3-child-guard-");
     try {
-      const init = runLoopo(
+      const init = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: build guarded child flow",
+          "loopship: build guarded child flow",
           "--runtime",
           "codex",
         ],
@@ -1197,7 +1197,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: wtree,
-        request: "loopo: build guarded child flow",
+        request: "loopship: build guarded child flow",
       });
 
       next(fixture, wtree, {
@@ -1224,7 +1224,7 @@ describe("loopo v3 child wtree integration", () => {
       });
       const child = (executing.children as any[])[0];
 
-      const childInit = runLoopo(
+      const childInit = runLoopship(
         fixture.repo,
         child.commands.init.args,
         undefined,
@@ -1239,7 +1239,7 @@ describe("loopo v3 child wtree integration", () => {
 
       next(fixture, child.child_wtree, childRoute.new_quest.input);
 
-      const premature = runLoopo(
+      const premature = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -1269,13 +1269,13 @@ describe("loopo v3 child wtree integration", () => {
   });
 
   it("rejects landing while the coordinator worktree is dirty", () => {
-    const fixture = createFixture("loopo-v3-landing-guard-");
+    const fixture = createFixture("loopship-v3-landing-guard-");
     try {
-      const init = runLoopo(
+      const init = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: build landing guard",
+          "loopship: build landing guard",
           "--runtime",
           "codex",
         ],
@@ -1290,7 +1290,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: wtree,
-        request: "loopo: build landing guard",
+        request: "loopship: build landing guard",
       });
 
       next(fixture, wtree, {
@@ -1353,7 +1353,7 @@ describe("loopo v3 child wtree integration", () => {
         "utf8",
       );
 
-      const landing = runLoopo(
+      const landing = runLoopship(
         fixture.repo,
         [
           "quest",
@@ -1382,13 +1382,13 @@ describe("loopo v3 child wtree integration", () => {
   it(
     "merges child branches during child landing and lands the parent branch into main",
     () => {
-      const fixture = createFixture("loopo-v3-git-landing-");
+      const fixture = createFixture("loopship-v3-git-landing-");
       try {
-      const init = runLoopo(
+      const init = runLoopship(
         fixture.repo,
         [
           "init",
-          "loopo: build landed workflow",
+          "loopship: build landed workflow",
           "--runtime",
           "codex",
         ],
@@ -1403,7 +1403,7 @@ describe("loopo v3 child wtree integration", () => {
         step: "select_quest",
         action: "create_quest",
         wtree: wtree,
-        request: "loopo: build landed workflow",
+        request: "loopship: build landed workflow",
       });
 
       next(fixture, wtree, {
@@ -1453,7 +1453,7 @@ describe("loopo v3 child wtree integration", () => {
         fileName: string,
         title: string,
       ): Record<string, unknown> => {
-        const childInit = runLoopo(
+        const childInit = runLoopship(
           fixture.repo,
           child.commands.init.args,
           undefined,

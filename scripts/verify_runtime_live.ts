@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopo_core.ts";
+import { parseTasksYaml, questFiles } from "./loopship_core.ts";
 import {
   DEFAULT_RUNTIME_REQUEST,
   readHookDecision as readSupervisorHookDecision,
@@ -22,10 +22,10 @@ import {
   runCommand,
   type RunResult,
   tsRunner,
-} from "./loopo_utils.ts";
+} from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const LOOPO_SCRIPT = resolve(SCRIPT_DIR, "loopo.ts");
+const LOOPSHIP_SCRIPT = resolve(SCRIPT_DIR, "loopship.ts");
 const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 
 type ResultStatus = "passed" | "skipped" | "failed";
@@ -125,15 +125,15 @@ function parseArgs(argv: string[]): {
 function writeFixtureFiles(repo: string): void {
   writeFileSync(
     join(repo, "README.md"),
-    "# loopo live runtime fixture\n",
+    "# loopship live runtime fixture\n",
     "utf8",
   );
   writeFileSync(
     join(repo, "AGENTS.md"),
     [
-      "# Loopo Fixture",
+      "# Loopship Fixture",
       "",
-      'When the user prompt starts with `loopo:`, run `loopo init "{request}" --runtime <runtime>` from the repo root and follow the returned instructions.',
+      'When the user prompt starts with `loopship:`, run `loopship init "{request}" --runtime <runtime>` from the repo root and follow the returned instructions.',
     ].join("\n"),
     "utf8",
   );
@@ -141,21 +141,21 @@ function writeFixtureFiles(repo: string): void {
 
 function createFixture(runtime: Runtime): Fixture {
   const root = realpathSync(
-    mkdtempSync(join(tmpdir(), `loopo-live-${runtime}-`)),
+    mkdtempSync(join(tmpdir(), `loopship-live-${runtime}-`)),
   );
   const repo = join(root, "repo");
   const binDir = join(root, "bin");
   const env = {
     ...process.env,
     PATH: `${binDir}:${process.env.PATH ?? ""}`,
-    LOOPO_GLOBAL_BIN: join(binDir, "loopo"),
-    LOOPO_SCRIPT: LOOPO_SCRIPT,
+    LOOPSHIP_GLOBAL_BIN: join(binDir, "loopship"),
+    LOOPSHIP_SCRIPT: LOOPSHIP_SCRIPT,
   };
   const init = runCommand("git", ["init", repo], { env, timeoutMs: 15_000 });
   if (init.status !== 0) fail(init.stderr || init.stdout);
   for (const [key, value] of [
-    ["user.email", "loopo-live@example.invalid"],
-    ["user.name", `Loopo ${runtime} Live`],
+    ["user.email", "loopship-live@example.invalid"],
+    ["user.name", `Loopship ${runtime} Live`],
   ] as const) {
     const proc = runCommand("git", ["config", key, value], {
       cwd: repo,
@@ -180,12 +180,12 @@ function createFixture(runtime: Runtime): Fixture {
   return { root, repo, env, runtime };
 }
 
-function runLoopo(
+function runLoopship(
   fixture: Fixture,
   args: string[],
   input?: Record<string, unknown>,
 ) {
-  const launch = tsRunner(LOOPO_SCRIPT, args);
+  const launch = tsRunner(LOOPSHIP_SCRIPT, args);
   return runCommand(launch.cmd, launch.args, {
     cwd: fixture.repo,
     env: fixture.env,
@@ -194,8 +194,8 @@ function runLoopo(
   });
 }
 
-function installLoopo(fixture: Fixture): void {
-  const proc = runLoopo(fixture, [
+function installLoopship(fixture: Fixture): void {
+  const proc = runLoopship(fixture, [
     "doctor",
     "--repo",
     fixture.repo,
@@ -207,7 +207,7 @@ function installLoopo(fixture: Fixture): void {
     fail(
       proc.stderr ||
         proc.stdout ||
-        `loopo doctor failed for ${fixture.runtime}`,
+        `loopship doctor failed for ${fixture.runtime}`,
     );
   }
 }
@@ -400,10 +400,10 @@ function continuationPrompt(reason: string): string {
     embedded = reason;
   }
   return [
-    "Loopo continuation:",
-    "You are continuing an active Loopo quest in the current repository.",
+    "Loopship continuation:",
+    "You are continuing an active Loopship quest in the current repository.",
     "Use the embedded step payload, output_schema, and commands.next to advance exactly one lifecycle step.",
-    "Do not restart with loopo init unless the payload explicitly tells you to.",
+    "Do not restart with loopship init unless the payload explicitly tells you to.",
     "",
     embedded,
   ].join("\n");
@@ -438,7 +438,7 @@ function pythonFiles(repo: string): string[] {
       "--glob",
       "!worktrees/**",
       "--glob",
-      "!\\.loopo/**",
+      "!\\.loopship/**",
       "--glob",
       "*.py",
     ],
@@ -653,7 +653,7 @@ export function runLiveRuntime(
 
   const fixture = createFixture(runtime);
   try {
-    installLoopo(fixture);
+    installLoopship(fixture);
     const logChunks: string[] = [];
     const startedAt = Date.now();
     const runCliTurn = (prompt: string, label: string) => {
@@ -688,7 +688,7 @@ export function runLiveRuntime(
     logChunks.push(
       [
         "# init",
-        `$ loopo init ${JSON.stringify(DEFAULT_RUNTIME_REQUEST)} --runtime ${fixture.runtime}`,
+        `$ loopship init ${JSON.stringify(DEFAULT_RUNTIME_REQUEST)} --runtime ${fixture.runtime}`,
         "",
         "STDOUT",
         started.init.stdout,
@@ -701,7 +701,7 @@ export function runLiveRuntime(
     const routed = started.route.new_quest as
       | { command?: { cmd?: string; args?: string[] } }
       | undefined;
-    const routeCmd = routed?.command?.cmd ?? "loopo";
+    const routeCmd = routed?.command?.cmd ?? "loopship";
     const routeArgs = Array.isArray(routed?.command?.args)
       ? routed.command.args
       : [];

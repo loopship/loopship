@@ -1,0 +1,88 @@
+schema_version: 2
+canonicalization: loopship-canonical-json-v1
+hash_algorithm: sha256
+root:
+  path: .loopship/system.yaml
+  schema: loopship://schemas/system.yaml
+  digest: 95a4d4195a641bd63144e71514d47a3e94ff4bc168a2af294dca3c77be6c162c
+entries:
+  - path: schemas/system.yaml
+    schema: self
+    role: canonical
+    digest: db58cfaa65bb1551b87f2aef85708b0a92db3696a4467bd93afe71aba96b6299
+  - path: schemas/signature.yaml
+    schema: self
+    role: canonical
+    digest: e4e523ac0ce609bff95e7d3890659b6dd27782d01e46b83b61c0b3ae9346a2e7
+  - path: schemas/system-pack.yaml
+    schema: self
+    role: canonical
+    digest: fd296c652df2aaaac70894ea31722b5dea81f79330a8b34b2b4fa30da09002b4
+  - path: schemas/semantic-rules.yaml
+    schema: self
+    role: canonical
+    digest: 3e82845fd317ac5d7b25c9497b7fa2151a11850ed943c7674d3d610e6d43a4c7
+  - path: schemas/docs/software-architecture.yaml
+    schema: self
+    role: canonical
+    digest: 5692da862b9787e7111d2d687d1177254972da5123496d8ecc3de8826ca28442
+  - path: schemas/docs/decision-records.yaml
+    schema: self
+    role: canonical
+    digest: 3116bbc1b9a459dd9e7d58658ac3e6c80a5abed3d0915f898eb95b94d232d43c
+  - path: schemas/docs/workflow-spec.yaml
+    schema: self
+    role: canonical
+    digest: 262be47537b2eedccf3c4f66a9067aca5e62106c411883c08e06760c18abfb21
+  - path: schemas/docs/agent-system-card.yaml
+    schema: self
+    role: canonical
+    digest: be1a9e1b5793eaa79c3c1388f246558965b75ae0e0142336c54d23e2488514d2
+  - path: schemas/docs/knowledge-report.yaml
+    schema: self
+    role: canonical
+    digest: 0c15f71841724d027c1802812270845f35aaf78b372d5389a8685b41d8109aef
+  - path: schemas/docs/dataset-datasheet.yaml
+    schema: self
+    role: canonical
+    digest: dd6eace1e9dd9fd444648dc253a08289672926c2407495bf609bafd037b0d3e1
+  - path: schemas/docs/model-card.yaml
+    schema: self
+    role: canonical
+    digest: de134a66e2c9c3e7085233da743cf2b8213f5e2b54269bed1abb2da72826d912
+  - path: schemas/docs/business-architecture.yaml
+    schema: self
+    role: canonical
+    digest: 79c719f44c54bb8e4d1635027c4e3ee74b92f4ab7dcb9c92b9e3e3b4b23db6c2
+  - path: schemas/docs/artifact-bom.yaml
+    schema: self
+    role: canonical
+    digest: d9fddaf7098548a218b970cb9fb6c85929893a8fdaab34c81b001e11d28b1f6a
+  - resource_ref: resource:software-architecture
+    path: .loopship/docs/software/architecture.yaml
+    schema: loopship://schemas/docs/software-architecture.yaml
+    role: canonical
+    digest: adbcbb0917e8eed1804363163a5593c69f01b81efb44f09bd33ef620688d0a0c
+  - resource_ref: resource:decisions
+    path: .loopship/docs/decisions/records.yaml
+    schema: loopship://schemas/docs/decision-records.yaml
+    role: canonical
+    digest: d643fcf4da7211547d8291b8dbd764d17fced1251379b1b6099020e15774415c
+  - resource_ref: resource:workflow-spec
+    path: .loopship/docs/workflow/spec.yaml
+    schema: loopship://schemas/docs/workflow-spec.yaml
+    role: canonical
+    digest: 6a1310046c4f00f7fea62a73b44cd06318358412f24b6c5167cd4bde0c4ce187
+  - resource_ref: resource:agent-system-card
+    path: .loopship/docs/agent/system-card.yaml
+    schema: loopship://schemas/docs/agent-system-card.yaml
+    role: canonical
+    digest: e6b825c1d87de49e02a3e178884f47bb59b225dfb626c469052063c5d8d30a8c
+previous_receipt_head: 71fbf01779af4ff562e69d817c48619e7d0fff79b288805e1bf298ba916ebfc6
+receipt_head: e43f873c2e20c6adcc9b010386eb958c88fe2df4b61efb592119e7840bc1a002
+signed_at: 2026-06-15T09:37:19Z
+signer: system_update
+signature:
+  algorithm: ed25519
+  key_id: loopship-local-v2
+  value: N+Z9wpIXDeXcCzHfe5Fn8Ilz8mQ5Rk1nLVR88BfIBxKhzE2i7LTTfA6xxK4jRnML8pETKVBrDDQfUFB+2tgUBQ==

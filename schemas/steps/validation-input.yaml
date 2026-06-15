@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/validation-input.yaml
-title: Loopo V3 Validation Input
+title: Loopship V3 Validation Input
 type: object
 additionalProperties: false
 required:

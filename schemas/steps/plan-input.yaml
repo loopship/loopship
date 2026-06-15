@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/plan-input.yaml
-title: Loopo V3 Plan Input
+title: Loopship V3 Plan Input
 type: object
 additionalProperties: false
 required:

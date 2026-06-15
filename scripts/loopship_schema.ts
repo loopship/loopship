@@ -7,7 +7,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, isAbsolute, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { readText } from "./loopo_utils.ts";
+import { readText } from "./loopship_utils.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 type JsonValue =
@@ -19,9 +19,9 @@ type JsonValue =
   | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 type SchemaObject = Record<string, unknown>;
-export type LoopoSchemaSource = string | SchemaObject | null;
+export type LoopshipSchemaSource = string | SchemaObject | null;
 
-export const FLOW_SCHEMA_PATH = "schemas/loopo-flow.schema.yaml";
+export const FLOW_SCHEMA_PATH = "schemas/loopship-flow.schema.yaml";
 export const V3_STEP_SCHEMAS = [
   "init-output",
   "next-input",
@@ -49,7 +49,7 @@ export function v3SchemaFilePath(name: string): string {
   return resolve(ROOT, v3SchemaPath(name));
 }
 
-export function loopoSchemaRef(name: string): Record<string, string> {
+export function loopshipSchemaRef(name: string): Record<string, string> {
   return {
     schema_path: `schemas/${name}.yaml`,
   };
@@ -67,8 +67,8 @@ function cloneJson<T extends JsonValue>(value: T): T {
 
 function localSchemaFilePath(schemaPath: string): string {
   const rawPath = schemaPath.trim();
-  const path = rawPath.startsWith("loopo://schemas/")
-    ? rawPath.slice("loopo://".length)
+  const path = rawPath.startsWith("loopship://schemas/")
+    ? rawPath.slice("loopship://".length)
     : rawPath;
   if (!path.endsWith(".yaml")) {
     throw new Error(`unsupported local schema path: ${schemaPath}`);
@@ -93,7 +93,7 @@ function readSchemaByPath(schemaPath: string): JsonObject {
 function resolveSchemaRefPath(refPath: string, currentSchemaPath: string): string {
   const path = refPath.trim();
   if (!path) return currentSchemaPath;
-  if (path.startsWith("loopo://schemas/")) return path;
+  if (path.startsWith("loopship://schemas/")) return path;
   if (path.startsWith("schemas/")) return path;
   if (isAbsolute(path)) return path;
   return normalize(`${dirname(currentSchemaPath)}/${path}`);
@@ -211,7 +211,7 @@ export function dereferencedV3Schema(name: string): Record<string, unknown> {
 }
 
 export function dereferencedSchemaSource(
-  source: LoopoSchemaSource,
+  source: LoopshipSchemaSource,
 ): Record<string, unknown> | null {
   if (source == null) return null;
   if (typeof source === "string") {
@@ -225,7 +225,7 @@ export function dereferencedSchemaSource(
   }
   return dereferenceSchemaValue(
     cloneJson(source as JsonValue),
-    String(source.$id ?? "inline://loopo-schema"),
+    String(source.$id ?? "inline://loopship-schema"),
     source as JsonObject,
     new Set<string>(),
   ) as Record<string, unknown>;
@@ -308,7 +308,7 @@ export function schemaPathForName(schemaName: string): string {
 
 export function validateSchemaSource(
   payload: Record<string, any>,
-  source: LoopoSchemaSource,
+  source: LoopshipSchemaSource,
 ): string[] {
   if (source == null) return ["schema source is null"];
   if (typeof source === "string") {
@@ -316,7 +316,7 @@ export function validateSchemaSource(
   }
   const inlineAjv = ajvForInlineSchema(source);
   const schemaId =
-    typeof source.$id === "string" ? source.$id : "inline://loopo-schema";
+    typeof source.$id === "string" ? source.$id : "inline://loopship-schema";
   const validate = inlineAjv.getSchema(schemaId) ?? inlineAjv.compile(source);
   if (validate(payload)) return [];
   return (validate.errors ?? []).map(formatError);

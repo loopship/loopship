@@ -1,12 +1,12 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-title: loopo swf subset profile
-x-loopo-validation:
+title: loopship swf subset profile
+x-loopship-validation:
   facade:
     entrypoint: validateWorkflowRecord
   phases:
-    - loopo_schema
+    - loopship_schema
     - official_swf_schema
-    - loopo_semantics
+    - loopship_semantics
   allowedDslVersions:
     - 1.0.3
   allowedFeatures:
@@ -50,7 +50,7 @@ allOf:
             type: object
             additionalProperties: true
             properties:
-              loopo:
+              loopship:
                 type: object
                 additionalProperties: true
                 required:
@@ -179,7 +179,7 @@ $defs:
         type: object
         additionalProperties: true
         properties:
-          loopo:
+          loopship:
             type: object
             additionalProperties: true
             properties:

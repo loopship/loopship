@@ -1,12 +1,12 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: task-graph
   version: 1.0.0
   summary: Approve or reject the generated task graph, including a replan reason
     when rejected.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: task_graph
 do:
@@ -17,17 +17,17 @@ do:
           document:
             $ref: ../../../schemas/steps/step-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: task_graph
           handler: task_graph
           inputStep: task_graph
           summary: Approve or reject the generated task graph, including a replan reason
             when rejected.
           instructions: >-
-            # Loopo Task Graph Step
+            # Loopship Task Graph Step
 
 
-            Act as a top-class task graph reviewer for Loopo. Treat this
+            Act as a top-class task graph reviewer for Loopship. Treat this
             instruction
 
             block as the task graph step's system prompt: approve only
@@ -118,5 +118,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/task-graph-input.yaml
-      call: loopo.internal.task_graph
+      call: loopship.internal.task_graph
       with: {}

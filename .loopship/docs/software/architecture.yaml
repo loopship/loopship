@@ -2,7 +2,7 @@ schema_version: 2
 id: software-architecture
 title: Software Architecture
 text: |-
-  Full software architecture source for Loopo as a deterministic V3 workflow launcher,
+  Full software architecture source for Loopship as a deterministic V3 workflow launcher,
   worktree-based quest runtime, hook continuation system, and schema-backed durable
   knowledge coordinator.
 links:
@@ -17,7 +17,7 @@ standard_alignment:
     Aligns with C4-style system context, container, component, code, dynamic, and deployment
     architecture views represented as compact validated YAML sections.
 goals:
-  - Loopo provides deterministic quest lifecycle orchestration for worktree-based delivery, including planning, child execution, verification, system update, landing, and archive.
+  - Loopship provides deterministic quest lifecycle orchestration for worktree-based delivery, including planning, child execution, verification, system update, landing, and archive.
   - Public commands return compact JSON step output with schema-backed next actions, so humans and agents can continue lifecycle work without relying on prose reconstruction.
   - Durable system knowledge remains readable to humans and LLM agents while still being schema-backed, signed, and mechanically verifiable.
   - Runtime hooks continue work only when canonical quest state proves continuation is safe, non-duplicate, within budget, and free of managed-file drift.
@@ -25,10 +25,10 @@ stakeholders:
   human-operator:
     role: human operator
     text: |-
-      Human operators submit Loopo requests, answer clarifications, inspect compact JSON route
+      Human operators submit Loopship requests, answer clarifications, inspect compact JSON route
       outputs, run verification commands, and make high-risk decisions.
     concerns:
-      - Operators need a small public command surface based on loopo init, loopo quest next, loopo hook, loopo sim, loopo doctor, loopo handbook, and loopo cmdproto execjson.
+      - Operators need a small public command surface based on loopship init, loopship quest next, loopship hook, loopship sim, loopship doctor, loopship handbook, and loopship cmdproto execjson.
       - Operators need canonical task, event, signature, and system files to identify truth when agent narration and runtime state disagree.
   root-agent:
     role: root coordinator agent
@@ -36,7 +36,7 @@ stakeholders:
       The root assistant acts as coordinator and team lead for intake, planning, assignment,
       monitoring, escalation, and system update.
     concerns:
-      - The coordinator needs .loopo/system.yaml to stay small enough for first-read scouting while linking to complete canonical architecture, decision, workflow, and agent docs.
+      - The coordinator needs .loopship/system.yaml to stay small enough for first-read scouting while linking to complete canonical architecture, decision, workflow, and agent docs.
       - The coordinator must launch dedicated child CLI sessions and normally must not merge child code or implement child work inline.
   child-agent:
     role: leaf implementation agent
@@ -47,22 +47,22 @@ stakeholders:
       - Child quests created from execute-child tasks are leaf workers by default and must not recursively create child quests unless explicitly planned.
 constraints:
   - The root semantic file contains objects, assertions, resources, and optional memories; relation semantics live in relation-keyed typed links rather than a relations block.
-  - After init, loopo quest next --wtree <name> --json <json|@file|@-> is the only state-mutating quest command in the public contract.
+  - After init, loopship quest next --wtree <name> --json <json|@file|@-> is the only state-mutating quest command in the public contract.
   - Implementation work happens inside dedicated task worktrees while root sessions remain coordinator-only during child execution.
-  - Agents must never edit .loopo/** directly; root and child state changes go through schema-valid quest payloads for the current step.
-  - Shipped schemas use stable loopo://schemas/... identifiers for cross-schema refs while runtime may resolve them from local repository paths.
-  - The root system schema is shipped at schemas/system.yaml and exposed as loopo://schemas/system.yaml for stable validation.
-  - Loopo's current software, workflow, and agent system kinds require canonical software architecture, decision records, workflow specification, and agent system card documents.
+  - Agents must never edit .loopship/** directly; root and child state changes go through schema-valid quest payloads for the current step.
+  - Shipped schemas use stable loopship://schemas/... identifiers for cross-schema refs while runtime may resolve them from local repository paths.
+  - The root system schema is shipped at schemas/system.yaml and exposed as loopship://schemas/system.yaml for stable validation.
+  - Loopship's current software, workflow, and agent system kinds require canonical software architecture, decision records, workflow specification, and agent system card documents.
   - Generated Markdown and generated artifacts may help humans and agents inspect behavior, but they must not satisfy canonical documentation, signature, or source-of-truth checks.
-  - Lifecycle behavior is owned by the SWF-shaped flow YAML and reusable step workflow YAML; Loopo must not add separate lifecycle stage specs for individual steps.
+  - Lifecycle behavior is owned by the SWF-shaped flow YAML and reusable step workflow YAML; Loopship must not add separate lifecycle stage specs for individual steps.
 context:
   business: |-
-    Users submit goals through loopo init and expect Loopo to coordinate clarifications,
+    Users submit goals through loopship init and expect Loopship to coordinate clarifications,
     execution, verification, durable updates, and result reporting. Root agents coordinate
     work, while child CLI agents execute bounded senior-developer tasks in dedicated worktrees.
 
     Generated apps, child outputs, fixture repos, and landed artifacts are evidence about
-    Loopo behavior unless the user explicitly switches scope to those artifacts.
+    Loopship behavior unless the user explicitly switches scope to those artifacts.
   technical: |-
     Bun executes the TypeScript CLI, workflow runner, simulation commands, schema validators,
     and verification scripts. Git worktrees isolate child implementation state from root
@@ -72,7 +72,7 @@ context:
     in VS Code through runtime-specific JSON stdin and continuation responses. Cmdproto
     execjson mirrors the public CLI as a machine interface without replacing the lifecycle.
 solution_strategy: |-
-  Loopo treats workflow steps, task payloads, child dispatches, system updates, and route
+  Loopship treats workflow steps, task payloads, child dispatches, system updates, and route
   outputs as schema-backed contracts rather than loose prose conventions. Runtime
   decisions trust task YAML, event JSONL, emitted child commands, git worktree state,
   signatures, and runtime receipts before agent summaries or terminal chatter. Canonical
@@ -82,13 +82,13 @@ solution_strategy: |-
   Markdown references.
 structure:
   overview: |-
-    Loopo is organized as a CLI launcher, workflow definition library, worktree-local quest
+    Loopship is organized as a CLI launcher, workflow definition library, worktree-local quest
     runtime, hook continuation controller, canonical system knowledge surface, and verifier
-    suite. The root `.loopo/system.yaml` stays small; detailed industry-profile knowledge
-    lives in concrete canonical docs covered by `.loopo/signature.yaml`.
+    suite. The root `.loopship/system.yaml` stays small; detailed industry-profile knowledge
+    lives in concrete canonical docs covered by `.loopship/signature.yaml`.
   systems:
-    loopo: |-
-      Loopo is the workflow launcher, quest runtime coordinator, hook continuation controller,
+    loopship: |-
+      Loopship is the workflow launcher, quest runtime coordinator, hook continuation controller,
       and durable knowledge update boundary for worktree-based quest flows.
   containers:
     cli: |-
@@ -100,12 +100,12 @@ structure:
       and concrete canonical document contracts.
     runtime-state: |-
       Runtime state stores task YAML, event JSONL, quest-local manifest receipts, hook state,
-      and lock state inside each worktree-local `.loopo/runtime` directory.
+      and lock state inside each worktree-local `.loopship/runtime` directory.
     system-knowledge: |-
-      Durable system knowledge stores `.loopo/system.yaml`, concrete canonical docs, optional
-      packs, and `.loopo/signature.yaml`.
+      Durable system knowledge stores `.loopship/system.yaml`, concrete canonical docs, optional
+      packs, and `.loopship/signature.yaml`.
     hook-integrations: |-
-      Runtime hook shims translate Codex, Gemini, and Copilot stop events into Loopo
+      Runtime hook shims translate Codex, Gemini, and Copilot stop events into Loopship
       continuation decisions.
   components:
     cli-routing: |-
@@ -129,14 +129,14 @@ structure:
       Verification scripts enforce schema validity, runtime contract coherence, package
       surface coherence, hook behavior, simulations, and durable system-model semantics.
   code_units:
-    loopo-ts: |-
-      scripts/loopo.ts owns command parsing, init route output, quest next execution, hook
+    loopship-ts: |-
+      scripts/loopship.ts owns command parsing, init route output, quest next execution, hook
       handling, simulation entrypoints, doctor behavior, and CLI JSON writing.
-    loopo-core: |-
-      scripts/loopo_core.ts owns quest state IO, task normalization, system scaffold
+    loopship-core: |-
+      scripts/loopship_core.ts owns quest state IO, task normalization, system scaffold
       generation, signature writing, and system_update application logic.
     flow-runtime: |-
-      scripts/loopo_flow.ts and scripts/loopo_workflow_runner.ts load flow definitions,
+      scripts/loopship_flow.ts and scripts/loopship_workflow_runner.ts load flow definitions,
       resolve step schemas, validate step workflow records, and compute flow transitions.
     system-verifier: |-
       scripts/verify_system_model.ts validates root semantics, concrete document schemas,
@@ -149,12 +149,12 @@ runtime:
     changing tasks after task graph approval.
   scenarios:
     init-route: |-
-      A user starts with loopo init, receives compact JSON containing route metadata,
+      A user starts with loopship init, receives compact JSON containing route metadata,
       candidate quests, a create-quest input, and the command for the next lifecycle step. The
       route output includes schema_path and bounded schema references so downstream agents
       avoid oversized embedded schemas.
     swe-lifecycle: |-
-      Planning scouts `.loopo/system.yaml` and relevant canonical docs before deciding whether
+      Planning scouts `.loopship/system.yaml` and relevant canonical docs before deciding whether
       questions or autonomous execution are appropriate. Task graph approval emits child
       commands and accepts child result payloads. Validation records checks, verification
       reviews acceptance traces and risks, system_update writes durable knowledge, landing
@@ -186,16 +186,16 @@ runtime:
 deployment:
   environments:
     repo-worktrees: |-
-      Root and child worktrees host package code, schemas, workflow assets, durable .loopo
+      Root and child worktrees host package code, schemas, workflow assets, durable .loopship
       system state, and isolated child implementation state. Child worktrees also carry
-      gitignored quest-local runtime files under .loopo/runtime.
+      gitignored quest-local runtime files under .loopship/runtime.
     simulation: |-
       Simulation commands step selected lifecycle flows deterministically without requiring
       live external CLI agents.
     runtime-files: |-
-      Tracked durable files include .loopo/system.yaml, .loopo/docs/**/*.yaml, and
-      .loopo/signature.yaml. Quest-local ignored files include tasks.yaml, events.jsonl,
-      manifest.yaml, hook-state.json, and lock.json under .loopo/runtime.
+      Tracked durable files include .loopship/system.yaml, .loopship/docs/**/*.yaml, and
+      .loopship/signature.yaml. Quest-local ignored files include tasks.yaml, events.jsonl,
+      manifest.yaml, hook-state.json, and lock.json under .loopship/runtime.
   nodes:
     developer-machine: |-
       The developer machine hosts Bun, Git, schema files, workflow assets, runtime hook shims,
@@ -207,25 +207,25 @@ interfaces:
   quest-commands:
     kind: cli
     text: |-
-      loopo init starts a quest and returns route output, while loopo quest next --wtree
+      loopship init starts a quest and returns route output, while loopship quest next --wtree
       <name> --json <json|@file|@-> is the only state-mutating quest command after init.
       Public quest identity is wtree, the base worktree name.
   hook-command:
     kind: cli
     text: |-
-      loopo hook --runtime <runtime> reads hook payload JSON from stdin and returns a
+      loopship hook --runtime <runtime> reads hook payload JSON from stdin and returns a
       runtime-specific continuation decision.
   ops-commands:
     kind: cli
     text: |-
-      loopo doctor --fix repairs scaffolding, hooks, shims, signatures, and drift. loopo
+      loopship doctor --fix repairs scaffolding, hooks, shims, signatures, and drift. loopship
       handbook renders canonical YAML into Markdown and reports or fixes schema-safe duplicate
-      prose references. loopo sim init, loopo sim quest next, and loopo sim hook provide
+      prose references. loopship sim init, loopship sim quest next, and loopship sim hook provide
       deterministic selected-flow stepping and hook passthrough behavior.
   cmdproto-api:
     kind: api
     text: |-
-      loopo cmdproto execjson <path> <payload> mirrors the current public CLI as a machine
+      loopship cmdproto execjson <path> <payload> mirrors the current public CLI as a machine
       wrapper and introspection surface without replacing the V3 lifecycle.
   task-yaml:
     kind: file
@@ -262,13 +262,13 @@ interfaces:
 data:
   stores:
     system-yaml: |-
-      `.loopo/system.yaml` is the first-read semantic frontier with object, assertion,
+      `.loopship/system.yaml` is the first-read semantic frontier with object, assertion,
       resource, and optional memory records.
     canonical-docs: |-
-      `.loopo/docs/**/*.yaml` stores canonical external durable documents referenced from root
+      `.loopship/docs/**/*.yaml` stores canonical external durable documents referenced from root
       resources and validated by concrete schema refs.
     root-signature: |-
-      `.loopo/signature.yaml` stores canonicalized digests for the root, schema files, and
+      `.loopship/signature.yaml` stores canonicalized digests for the root, schema files, and
       canonical resources without adding integrity fields to the root.
     quest-runtime-state: |-
       Worktree-local runtime state includes tasks.yaml, events.jsonl, manifest.yaml,
@@ -293,7 +293,7 @@ data:
 quality:
   goals:
     determinism: |-
-      Loopo prioritizes deterministic lifecycle transitions, explicit schemas, stable command
+      Loopship prioritizes deterministic lifecycle transitions, explicit schemas, stable command
       surfaces, and reproducible verification.
     agent-readability: |-
       YAML records prefer self-explaining field names, relation-keyed link maps, multiline
@@ -307,13 +307,13 @@ quality:
       Required canonical documents fail if mandatory industry-profile sections are absent,
       empty, template-only, or too thin to be useful.
     lifecycle-matrix: |-
-      Lifecycle matrix verification proves archived end states, Loopo routing, unique branches
+      Lifecycle matrix verification proves archived end states, Loopship routing, unique branches
       and worktrees, and landed merge commits across representative cases.
     runtime-availability: |-
       Quota, auth, missing binaries, and hard timeouts are classified as runtime availability
-      outcomes unless canonical quest state proves Loopo failed.
+      outcomes unless canonical quest state proves Loopship failed.
     canonical-artifact-truth: |-
-      When agent narration, terminal chatter, and Loopo state disagree, reviewers trust
+      When agent narration, terminal chatter, and Loopship state disagree, reviewers trust
       canonical tasks.yaml, events.jsonl, emitted child commands, and git worktree state
       first.
     live-smoke: |-
@@ -355,7 +355,7 @@ risks:
       work.
     mitigation: |-
       Supervisors compare claims against tasks.yaml, events.jsonl, emitted child commands, git
-      worktree state, verification receipts, and landed receipts before changing Loopo
+      worktree state, verification receipts, and landed receipts before changing Loopship
       behavior.
 technical_debt:
   generated-markdown-renderer: |-
@@ -369,15 +369,15 @@ diagrams:
     kind: context
     syntax: mermaid
     text: |-
-      C4-style context diagram showing users, agents, Loopo, worktrees, hook runtimes, and
+      C4-style context diagram showing users, agents, Loopship, worktrees, hook runtimes, and
       canonical system knowledge.
     source: |-
       flowchart LR
-        User[Human Operator] --> Loopo[Loopo CLI Runtime]
-        RootAgent[Root Agent] --> Loopo
-        Loopo --> Worktrees[Git Worktrees]
-        Loopo --> SystemKnowledge[.loopo/system.yaml and canonical docs]
-        Hooks[Codex/Gemini/Copilot Hooks] --> Loopo
+        User[Human Operator] --> Loopship[Loopship CLI Runtime]
+        RootAgent[Root Agent] --> Loopship
+        Loopship --> Worktrees[Git Worktrees]
+        Loopship --> SystemKnowledge[.loopship/system.yaml and canonical docs]
+        Hooks[Codex/Gemini/Copilot Hooks] --> Loopship
         ChildAgents[Child CLI Agents] --> Worktrees
   quest-lifecycle-sequence:
     kind: sequence
@@ -388,22 +388,22 @@ diagrams:
     source: |-
       sequenceDiagram
         participant User
-        participant Loopo
+        participant Loopship
         participant RootAgent
         participant ChildAgent
         participant SystemUpdate
-        User->>Loopo: loopo init request
-        Loopo->>RootAgent: plan with system context
+        User->>Loopship: loopship init request
+        Loopship->>RootAgent: plan with system context
         RootAgent->>ChildAgent: launch child worktree task
-        ChildAgent-->>Loopo: child_result evidence
-        Loopo->>SystemUpdate: validated durable update
-        SystemUpdate-->>Loopo: canonical docs and signature refreshed
-        Loopo-->>User: archived landed receipt
+        ChildAgent-->>Loopship: child_result evidence
+        Loopship->>SystemUpdate: validated durable update
+        SystemUpdate-->>Loopship: canonical docs and signature refreshed
+        Loopship-->>User: archived landed receipt
   component-map:
     kind: component
     syntax: mermaid
     text: |-
-      Component diagram for the main Loopo
+      Component diagram for the main Loopship
       runtime modules and verification surfaces.
     source: |-
       flowchart TB
@@ -425,16 +425,16 @@ diagrams:
       flowchart LR
         Evidence[Verified Child Evidence] --> Payload[system_update Payload]
         Payload --> Validation[Schema and Semantic Validation]
-        Validation --> Root[.loopo/system.yaml]
-        Validation --> Docs[.loopo/docs/**/*.yaml]
-        Root --> Signature[.loopo/signature.yaml]
+        Validation --> Root[.loopship/system.yaml]
+        Validation --> Docs[.loopship/docs/**/*.yaml]
+        Root --> Signature[.loopship/signature.yaml]
         Docs --> Signature
 decision_refs:
   - resource:decisions
 glossary:
   canonical: |-
     Canonical files are durable source-of-truth YAML resources validated by schema and
-    covered by `.loopo/signature.yaml`.
+    covered by `.loopship/signature.yaml`.
   semantic-frontier: |-
     The semantic frontier is the compact root knowledge model agents read first before
     traversing concrete canonical resources.
@@ -448,8 +448,8 @@ glossary:
     coverage.
   runtime-availability: |-
     Runtime availability covers quota, authentication, missing binaries, and hard timeouts;
-    these outcomes are separated from Loopo lifecycle defects unless canonical quest state
-    proves Loopo itself failed.
+    these outcomes are separated from Loopship lifecycle defects unless canonical quest state
+    proves Loopship itself failed.
 examples:
   canonical-resource-link:
     language: yaml
@@ -461,8 +461,8 @@ examples:
         - id: software-architecture
           kind: document
           role: canonical
-          location: .loopo/docs/software/architecture.yaml
-          schema_ref: loopo://schemas/docs/software-architecture.yaml
+          location: .loopship/docs/software/architecture.yaml
+          schema_ref: loopship://schemas/docs/software-architecture.yaml
   fragment-support-link:
     language: yaml
     text: |-
@@ -478,5 +478,5 @@ examples:
       The public state-mutating continuation command after init uses wtree identity and
       schema-backed JSON input.
     source: |-
-      loopo quest next --wtree build-the-app --json @request.json
+      loopship quest next --wtree build-the-app --json @request.json
       # request.json conforms to the current step input schema.

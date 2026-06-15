@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopo_core.ts";
+import { parseTasksYaml, questFiles } from "./loopship_core.ts";
 import {
   CONCRETE_REACT_HABIT_TRACKER_REQUEST,
   scenarioPayloadForStep,
@@ -15,10 +15,10 @@ import {
   hookEventName,
   type Runtime,
 } from "./runtime_supervisor.ts";
-import { readText, runCommand, tsRunner } from "./loopo_utils.ts";
+import { readText, runCommand, tsRunner } from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const LOOPO_SCRIPT = resolve(SCRIPT_DIR, "loopo.ts");
+const LOOPSHIP_SCRIPT = resolve(SCRIPT_DIR, "loopship.ts");
 
 type Fixture = {
   root: string;
@@ -91,13 +91,13 @@ function runTsScript(
   });
 }
 
-function runLoopo(
+function runLoopship(
   fixture: Fixture,
   args: string[],
   input?: Record<string, unknown>,
 ) {
   return runTsScript(
-    LOOPO_SCRIPT,
+    LOOPSHIP_SCRIPT,
     args,
     input,
     existsSync(fixture.repo) ? fixture.repo : fixture.root,
@@ -125,8 +125,8 @@ function createFixture(prefix: string, runtime: Runtime): Fixture {
   const env = {
     ...process.env,
     HOME: join(root, "home"),
-    LOOPO_GLOBAL_BIN: join(root, "bin", "loopo"),
-    LOOPO_SCRIPT: LOOPO_SCRIPT,
+    LOOPSHIP_GLOBAL_BIN: join(root, "bin", "loopship"),
+    LOOPSHIP_SCRIPT: LOOPSHIP_SCRIPT,
   };
   const init = runCommand("git", ["init", repo], {
     env,
@@ -134,8 +134,8 @@ function createFixture(prefix: string, runtime: Runtime): Fixture {
   });
   if (init.status !== 0) fail(init.stderr || init.stdout);
   for (const [key, value] of [
-    ["user.email", "loopo-sim@example.invalid"],
-    ["user.name", `Loopo ${runtime} Simulator`],
+    ["user.email", "loopship-sim@example.invalid"],
+    ["user.name", `Loopship ${runtime} Simulator`],
   ] as const) {
     const config = runCommand("git", ["config", key, value], {
       cwd: repo,
@@ -211,7 +211,7 @@ function assertGuidedStep(
     fail(`${label}: guided sim must expose the current step directly`);
   }
   const command = step.commands?.next;
-  if (!command || command.cmd !== "loopo") {
+  if (!command || command.cmd !== "loopship") {
     fail(`${label}: guided sim step must include commands.next`);
   }
   const args = Array.isArray(command.args) ? command.args : [];
@@ -238,8 +238,8 @@ function assertNoFixtureFiles(repo: string, label: string): void {
 }
 
 function assertNoSimRuntimeArtifacts(repo: string, label: string): void {
-  if (existsSync(join(repo, ".loopo", "sim-runtime"))) {
-    fail(`${label}: sim must not create .loopo/sim-runtime`);
+  if (existsSync(join(repo, ".loopship", "sim-runtime"))) {
+    fail(`${label}: sim must not create .loopship/sim-runtime`);
   }
 }
 
@@ -436,10 +436,10 @@ function assertCanonicalArtifacts(
 }
 
 function assertSimHookPassthrough(runtime: Runtime): void {
-  const fixture = createFixture(`loopo-runtime-sim-hook-${runtime}-`, runtime);
+  const fixture = createFixture(`loopship-runtime-sim-hook-${runtime}-`, runtime);
   const label = `${runtime}/hook`;
   try {
-    const start = runLoopo(
+    const start = runLoopship(
       fixture,
       [
         "sim",
@@ -460,7 +460,7 @@ function assertSimHookPassthrough(runtime: Runtime): void {
     if (!wtree) fail(`${label}: missing wtree in sim start output`);
     assertNoFixtureFiles(fixture.repo, label);
     assertHeadUnchanged(fixture, label);
-    const hook = runLoopo(
+    const hook = runLoopship(
       fixture,
       [
         "sim",
@@ -494,12 +494,12 @@ function simulateRuntime(
   simulationCase: SimulationCase,
 ): void {
   const fixture = createFixture(
-    `loopo-runtime-sim-${simulationCase.name}-`,
+    `loopship-runtime-sim-${simulationCase.name}-`,
     runtime,
   );
   const label = `${runtime}/${simulationCase.name}`;
   try {
-    const start = runLoopo(
+    const start = runLoopship(
       fixture,
       [
         "sim",
@@ -551,7 +551,7 @@ function simulateRuntime(
       });
       if (requestedStep === "plan") planRound += 1;
       if (requestedStep === "landing") landingRound += 1;
-      const callbackProc = runLoopo(
+      const callbackProc = runLoopship(
         fixture,
         simCommandArgs(current, label),
         callbackInput,
@@ -606,7 +606,7 @@ function main(): number {
       simulateRuntime(runtime, simulationCase);
     }
   }
-  console.log("loopo runtime simulation verification passed");
+  console.log("loopship runtime simulation verification passed");
   return 0;
 }
 

@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/docs/artifact-bom.yaml
-title: Loopo Artifact Bill Of Materials Document v2
+$id: loopship://schemas/docs/artifact-bom.yaml
+title: Loopship Artifact Bill Of Materials Document v2
 type: object
 additionalProperties: false
 required:
@@ -23,7 +23,7 @@ properties:
   schema_version:
     const: 2
   id:
-    $ref: loopo://schemas/system.yaml#/$defs/id
+    $ref: loopship://schemas/system.yaml#/$defs/id
   title:
     type: string
     minLength: 1
@@ -141,7 +141,7 @@ properties:
       - checksums
     properties:
       locations:
-        $ref: loopo://schemas/system.yaml#/$defs/resource_ref_array
+        $ref: loopship://schemas/system.yaml#/$defs/resource_ref_array
       checksums:
         type: object
         minProperties: 1
@@ -214,6 +214,6 @@ $defs:
         text:
           $ref: "#/$defs/prose"
         resource_ref:
-          $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+          $ref: loopship://schemas/system.yaml#/$defs/resource_ref
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links

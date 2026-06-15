@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/quest-plan.yaml
-title: Loopo Quest Plan v3
+title: Loopship Quest Plan v3
 type: object
 additionalProperties: true
 required:

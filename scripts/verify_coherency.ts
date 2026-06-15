@@ -4,14 +4,14 @@ import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { readText } from "./loopo_utils.ts";
+import { readText } from "./loopship_utils.ts";
 import {
   loadFlowDefinition,
   loadWorkflowRecord,
   validateWorkflowRecord,
   WORKFLOW_SCHEMA_FILE,
   WORKFLOW_VALIDATION_ENTRYPOINT,
-} from "./loopo_workflow_runner.ts";
+} from "./loopship_workflow_runner.ts";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKSPACE_ROOT =
@@ -19,7 +19,7 @@ const WORKSPACE_ROOT =
     ? resolve(PACKAGE_ROOT, "..", "..", "..")
     : resolve(PACKAGE_ROOT, "..");
 const AI_RULES_ROOT = resolve(process.env.AI_RULES_ROOT ?? join(WORKSPACE_ROOT, "ai-rules"));
-const SKILL_ROOT = resolve(AI_RULES_ROOT, "skills", "loopo");
+const SKILL_ROOT = resolve(AI_RULES_ROOT, "skills", "loopship");
 
 function assertExists(path: string, label: string): void {
   if (!existsSync(path)) throw new Error(`missing ${label}: ${path}`);
@@ -59,7 +59,7 @@ function relativePackagePath(path: string): string {
 function assertMinimalSkillRoot(): void {
   const visibleEntries = readdirSync(SKILL_ROOT).filter((entry) => !entry.startsWith("."));
   if (visibleEntries.length !== 1 || visibleEntries[0] !== "SKILL.md") {
-    throw new Error(`skills/loopo must stay launcher-only; found: ${visibleEntries.join(", ") || "(empty)"}`);
+    throw new Error(`skills/loopship must stay launcher-only; found: ${visibleEntries.join(", ") || "(empty)"}`);
   }
 }
 
@@ -76,17 +76,17 @@ function assertPackageFilesExist(): void {
 
 function assertNoLegacySystemDocs(): void {
   const legacyPaths = [
-    ".loopo/manifest.sign.json",
-    ".loopo/manifest.yaml",
-    ".loopo/docs/system-behaviours.yaml",
-    ".loopo/docs/architecture.yaml",
-    ".loopo/docs/design-system.yaml",
-    ".loopo/docs/high-level-design.yaml",
-    ".loopo/docs/low-level-design.yaml",
-    ".loopo/docs/views",
-    ".loopo/docs/contexts",
-    ".loopo/docs/domains",
-    ".loopo/docs/adrs",
+    ".loopship/manifest.sign.json",
+    ".loopship/manifest.yaml",
+    ".loopship/docs/system-behaviours.yaml",
+    ".loopship/docs/architecture.yaml",
+    ".loopship/docs/design-system.yaml",
+    ".loopship/docs/high-level-design.yaml",
+    ".loopship/docs/low-level-design.yaml",
+    ".loopship/docs/views",
+    ".loopship/docs/contexts",
+    ".loopship/docs/domains",
+    ".loopship/docs/adrs",
     "schemas/system-behaviours.yaml",
     "schemas/system-architecture.yaml",
     "schemas/system-context.yaml",
@@ -150,9 +150,9 @@ function assertPlanPrompt(): void {
   const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "plan.yaml"));
   const scope = "plan step prompt";
   for (const needle of [
-    "# Loopo Plan Step",
+    "# Loopship Plan Step",
     "Documentation Grill",
-    ".loopo/system.yaml",
+    ".loopship/system.yaml",
     "`objects[]`",
     "`assertions[]`",
     "`resources[]`",
@@ -182,9 +182,9 @@ function assertPlanPrompt(): void {
     "relevant_record_refs",
     "`records[]`",
     "`relations[]`",
-    ".loopo/docs/system-behaviours.yaml",
-    ".loopo/docs/domains/*.yaml",
-    ".loopo/docs/adrs/*.yaml",
+    ".loopship/docs/system-behaviours.yaml",
+    ".loopship/docs/domains/*.yaml",
+    ".loopship/docs/adrs/*.yaml",
     "`af`",
     "`of`",
   ]) {
@@ -196,9 +196,9 @@ function assertSystemUpdatePrompt(): void {
   const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "system_update.yaml"));
   const scope = "system_update step prompt";
   for (const needle of [
-    "# Loopo System Update Step",
-    ".loopo/system.yaml",
-    ".loopo/docs/**/*.yaml",
+    "# Loopship System Update Step",
+    ".loopship/system.yaml",
+    ".loopship/docs/**/*.yaml",
     "`objects[]`",
     "`assertions[]`",
     "`resources[]`",
@@ -212,7 +212,7 @@ function assertSystemUpdatePrompt(): void {
     "mode: no_change | replace",
     "external_docs",
     "resource_ref",
-    "schema_ref: loopo://schemas/docs/software-architecture.yaml",
+    "schema_ref: loopship://schemas/docs/software-architecture.yaml",
     "schemas/system-pack.yaml",
     "concrete industry-shaped schemas",
     "role: canonical",
@@ -224,9 +224,9 @@ function assertSystemUpdatePrompt(): void {
     "control_plane.assertions",
     "domain_refs",
     "doc_type",
-    ".loopo/docs/system-behaviours.yaml",
-    ".loopo/docs/domains/",
-    ".loopo/docs/adrs/",
+    ".loopship/docs/system-behaviours.yaml",
+    ".loopship/docs/domains/",
+    ".loopship/docs/adrs/",
     "pending_proposals",
     "test_refs",
     "context_refs",
@@ -236,7 +236,7 @@ function assertSystemUpdatePrompt(): void {
     "source_refs",
     "evidence_refs",
     "authority: canonical",
-    ".loopo/docs/*.yaml",
+    ".loopship/docs/*.yaml",
   ]) {
     assertNotContains(text, needle, scope);
   }
@@ -251,8 +251,8 @@ function assertReadmeCommandSurface(): void {
     "node index.ts handbook --duplicates --json",
     "node index.ts handbook --fix-duplicates --json",
     "node index.ts cmdproto execjson handbook",
-    "`loopo handbook` renders a standalone generated Markdown handbook",
-    "`loopo handbook --duplicates` reports exact normalized duplicate prose",
+    "`loopship handbook` renders a standalone generated Markdown handbook",
+    "`loopship handbook --duplicates` reports exact normalized duplicate prose",
     "recoverable system temp path",
     "generated output, not canonical truth",
   ]) {
@@ -269,11 +269,11 @@ function assertCanonicalArchitectureDocs(): void {
   }
   assertExists(resolve(PACKAGE_ROOT, "references", "archive", "core-architecture.md"), "archived architecture reference");
   assertExists(resolve(PACKAGE_ROOT, "references", "archive", "system-review.md"), "archived system review");
-  const text = readText(resolve(PACKAGE_ROOT, ".loopo", "docs", "software", "architecture.yaml"));
-  const scope = ".loopo/docs/software/architecture.yaml";
+  const text = readText(resolve(PACKAGE_ROOT, ".loopship", "docs", "software", "architecture.yaml"));
+  const scope = ".loopship/docs/software/architecture.yaml";
   for (const needle of [
-    ".loopo/system.yaml",
-    ".loopo/signature.yaml",
+    ".loopship/system.yaml",
+    ".loopship/signature.yaml",
     "schemas/system.yaml",
     "relation-keyed typed links",
     "diagrams:",
@@ -288,14 +288,14 @@ function assertCanonicalArchitectureDocs(): void {
   }
   for (const needle of [
     "control_plane.assertions",
-    ".loopo/docs/system-behaviours.yaml",
-    ".loopo/docs/contexts/*.yaml",
-    ".loopo/docs/areas/*.yaml",
-    ".loopo/docs/domains/*.yaml",
-    ".loopo/docs/adrs/*.yaml",
-    ".loopo/docs/high-level-design.yaml",
-    ".loopo/docs/low-level-design.yaml",
-    ".loopo/docs/design-system.yaml",
+    ".loopship/docs/system-behaviours.yaml",
+    ".loopship/docs/contexts/*.yaml",
+    ".loopship/docs/areas/*.yaml",
+    ".loopship/docs/domains/*.yaml",
+    ".loopship/docs/adrs/*.yaml",
+    ".loopship/docs/high-level-design.yaml",
+    ".loopship/docs/low-level-design.yaml",
+    ".loopship/docs/design-system.yaml",
     "references/core/architecture.md",
   ]) {
     assertNotContains(text, needle, scope);
@@ -303,14 +303,14 @@ function assertCanonicalArchitectureDocs(): void {
 }
 
 function assertRootSystemDocument(): void {
-  const system = readYamlObject(resolve(PACKAGE_ROOT, ".loopo", "system.yaml"));
+  const system = readYamlObject(resolve(PACKAGE_ROOT, ".loopship", "system.yaml"));
   for (const key of ["objects", "assertions", "resources"]) {
     if (!Array.isArray(system[key]) || !system[key].length) {
-      throw new Error(`.loopo/system.yaml must define non-empty ${key}[]`);
+      throw new Error(`.loopship/system.yaml must define non-empty ${key}[]`);
     }
   }
   if ("memories" in system && (!Array.isArray(system.memories) || !system.memories.length)) {
-    throw new Error(".loopo/system.yaml memories[] must be omitted when empty");
+    throw new Error(".loopship/system.yaml memories[] must be omitted when empty");
   }
   for (const forbiddenKey of [
     "status",
@@ -323,7 +323,7 @@ function assertRootSystemDocument(): void {
     "relations",
     "records",
   ]) {
-    if (forbiddenKey in system) throw new Error(`.loopo/system.yaml must not define ${forbiddenKey}`);
+    if (forbiddenKey in system) throw new Error(`.loopship/system.yaml must not define ${forbiddenKey}`);
   }
   const resources = Array.isArray(system.resources) ? system.resources : [];
   const objectRows = Array.isArray(system.objects) ? system.objects : [];
@@ -331,7 +331,7 @@ function assertRootSystemDocument(): void {
     if (!object || typeof object !== "object" || Array.isArray(object)) continue;
     const kind = String((object as Record<string, unknown>).kind ?? "");
     if (kind === "view" || kind === "decision") {
-      throw new Error(`.loopo/system.yaml must not use object kind: ${kind}`);
+      throw new Error(`.loopship/system.yaml must not use object kind: ${kind}`);
     }
   }
   const canonicalDocs = resources.filter(
@@ -344,12 +344,12 @@ function assertRootSystemDocument(): void {
     schemaRefs.add(String(doc.schema_ref ?? ""));
   }
   for (const requiredSchema of [
-    "loopo://schemas/docs/software-architecture.yaml",
-    "loopo://schemas/docs/decision-records.yaml",
-    "loopo://schemas/docs/workflow-spec.yaml",
-    "loopo://schemas/docs/agent-system-card.yaml",
+    "loopship://schemas/docs/software-architecture.yaml",
+    "loopship://schemas/docs/decision-records.yaml",
+    "loopship://schemas/docs/workflow-spec.yaml",
+    "loopship://schemas/docs/agent-system-card.yaml",
   ]) {
-    if (!schemaRefs.has(requiredSchema)) throw new Error(`Loopo missing canonical document schema: ${requiredSchema}`);
+    if (!schemaRefs.has(requiredSchema)) throw new Error(`Loopship missing canonical document schema: ${requiredSchema}`);
   }
   const resourceIds = new Set(
     resources
@@ -365,7 +365,7 @@ function assertRootSystemDocument(): void {
     "workflow-contract",
     "agent-contract",
   ]) {
-    if (resourceIds.has(staleId)) throw new Error(`.loopo/system.yaml must not include stale resource: ${staleId}`);
+    if (resourceIds.has(staleId)) throw new Error(`.loopship/system.yaml must not include stale resource: ${staleId}`);
   }
   for (const block of ["objects", "assertions", "resources", "memories"]) {
     const rows = Array.isArray(system[block]) ? system[block] : [];
@@ -374,11 +374,11 @@ function assertRootSystemDocument(): void {
       const links = (row as Record<string, unknown>).links;
       if (links === undefined) continue;
       if (!links || typeof links !== "object" || Array.isArray(links)) {
-        throw new Error(`.loopo/system.yaml ${block} links must be relation-keyed maps`);
+        throw new Error(`.loopship/system.yaml ${block} links must be relation-keyed maps`);
       }
       const rendered = JSON.stringify(links);
       if (!/\b(object|assertion|resource|memory):/.test(rendered)) {
-        throw new Error(`.loopo/system.yaml ${block} links must use typed refs`);
+        throw new Error(`.loopship/system.yaml ${block} links must use typed refs`);
       }
     }
   }
@@ -386,7 +386,7 @@ function assertRootSystemDocument(): void {
 
 function assertNoStaleProjectLanguage(): void {
   const roots = [
-    resolve(PACKAGE_ROOT, ".loopo"),
+    resolve(PACKAGE_ROOT, ".loopship"),
     resolve(PACKAGE_ROOT, "assets", "workflows", "steps"),
     resolve(PACKAGE_ROOT, "references", "core"),
   ];
@@ -400,8 +400,8 @@ function assertNoStaleProjectLanguage(): void {
     const text = readText(path);
     const scope = relativePackagePath(path);
     assertNotContains(text, "system index", scope);
-    assertNotContains(text, ".loopo/docs/*.yaml", scope);
-    assertNotContains(text, ".loopo/manifest.yaml", scope);
+    assertNotContains(text, ".loopship/docs/*.yaml", scope);
+    assertNotContains(text, ".loopship/manifest.yaml", scope);
     assertNotContains(text, "schemas/system-doc.yaml", scope);
     assertNotContains(text, "schemas/manifest.yaml", scope);
     assertNotContains(text, "schema_ref: resource:system-doc-schema", scope);
@@ -437,10 +437,10 @@ function assertWorkflowValidation(): void {
 }
 
 function main(): number {
-  assertExists(resolve(PACKAGE_ROOT, "package.json"), "loopo package.json");
+  assertExists(resolve(PACKAGE_ROOT, "package.json"), "loopship package.json");
   assertExists(resolve(SKILL_ROOT, "SKILL.md"), "skill launcher");
-  assertExists(resolve(PACKAGE_ROOT, ".loopo", "system.yaml"), "root system");
-  assertExists(resolve(PACKAGE_ROOT, ".loopo", "signature.yaml"), "root signature");
+  assertExists(resolve(PACKAGE_ROOT, ".loopship", "system.yaml"), "root system");
+  assertExists(resolve(PACKAGE_ROOT, ".loopship", "signature.yaml"), "root signature");
   assertMinimalSkillRoot();
   assertPackageFilesExist();
   assertNoLegacySystemDocs();

@@ -11,16 +11,16 @@ import {
   validateWorkflowRecord,
   WORKFLOW_DSL_VERSION,
   WORKFLOW_VALIDATION_ENTRYPOINT,
-} from "./loopo_workflow_runner.ts";
+} from "./loopship_workflow_runner.ts";
 import {
   FLOW_SCHEMA_PATH,
   V3_STEP_SCHEMAS,
   validateV3Input,
   validateSchemaPath,
-} from "./loopo_schema.ts";
+} from "./loopship_schema.ts";
 
 const command = {
-  cmd: "loopo",
+  cmd: "loopship",
   args: ["quest", "next", "--wtree", "demo", "--json", "@-"],
 };
 
@@ -33,21 +33,21 @@ const prose = (value: string): string => value.replace(/ ([^ ]+)$/, "\n$1");
 const embeddedPlanInputSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "schemas/steps/plan-input.yaml",
-  title: "Loopo V3 Plan Input",
+  title: "Loopship V3 Plan Input",
   type: "object",
 };
 
 const embeddedChildResultSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "schemas/steps/child-result-input.yaml",
-  title: "Loopo V3 Child Result Input",
+  title: "Loopship V3 Child Result Input",
   type: "object",
 };
 
 const embeddedStepOutputEnvelope = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "schemas/steps/step-output.yaml",
-  title: "Loopo V3 Step Output",
+  title: "Loopship V3 Step Output",
   type: "object",
 };
 
@@ -68,11 +68,11 @@ const emptySystemContext = {
 const validFlow = {
   document: {
     dsl: "1.0.3",
-    namespace: "loopo",
+    namespace: "loopship",
     name: "demo",
     version: "1.0.0",
     metadata: {
-      loopo: {
+      loopship: {
         kind: "flow",
         version: 1,
         defaultStage: "planning",
@@ -113,10 +113,10 @@ const validFlow = {
     },
   },
   do: [
-    { planning: { call: "workflow.loopo.steps.plan" } },
-    { plan_review: { call: "workflow.loopo.steps.task_graph" } },
-    { task_graph_ready: { call: "workflow.loopo.steps.executing" } },
-    { archived: { call: "workflow.loopo.steps.archived" } },
+    { planning: { call: "workflow.loopship.steps.plan" } },
+    { plan_review: { call: "workflow.loopship.steps.task_graph" } },
+    { task_graph_ready: { call: "workflow.loopship.steps.executing" } },
+    { archived: { call: "workflow.loopship.steps.archived" } },
   ],
 };
 
@@ -143,18 +143,18 @@ function makeStepWorkflow(options: {
     inputSchemaRef,
     outputSchemaRef,
     summary = `${taskName} summary`,
-    instructions = `# Loopo ${taskName} Step`,
+    instructions = `# Loopship ${taskName} Step`,
     resultSchemaPath = "schemas/steps/step-output.yaml",
   } = options;
   return {
     document: {
       dsl: "1.0.3",
-      namespace: "loopo-steps",
+      namespace: "loopship-steps",
       name: taskName,
       version: "1.0.0",
       summary,
       metadata: {
-        loopo: {
+        loopship: {
           kind: "step-workflow",
           stepId,
         },
@@ -172,7 +172,7 @@ function makeStepWorkflow(options: {
             },
           },
           metadata: {
-            loopo: {
+            loopship: {
               stepId,
               handler,
               inputStep,
@@ -193,7 +193,7 @@ function makeStepWorkflow(options: {
                 },
               }
             : {}),
-          call: `workflow.loopo.steps.${taskName}`,
+          call: `workflow.loopship.steps.${taskName}`,
         },
       },
     ],
@@ -224,11 +224,11 @@ function makeFlowWorkflow(options: {
   return {
     document: {
       dsl: "1.0.3",
-      namespace: "loopo",
+      namespace: "loopship",
       name,
       version: "1.0.0",
       metadata: {
-        loopo: {
+        loopship: {
           kind: "flow",
           version: 1,
           defaultStage: defaultStage,
@@ -239,10 +239,10 @@ function makeFlowWorkflow(options: {
     },
     do: Object.entries(stages).map(([stageId, stageDef]) => ({
       [stageDef.task]: {
-        call: `workflow.loopo.steps.${stageDef.step}`,
+        call: `workflow.loopship.steps.${stageDef.step}`,
         then: "continue",
         metadata: {
-          loopo: {
+          loopship: {
             stageId,
             stepId: stageDef.step,
             stepWorkflow: `assets/workflows/steps/${stageDef.step}.yaml`,
@@ -277,7 +277,7 @@ const baseStepOutput = {
       output_schema: embeddedPlanInputSchema,
       result_schema_path: "schemas/steps/step-output.yaml",
       summary: "Plan the work",
-      instructions: "# Loopo Plan Step\n\nPlan with clarification details.",
+      instructions: "# Loopship Plan Step\n\nPlan with clarification details.",
     },
   },
   commands: { next: command },
@@ -289,7 +289,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     schema_version: 3,
     kind: "init_route",
     schema_path: "schemas/steps/init-output.yaml",
-    request: "loopo: demo",
+    request: "loopship: demo",
     runtime: "codex",
     flow_id: "swe",
     flow_version: 1,
@@ -300,7 +300,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
       output_schema: {
         $schema: "https://json-schema.org/draft/2020-12/schema",
         $id: "schemas/steps/next-input.yaml",
-        title: "Loopo V3 Next Input",
+        title: "Loopship V3 Next Input",
         type: "object",
       },
       input: {
@@ -308,7 +308,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
         action: "create_quest",
         wtree: "demo",
         flow_id: "swe",
-        request: "loopo: demo",
+        request: "loopship: demo",
       },
     },
   },
@@ -317,7 +317,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     action: "create_quest",
     wtree: "demo",
     flow_id: "swe",
-    request: "loopo: demo",
+    request: "loopship: demo",
   },
   "step-output": baseStepOutput,
   "error-output": {
@@ -361,7 +361,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
         output_schema: embeddedChildResultSchema,
         result_schema_path: "schemas/steps/child-dispatch-output.yaml",
         summary: "Dispatch children",
-        instructions: "# Loopo Executing Step\n\nDispatch child work.",
+        instructions: "# Loopship Executing Step\n\nDispatch child work.",
       },
     },
     children: [
@@ -404,17 +404,17 @@ const validPayloads: Record<string, Record<string, unknown>> = {
       summary: "Replace the canonical root system model.",
       root: {
         schema_version: 2,
-        id: "loopo",
-        title: "Loopo",
+        id: "loopship",
+        title: "Loopship",
         kinds: ["software", "workflow", "agent"],
         text: prose("Deterministic workflow launcher."),
-        scope_in: ["Loopo runtime"],
+        scope_in: ["Loopship runtime"],
         scope_out: ["Generated apps"],
         objects: [
           {
             id: "system-model",
             kind: "unit",
-            text: prose("Durable semantic frontier for Loopo."),
+            text: prose("Durable semantic frontier for Loopship."),
           },
         ],
         assertions: [
@@ -435,8 +435,8 @@ const validPayloads: Record<string, Record<string, unknown>> = {
             kind: "document",
             role: "canonical",
             text: prose("Full software architecture document."),
-            location: ".loopo/docs/software/architecture.yaml",
-            schema_ref: "loopo://schemas/docs/software-architecture.yaml",
+            location: ".loopship/docs/software/architecture.yaml",
+            schema_ref: "loopship://schemas/docs/software-architecture.yaml",
             links: {
               about: ["object:system-model"],
             },
@@ -446,8 +446,8 @@ const validPayloads: Record<string, Record<string, unknown>> = {
             kind: "document",
             role: "canonical",
             text: prose("Architecture-significant decision records."),
-            location: ".loopo/docs/decisions/records.yaml",
-            schema_ref: "loopo://schemas/docs/decision-records.yaml",
+            location: ".loopship/docs/decisions/records.yaml",
+            schema_ref: "loopship://schemas/docs/decision-records.yaml",
             links: {
               about: ["object:system-model"],
             },
@@ -457,8 +457,8 @@ const validPayloads: Record<string, Record<string, unknown>> = {
             kind: "document",
             role: "canonical",
             text: prose("Full workflow specification document."),
-            location: ".loopo/docs/workflow/spec.yaml",
-            schema_ref: "loopo://schemas/docs/workflow-spec.yaml",
+            location: ".loopship/docs/workflow/spec.yaml",
+            schema_ref: "loopship://schemas/docs/workflow-spec.yaml",
             links: {
               about: ["object:system-model"],
             },
@@ -468,8 +468,8 @@ const validPayloads: Record<string, Record<string, unknown>> = {
             kind: "document",
             role: "canonical",
             text: prose("Full agent system card document."),
-            location: ".loopo/docs/agent/system-card.yaml",
-            schema_ref: "loopo://schemas/docs/agent-system-card.yaml",
+            location: ".loopship/docs/agent/system-card.yaml",
+            schema_ref: "loopship://schemas/docs/agent-system-card.yaml",
             links: {
               about: ["object:system-model"],
             },
@@ -492,7 +492,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
               arc42: prose("Aligns with arc42 architecture concerns for goals, context, structure, runtime, quality, and risk."),
             },
             goals: [
-              prose("Loopo coordinates deterministic workflow execution across worktrees."),
+              prose("Loopship coordinates deterministic workflow execution across worktrees."),
             ],
             stakeholders: {
               operator: {
@@ -510,11 +510,11 @@ const validPayloads: Record<string, Record<string, unknown>> = {
             },
             solution_strategy: prose("Use schema-backed flows and concrete canonical documents."),
             structure: {
-              overview: prose("Loopo is organized around the CLI, runtime state, canonical docs, and verification."),
-              systems: { loopo: prose("Loopo is the workflow launcher system.") },
+              overview: prose("Loopship is organized around the CLI, runtime state, canonical docs, and verification."),
+              systems: { loopship: prose("Loopship is the workflow launcher system.") },
               containers: { cli: prose("The CLI container owns command execution.") },
               components: { verifier: prose("The verifier component checks durable state.") },
-              code_units: { loopo_core: prose("loopo_core owns state and signature updates.") },
+              code_units: { loopship_core: prose("loopship_core owns state and signature updates.") },
             },
             runtime: {
               overview: prose("Runtime proceeds through planning, execution, verification, update, landing, and archive."),
@@ -522,7 +522,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
               failure_scenarios: { shell_docs: prose("Shell docs fail verification before becoming canonical.") },
             },
             deployment: {
-              environments: { local_worktree: prose("Loopo runs in a local repository worktree.") },
+              environments: { local_worktree: prose("Loopship runs in a local repository worktree.") },
               nodes: { developer_machine: prose("The developer machine runs Bun verification commands.") },
             },
             interfaces: {
@@ -533,7 +533,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
               flows: { system_update: prose("System updates flow into canonical YAML and signature refresh.") },
             },
             quality: {
-              goals: { determinism: prose("Loopo prioritizes deterministic schema validation.") },
+              goals: { determinism: prose("Loopship prioritizes deterministic schema validation.") },
               scenarios: { multiline_prose: prose("Single-line prose fails system model verification.") },
             },
             risks: {
@@ -550,7 +550,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
                 kind: "context",
                 syntax: "mermaid",
                 text: prose("C4-style context diagram source can be generated."),
-                source: prose("flowchart LR User --> Loopo"),
+                source: prose("flowchart LR User --> Loopship"),
               },
             },
             examples: {
@@ -585,7 +585,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
                 state: "accepted",
                 date: "2026-06-08",
                 title: "Use minimal kernel",
-                context: prose("Loopo needs a minimal root that works across software, workflow, and agent contexts."),
+                context: prose("Loopship needs a minimal root that works across software, workflow, and agent contexts."),
                 drivers: [
                   prose("The model must remain readable to agents."),
                 ],
@@ -638,7 +638,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
         output_schema: null,
         result_schema_path: "schemas/steps/archive-output.yaml",
         summary: "Archived",
-        instructions: "# Loopo Archived Step\n\nReport final state.",
+        instructions: "# Loopship Archived Step\n\nReport final state.",
       },
     },
   },
@@ -659,7 +659,7 @@ const validPayloads: Record<string, Record<string, unknown>> = {
   },
 };
 
-describe("loopo strict v3 step schemas", () => {
+describe("loopship strict v3 step schemas", () => {
   it("exposes the fast-browser-aligned workflow runner contract", () => {
     const warnings: string[] = [];
     const originalWarn = console.warn;
@@ -870,7 +870,7 @@ describe("loopo strict v3 step schemas", () => {
               resources: [
                 {
                   ...((baseUpdate.root as any).resources[0] as Record<string, unknown>),
-                  schema_ref: "loopo://schemas/docs/software-architecture.yaml#/properties",
+                  schema_ref: "loopship://schemas/docs/software-architecture.yaml#/properties",
                 },
               ],
             },
@@ -911,7 +911,7 @@ describe("loopo strict v3 step schemas", () => {
   });
 });
 
-describe("loopo bundled flow definitions", () => {
+describe("loopship bundled flow definitions", () => {
   it("loads the bundled swe flow", () => {
     const flow = loadFlowDefinition("swe");
     expect(flow.id).toBe("swe");
@@ -936,7 +936,7 @@ describe("loopo bundled flow definitions", () => {
         );
       }
     }
-    expect(flow.steps_by_id.plan.instructions).toContain("# Loopo Plan Step");
+    expect(flow.steps_by_id.plan.instructions).toContain("# Loopship Plan Step");
     expect(flow.steps_by_id.plan.instructions).toContain(
       "## Universal Planning Contract",
     );
@@ -974,7 +974,7 @@ describe("loopo bundled flow definitions", () => {
       "human-provided answers",
     );
     expect(flow.steps_by_id.executing.instructions).toContain(
-      "# Loopo Executing Step",
+      "# Loopship Executing Step",
     );
     expect(flow.subflows.map((subflow) => subflow.id)).toEqual([
       "replanning",
@@ -988,7 +988,7 @@ describe("loopo bundled flow definitions", () => {
   });
 
   it("rejects missing steps, bad schema refs, missing task bindings, and bad transitions", () => {
-    const root = mkdtempSync(join(tmpdir(), "loopo-flow-schema-"));
+    const root = mkdtempSync(join(tmpdir(), "loopship-flow-schema-"));
     try {
       const stepsDir = join(root, "steps");
       const flowPath = join(root, "flow.yaml");
@@ -1034,11 +1034,11 @@ describe("loopo bundled flow definitions", () => {
         {
           document: {
             dsl: "1.0.3",
-            namespace: "loopo",
+            namespace: "loopship",
             name: "broken",
             version: "1.0.0",
             metadata: {
-              loopo: {
+              loopship: {
                 kind: "flow",
                 version: 1,
                 defaultStage: "planning",
@@ -1056,7 +1056,7 @@ describe("loopo bundled flow definitions", () => {
           do: [
             {
               other_task: {
-                call: "workflow.loopo.steps.plan",
+                call: "workflow.loopship.steps.plan",
                 then: "continue",
               },
             },
@@ -1091,7 +1091,7 @@ describe("loopo bundled flow definitions", () => {
   });
 
   it("rejects incoherent subflow definitions", () => {
-    const root = mkdtempSync(join(tmpdir(), "loopo-subflow-schema-"));
+    const root = mkdtempSync(join(tmpdir(), "loopship-subflow-schema-"));
     try {
       const flowPath = join(root, "flow.yaml");
       const steps = loadStepDefinitions();

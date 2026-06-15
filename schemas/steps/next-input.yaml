@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/next-input.yaml
-title: Loopo V3 Quest Next Input
+title: Loopship V3 Quest Next Input
 oneOf:
   - type: object
     additionalProperties: false

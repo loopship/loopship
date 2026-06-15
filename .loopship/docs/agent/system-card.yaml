@@ -2,7 +2,7 @@ schema_version: 2
 id: agent-system-card
 title: Agent System Card
 text: |-
-  Full agent system card for Loopo LLM-operated workflow coordination and bounded child
+  Full agent system card for Loopship LLM-operated workflow coordination and bounded child
   execution.
 links:
   about:
@@ -15,7 +15,7 @@ standard_alignment:
     Aligns with LLM and agentic application security concerns including tool permissions,
     prompt-injection risk, excessive agency, memory boundaries, and handoffs.
 purpose: |-
-  Loopo agents coordinate quest planning, execution supervision, verification, durable
+  Loopship agents coordinate quest planning, execution supervision, verification, durable
   system updates, hook continuation review, and child result handling while preserving
   worktree isolation.
 actors:
@@ -34,14 +34,14 @@ actors:
     text: |-
       The human operator supplies the initial goal, clarification answers, approval decisions,
       and any high-risk escalation choices.
-  loopo-runtime:
+  loopship-runtime:
     kind: system
     text: |-
-      The Loopo runtime validates payloads, persists quest state, emits commands, and enforces
+      The Loopship runtime validates payloads, persists quest state, emits commands, and enforces
       lifecycle transitions for agent actions.
 responsibilities:
   scout-root-first: |-
-    Agents read .loopo/system.yaml first, then traverse relevant canonical resource links
+    Agents read .loopship/system.yaml first, then traverse relevant canonical resource links
     before making durable planning or update decisions.
   verify-before-update: |-
     Agents only update durable system knowledge after evidence-backed verification and
@@ -55,7 +55,7 @@ responsibilities:
 autonomy:
   level: bounded
   text: |-
-    Loopo agents can execute bounded repository work and verification commands but must
+    Loopship agents can execute bounded repository work and verification commands but must
     pause for unresolved product, architecture, security, or irreversible decisions.
   allowed_actions:
     - Edit files inside the dedicated task worktree when the requested implementation or repair is clear, reversible, and inside assigned scope.
@@ -63,7 +63,7 @@ autonomy:
     - Propose canonical root and document updates through system_update after the merged work and receipts verify the durable change.
   forbidden_actions:
     - Do not edit, stage, or commit directly on main because worktree isolation is a hard repository invariant.
-    - Do not store credentials, secrets, private keys, tokens, or sensitive personal data in Loopo memories or canonical system documents.
+    - Do not store credentials, secrets, private keys, tokens, or sensitive personal data in Loopship memories or canonical system documents.
     - Do not recursively create child-of-child quests unless recursive delegation was explicitly planned before execution.
 tools:
   system-update:
@@ -104,7 +104,7 @@ memory:
   forbidden_memory:
     secrets: |-
       Secrets, credentials, tokens, private keys, and sensitive personal data must not be
-      stored in Loopo memory records.
+      stored in Loopship memory records.
     binding-policy: |-
       Binding rules must be represented as assertions, not as memories that compete with
       non-binding context.
@@ -112,7 +112,7 @@ inputs_outputs:
   inputs:
     user-request: |-
       User requests provide goals, constraints, follow-up refinements, and approval signals for
-      Loopo planning.
+      Loopship planning.
     system-root: |-
       The system root provides durable semantic context and links to canonical documents that
       agents must scout.
@@ -132,7 +132,7 @@ inputs_outputs:
 safety:
   risks:
     prompt-injection: |-
-      External docs, generated artifacts, or user-provided text may try to override Loopo
+      External docs, generated artifacts, or user-provided text may try to override Loopship
       workflow, tool, or safety boundaries.
     excessive-agency: |-
       Agents may attempt broad refactors, recursive delegation, or irreversible operations
@@ -159,7 +159,7 @@ human_oversight:
     destructive operations, or expensive-to-reverse architecture choices.
   runtime-availability: |-
     Quota, auth, missing binaries, and hard timeouts are treated as runtime availability
-    outcomes unless canonical quest state proves Loopo itself failed.
+    outcomes unless canonical quest state proves Loopship itself failed.
 evaluation:
   system-model:
     text: |-
@@ -189,7 +189,7 @@ incident_response:
     Unsafe or out-of-scope output blocks continuation, records evidence, and routes back through
     planning or verification instead of silently updating canonical knowledge.
   managed-file-drift: |-
-    Managed-file drift blocks continuation and uses loopo doctor --fix as the recovery path
+    Managed-file drift blocks continuation and uses loopship doctor --fix as the recovery path
     before further runtime work proceeds.
 handoffs:
   unresolved-questions: |-
@@ -211,13 +211,13 @@ diagrams:
     source: |-
       sequenceDiagram
         participant RootAgent
-        participant Loopo
+        participant Loopship
         participant ChildAgent
         participant Verifier
         participant SystemUpdate
-        RootAgent->>Loopo: approve task graph
-        Loopo->>ChildAgent: emitted child init command
-        ChildAgent-->>Loopo: child_result with evidence
-        Loopo->>Verifier: validate acceptance and receipts
+        RootAgent->>Loopship: approve task graph
+        Loopship->>ChildAgent: emitted child init command
+        ChildAgent-->>Loopship: child_result with evidence
+        Loopship->>Verifier: validate acceptance and receipts
         Verifier-->>SystemUpdate: verified durable implications
         SystemUpdate-->>RootAgent: canonical YAML and signature refreshed
