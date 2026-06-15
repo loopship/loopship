@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/docs/workflow-spec.yaml
-title: Loopo Workflow Specification Document v2
+$id: loopship://schemas/docs/workflow-spec.yaml
+title: Loopship Workflow Specification Document v2
 type: object
 additionalProperties: false
 required:
@@ -25,7 +25,7 @@ properties:
   schema_version:
     const: 2
   id:
-    $ref: loopo://schemas/system.yaml#/$defs/id
+    $ref: loopship://schemas/system.yaml#/$defs/id
   title:
     type: string
     minLength: 1
@@ -33,7 +33,7 @@ properties:
   text:
     $ref: "#/$defs/prose"
   links:
-    $ref: loopo://schemas/system.yaml#/$defs/links
+    $ref: loopship://schemas/system.yaml#/$defs/links
   standard_alignment:
     $ref: "#/$defs/prose_map"
   purpose:
@@ -60,7 +60,7 @@ properties:
         text:
           $ref: "#/$defs/prose"
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   triggers:
     $ref: "#/$defs/prose_map"
   inputs:
@@ -103,7 +103,7 @@ properties:
               text:
                 $ref: "#/$defs/prose"
               links:
-                $ref: loopo://schemas/system.yaml#/$defs/links
+                $ref: loopship://schemas/system.yaml#/$defs/links
         gateways:
           $ref: "#/$defs/prose_map"
         events:
@@ -162,7 +162,7 @@ $defs:
           type: string
           minLength: 1
         links:
-          $ref: loopo://schemas/system.yaml#/$defs/links
+          $ref: loopship://schemas/system.yaml#/$defs/links
   diagram_block:
     type: object
     additionalProperties: false
@@ -181,9 +181,9 @@ $defs:
       source:
         $ref: "#/$defs/prose"
       rendered_ref:
-        $ref: loopo://schemas/system.yaml#/$defs/resource_ref
+        $ref: loopship://schemas/system.yaml#/$defs/resource_ref
       links:
-        $ref: loopo://schemas/system.yaml#/$defs/links
+        $ref: loopship://schemas/system.yaml#/$defs/links
   example_block:
     type: object
     additionalProperties: false
@@ -199,7 +199,7 @@ $defs:
       source:
         $ref: "#/$defs/prose"
       links:
-        $ref: loopo://schemas/system.yaml#/$defs/links
+        $ref: loopship://schemas/system.yaml#/$defs/links
   diagram_kind:
     enum:
       - context

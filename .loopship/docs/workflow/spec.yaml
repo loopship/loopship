@@ -2,7 +2,7 @@ schema_version: 2
 id: workflow-spec
 title: Workflow Specification
 text: |-
-  Full workflow specification for Loopo quest execution and lifecycle orchestration across
+  Full workflow specification for Loopship quest execution and lifecycle orchestration across
   root and child worktrees.
 links:
   about:
@@ -13,7 +13,7 @@ standard_alignment:
     inputs, outputs, lanes, steps, gateways, events, data objects, invariants, exceptions,
     monitoring, and diagrams.
 purpose: |-
-  Loopo coordinates quest work from initial request through planning, clarification, task
+  Loopship coordinates quest work from initial request through planning, clarification, task
   graph approval, child execution, verification, durable system update, landing, and
   archive.
 participants:
@@ -27,34 +27,34 @@ participants:
     text: |-
       The root agent coordinates planning, task graph creation, child dispatch, verification,
       and system-update review without impersonating leaf child workers.
-  loopo-runtime:
+  loopship-runtime:
     kind: system
     text: |-
-      The Loopo runtime stores task state, validates step payloads, emits child commands, and
+      The Loopship runtime stores task state, validates step payloads, emits child commands, and
       controls lifecycle transitions.
 triggers:
   task-intake: |-
-    A quest starts from a schema-backed task payload submitted through loopo init or a
+    A quest starts from a schema-backed task payload submitted through loopship init or a
     follow-up quest continuation command.
 inputs:
   task-yaml:
-    schema_ref: loopo://schemas/tasks.yaml
+    schema_ref: loopship://schemas/tasks.yaml
     text: |-
       Task YAML records the goal, constraints, question rounds, accepted answers, task graph,
       validation, verification, landing, and archive evidence.
   system-root:
-    schema_ref: loopo://schemas/system.yaml
+    schema_ref: loopship://schemas/system.yaml
     text: |-
       The system root provides first-read durable context and resource links that planning
       must scout before making execution decisions.
 outputs:
   step-result:
-    schema_ref: loopo://schemas/steps/step-output.yaml
+    schema_ref: loopship://schemas/steps/step-output.yaml
     text: |-
       Step outputs report status, next command shape, generated child commands, receipts, and
       follow-up needs through strict schemas.
   signature:
-    schema_ref: loopo://schemas/signature.yaml
+    schema_ref: loopship://schemas/signature.yaml
     text: |-
       System-update completion refreshes the root signature sidecar for canonical root,
       schema, and resource files.
@@ -197,13 +197,13 @@ diagrams:
       sequenceDiagram
         participant Runtime
         participant Hook
-        participant Loopo
+        participant Loopship
         participant QuestState
         Runtime->>Hook: stop event payload
-        Hook->>Loopo: loopo hook --runtime
-        Loopo->>QuestState: read tasks and events
-        QuestState-->>Loopo: canonical snapshot
-        Loopo-->>Runtime: continue or block decision
+        Hook->>Loopship: loopship hook --runtime
+        Loopship->>QuestState: read tasks and events
+        QuestState-->>Loopship: canonical snapshot
+        Loopship-->>Runtime: continue or block decision
 examples:
   plan-support-link:
     language: yaml

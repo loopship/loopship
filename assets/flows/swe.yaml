@@ -1,11 +1,11 @@
 document:
   dsl: 1.0.3
-  namespace: loopo
+  namespace: loopship
   name: swe
   version: 1.0.0
-  summary: Loopo SWE lifecycle workflow composed from reusable single-step workflows.
+  summary: Loopship SWE lifecycle workflow composed from reusable single-step workflows.
   metadata:
-    loopo:
+    loopship:
       kind: flow
       version: 1
       defaultStage: planning
@@ -101,90 +101,90 @@ output:
       $ref: ../../schemas/steps/archive-output.yaml
 do:
   - planning:
-      call: workflow.loopo.steps.plan
+      call: workflow.loopship.steps.plan
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: planning
           stepId: plan
           stepWorkflow: assets/workflows/steps/plan.yaml
   - awaiting_user_answers:
-      call: workflow.loopo.steps.questions
+      call: workflow.loopship.steps.questions
       then: planning
       metadata:
-        loopo:
+        loopship:
           stageId: awaiting_user_answers
           stepId: questions
           stepWorkflow: assets/workflows/steps/questions.yaml
   - plan_review:
-      call: workflow.loopo.steps.task_graph
+      call: workflow.loopship.steps.task_graph
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: plan_review
           stepId: task_graph
           stepWorkflow: assets/workflows/steps/task_graph.yaml
   - task_graph_ready:
-      call: workflow.loopo.steps.executing
+      call: workflow.loopship.steps.executing
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: task_graph_ready
           stepId: executing
           stepWorkflow: assets/workflows/steps/executing.yaml
   - executing:
-      call: workflow.loopo.steps.executing
+      call: workflow.loopship.steps.executing
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: executing
           stepId: executing
           stepWorkflow: assets/workflows/steps/executing.yaml
   - validating:
-      call: workflow.loopo.steps.validation
+      call: workflow.loopship.steps.validation
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: validating
           stepId: validation
           stepWorkflow: assets/workflows/steps/validation.yaml
   - verification_pending:
-      call: workflow.loopo.steps.verification
+      call: workflow.loopship.steps.verification
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: verification_pending
           stepId: verification
           stepWorkflow: assets/workflows/steps/verification.yaml
   - system_update_pending:
-      call: workflow.loopo.steps.system_update
+      call: workflow.loopship.steps.system_update
       then: landing_ready
       metadata:
-        loopo:
+        loopship:
           stageId: system_update_pending
           stepId: system_update
           stepWorkflow: assets/workflows/steps/system_update.yaml
   - landing_ready:
-      call: workflow.loopo.steps.landing
+      call: workflow.loopship.steps.landing
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: landing_ready
           stepId: landing
           stepWorkflow: assets/workflows/steps/landing.yaml
   - replanning:
-      call: workflow.loopo.steps.plan
+      call: workflow.loopship.steps.plan
       then: plan_review
       metadata:
-        loopo:
+        loopship:
           stageId: replanning
           stepId: plan
           stepWorkflow: assets/workflows/steps/plan.yaml
   - archived:
-      call: workflow.loopo.steps.archived
+      call: workflow.loopship.steps.archived
       then: continue
       metadata:
-        loopo:
+        loopship:
           stageId: archived
           stepId: archived
           stepWorkflow: assets/workflows/steps/archived.yaml

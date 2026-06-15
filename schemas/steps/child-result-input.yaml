@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/child-result-input.yaml
-title: Loopo V3 Child Result Input
+title: Loopship V3 Child Result Input
 type: object
 additionalProperties: false
 required:

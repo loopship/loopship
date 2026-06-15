@@ -4,20 +4,20 @@ import { resolve } from "node:path";
 import {
   detectHandbookDuplicates,
   fixHandbookDuplicates,
-  renderLoopoHandbook,
-  writeLoopoHandbook,
-} from "./loopo_handbook.ts";
-import { runSimCli } from "./loopo_sim.ts";
-import { expandHome, readStdinText, readText } from "./loopo_utils.ts";
+  renderLoopshipHandbook,
+  writeLoopshipHandbook,
+} from "./loopship_handbook.ts";
+import { runSimCli } from "./loopship_sim.ts";
+import { expandHome, readStdinText, readText } from "./loopship_utils.ts";
 
 const CMDPROTO_HELP_COMMANDS = [
   {
     path: "doctor",
-    summary: "Inspect or repair Loopo runtime scaffolding.",
+    summary: "Inspect or repair Loopship runtime scaffolding.",
   },
   {
     path: "handbook",
-    summary: "Render or inspect the standalone Loopo handbook from canonical YAML.",
+    summary: "Render or inspect the standalone Loopship handbook from canonical YAML.",
   },
   {
     path: "hook",
@@ -25,7 +25,7 @@ const CMDPROTO_HELP_COMMANDS = [
   },
   {
     path: "init",
-    summary: "Start or resume a Loopo quest from an objective.",
+    summary: "Start or resume a Loopship quest from an objective.",
   },
   {
     path: "quest next",
@@ -37,7 +37,7 @@ const CMDPROTO_HELP_COMMANDS = [
   },
   {
     path: "sim init",
-    summary: "Start a simulated Loopo quest from an objective.",
+    summary: "Start a simulated Loopship quest from an objective.",
   },
   {
     path: "sim quest next",
@@ -72,8 +72,8 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-async function loadLoopoCommands() {
-  return await import("./loopo.ts");
+async function loadLoopshipCommands() {
+  return await import("./loopship.ts");
 }
 
 function isHelpFlag(value: string): boolean {
@@ -223,11 +223,11 @@ function parseInstallerOutput(output: CapturedCommand): Record<string, unknown> 
     .map((line) => line.trim())
     .filter(Boolean);
   const repo = lines
-    .find((line) => line.startsWith("loopo init: repo="))
-    ?.slice("loopo init: repo=".length);
+    .find((line) => line.startsWith("loopship init: repo="))
+    ?.slice("loopship init: repo=".length);
   const mode = lines
-    .find((line) => line.startsWith("loopo init: mode="))
-    ?.slice("loopo init: mode=".length);
+    .find((line) => line.startsWith("loopship init: mode="))
+    ?.slice("loopship init: mode=".length);
   const files = lines
     .filter((line) => line.startsWith("- "))
     .map((line) => line.slice(2));
@@ -243,8 +243,8 @@ function parseDoctorOutput(output: CapturedCommand): Record<string, unknown> {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const header = lines.find((line) => line.startsWith("loopo doctor: status="));
-  const match = header?.match(/^loopo doctor: status=([^\s]+) repo=(.+)$/);
+  const header = lines.find((line) => line.startsWith("loopship doctor: status="));
+  const match = header?.match(/^loopship doctor: status=([^\s]+) repo=(.+)$/);
   const items = lines
     .filter((line) => line.startsWith("- "))
     .map((line) => line.slice(2));
@@ -252,7 +252,7 @@ function parseDoctorOutput(output: CapturedCommand): Record<string, unknown> {
     status: match?.[1] ?? (output.statusCode === 0 ? "healthy" : "issues"),
     ...(match?.[2] ? { repo: match[2] } : {}),
     items,
-    rerun_with_fix: lines.some((line) => line === "loopo doctor: rerun with --fix"),
+    rerun_with_fix: lines.some((line) => line === "loopship doctor: rerun with --fix"),
   };
 }
 
@@ -291,7 +291,7 @@ function parseExecJsonInvocation(argv: string[]): {
 }
 
 async function invokeInit(params: Record<string, unknown>): Promise<CommandExecution> {
-  const { runInit } = await loadLoopoCommands();
+  const { runInit } = await loadLoopshipCommands();
   const args: string[] = [];
   const request = stringValue(params.request);
   if (request) {
@@ -303,7 +303,7 @@ async function invokeInit(params: Record<string, unknown>): Promise<CommandExecu
   pushFlag(args, "--wtree", params.wtree);
   const output = withCapturedOutput(() => runInit(args));
   const stdout = output.stdout.trim().startsWith("{")
-    ? normalizeJsonStdout(output, "loopo init")
+    ? normalizeJsonStdout(output, "loopship init")
     : renderJsonStdout(parseInstallerOutput(output));
   return { statusCode: output.statusCode, stdout, stderr: output.stderr };
 }
@@ -311,7 +311,7 @@ async function invokeInit(params: Record<string, unknown>): Promise<CommandExecu
 async function invokeQuestNext(
   params: Record<string, unknown>,
 ): Promise<CommandExecution> {
-  const { runQuestNextV3 } = await loadLoopoCommands();
+  const { runQuestNextV3 } = await loadLoopshipCommands();
   const args: string[] = [];
   pushFlag(args, "--repo", params.repo);
   pushFlag(args, "--wtree", params.wtree);
@@ -319,13 +319,13 @@ async function invokeQuestNext(
   const output = withCapturedOutput(() => runQuestNextV3(args));
   return {
     statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopo quest next"),
+    stdout: normalizeJsonStdout(output, "loopship quest next"),
     stderr: output.stderr,
   };
 }
 
 async function invokeHook(params: Record<string, unknown>): Promise<CommandExecution> {
-  const { runHook } = await loadLoopoCommands();
+  const { runHook } = await loadLoopshipCommands();
   const args: string[] = [];
   pushFlag(args, "--runtime", params.runtime);
   pushFlag(args, "--repo", params.repo);
@@ -334,13 +334,13 @@ async function invokeHook(params: Record<string, unknown>): Promise<CommandExecu
   const output = withCapturedOutput(() => runHook(args));
   return {
     statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopo hook"),
+    stdout: normalizeJsonStdout(output, "loopship hook"),
     stderr: output.stderr,
   };
 }
 
 async function invokeDoctor(params: Record<string, unknown>): Promise<CommandExecution> {
-  const { runDoctor } = await loadLoopoCommands();
+  const { runDoctor } = await loadLoopshipCommands();
   const args: string[] = [];
   pushFlag(args, "--repo", params.repo);
   pushFlag(args, "--runtime", params.runtime);
@@ -381,9 +381,9 @@ async function invokeHandbook(
   }
   const payload =
     params.raw === true
-      ? { markdown: renderLoopoHandbook(repo) }
+      ? { markdown: renderLoopshipHandbook(repo) }
       : (() => {
-          const result = writeLoopoHandbook(repo);
+          const result = writeLoopshipHandbook(repo);
           return {
             path: result.path,
             file_url: result.file_url,
@@ -409,7 +409,7 @@ async function invokeSimInit(params: Record<string, unknown>): Promise<CommandEx
   const output = withCapturedOutput(() => runSimCli(args));
   return {
     statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopo sim init"),
+    stdout: normalizeJsonStdout(output, "loopship sim init"),
     stderr: output.stderr,
   };
 }
@@ -427,7 +427,7 @@ async function invokeSimQuestNext(
   const output = withCapturedOutput(() => runSimCli(args));
   return {
     statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopo sim quest next"),
+    stdout: normalizeJsonStdout(output, "loopship sim quest next"),
     stderr: output.stderr,
   };
 }
@@ -441,7 +441,7 @@ async function invokeSimHook(params: Record<string, unknown>): Promise<CommandEx
   const output = withCapturedOutput(() => runSimCli(args));
   return {
     statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopo sim hook"),
+    stdout: normalizeJsonStdout(output, "loopship sim hook"),
     stderr: output.stderr,
   };
 }
@@ -460,7 +460,7 @@ async function runExecJsonCommand(argv: string[]): Promise<CommandExecution> {
   throw new Error(`Unknown command: ${path}`);
 }
 
-export async function runLoopoCmdproto(
+export async function runLoopshipCmdproto(
   argv: string[],
   options: { control?: boolean } = {},
 ): Promise<number> {
@@ -469,7 +469,7 @@ export async function runLoopoCmdproto(
     return writeCmdprotoHelp(argv, control);
   }
   if (!control) {
-    throw new Error("cmdproto control commands must be invoked as `loopo cmdproto ...`");
+    throw new Error("cmdproto control commands must be invoked as `loopship cmdproto ...`");
   }
   const result = await runExecJsonCommand(argv);
   if (result.stdout) process.stdout.write(result.stdout);

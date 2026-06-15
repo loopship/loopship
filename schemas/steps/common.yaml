@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/common.yaml
-title: Loopo V3 Step Schema Common Definitions
+title: Loopship V3 Step Schema Common Definitions
 $defs:
   string_array:
     type: array
@@ -40,7 +40,7 @@ $defs:
       text:
         type: string
       links:
-        $ref: loopo://schemas/system.yaml#/$defs/links
+        $ref: loopship://schemas/system.yaml#/$defs/links
       expected_system_update:
         enum:
           - none

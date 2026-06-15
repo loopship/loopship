@@ -1,19 +1,19 @@
 edition = "2024";
 
-package loopo.v1;
+package loopship.v1;
 
 import "cmdproto/v1/options.proto";
 import "google/protobuf/struct.proto";
 
-service LoopoService {
+service LoopshipService {
   rpc Init(InitRequest) returns (InitResponse) {
     option (cmdproto.v1.command) = {
       path: "init"
-      summary: "Start or resume a Loopo quest from an objective."
+      summary: "Start or resume a Loopship quest from an objective."
       example: {
-        command: "init loopo:build-the-app --repo . --runtime codex --flow swe --wtree build-the-app"
-        description: "Start routing for a Loopo request."
-        request_json: "{\"request\":\"loopo:build-the-app\",\"repo\":\".\",\"runtime\":\"codex\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
+        command: "init loopship:build-the-app --repo . --runtime codex --flow swe --wtree build-the-app"
+        description: "Start routing for a Loopship request."
+        request_json: "{\"request\":\"loopship:build-the-app\",\"repo\":\".\",\"runtime\":\"codex\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
       }
     };
   }
@@ -45,10 +45,10 @@ service LoopoService {
   rpc Doctor(DoctorRequest) returns (DoctorResponse) {
     option (cmdproto.v1.command) = {
       path: "doctor"
-      summary: "Inspect or repair Loopo runtime scaffolding."
+      summary: "Inspect or repair Loopship runtime scaffolding."
       example: {
         command: "doctor --repo . --runtime all --fix"
-        description: "Repair Loopo runtime scaffolding in a repo."
+        description: "Repair Loopship runtime scaffolding in a repo."
         request_json: "{\"repo\":\".\",\"runtime\":\"all\",\"fix\":true}"
       }
     };
@@ -57,7 +57,7 @@ service LoopoService {
   rpc Handbook(HandbookRequest) returns (HandbookResponse) {
     option (cmdproto.v1.command) = {
       path: "handbook"
-      summary: "Render the standalone Loopo handbook from canonical YAML."
+      summary: "Render the standalone Loopship handbook from canonical YAML."
       example: {
         command: "handbook --repo ."
         description: "Generate handbook Markdown in a recoverable system temp path and return its file URL."
@@ -69,11 +69,11 @@ service LoopoService {
   rpc SimInit(SimInitRequest) returns (SimInitResponse) {
     option (cmdproto.v1.command) = {
       path: "sim init"
-      summary: "Start a simulated Loopo quest from an objective."
+      summary: "Start a simulated Loopship quest from an objective."
       example: {
-        command: "sim init loopo:build-the-app --repo /tmp/loopo-sim --runtime codex --flow swe --wtree build-the-app"
-        description: "Start a guided simulated Loopo lifecycle run."
-        request_json: "{\"repo\":\"/tmp/loopo-sim\",\"runtime\":\"codex\",\"request\":\"loopo:build-the-app\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
+        command: "sim init loopship:build-the-app --repo /tmp/loopship-sim --runtime codex --flow swe --wtree build-the-app"
+        description: "Start a guided simulated Loopship lifecycle run."
+        request_json: "{\"repo\":\"/tmp/loopship-sim\",\"runtime\":\"codex\",\"request\":\"loopship:build-the-app\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
       }
     };
   }
@@ -83,9 +83,9 @@ service LoopoService {
       path: "sim quest next"
       summary: "Advance a simulated quest with the next lifecycle payload."
       example: {
-        command: "sim quest next --wtree build-the-app --repo /tmp/loopo-sim --json {\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}"
+        command: "sim quest next --wtree build-the-app --repo /tmp/loopship-sim --json {\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}"
         description: "Send the simulated payload required by the current response's output_schema; the response pauses at the next selected-flow step."
-        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\"/tmp/loopo-sim\",\"payload\":{\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}}"
+        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\"/tmp/loopship-sim\",\"payload\":{\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}}"
       }
     };
   }
@@ -95,9 +95,9 @@ service LoopoService {
       path: "sim hook"
       summary: "Handle a simulated runtime hook event payload."
       example: {
-        command: "sim hook --repo /tmp/loopo-sim --runtime codex --wtree build-the-app --json {\"event\":\"Stop\",\"stop_reason\":\"none\"}"
+        command: "sim hook --repo /tmp/loopship-sim --runtime codex --wtree build-the-app --json {\"event\":\"Stop\",\"stop_reason\":\"none\"}"
         description: "Exercise runtime hook passthrough behavior in simulation mode."
-        request_json: "{\"repo\":\"/tmp/loopo-sim\",\"runtime\":\"codex\",\"wtree\":\"build-the-app\",\"payload\":{\"event\":\"Stop\",\"stop_reason\":\"none\"}}"
+        request_json: "{\"repo\":\"/tmp/loopship-sim\",\"runtime\":\"codex\",\"wtree\":\"build-the-app\",\"payload\":{\"event\":\"Stop\",\"stop_reason\":\"none\"}}"
       }
     };
   }
@@ -107,7 +107,7 @@ message InitRequest {
   string request = 1 [
     (cmdproto.v1.param) = {
       positional: { index: 1 }
-      help: "Loopo objective text, usually prefixed with loopo:."
+      help: "Loopship objective text, usually prefixed with loopship:."
     }
   ];
 
@@ -226,7 +226,7 @@ message HandbookRequest {
   string repo = 1 [
     (cmdproto.v1.param) = {
       flag: { long: "repo" }
-      help: "Repo root containing canonical .loopo system files."
+      help: "Repo root containing canonical .loopship system files."
     }
   ];
 

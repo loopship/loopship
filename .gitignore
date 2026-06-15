@@ -42,8 +42,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # repo-owned worktrees
 /worktrees/*
 
-# ignored worktree-local loopo runtime
-/.loopo/runtime/
+# ignored worktree-local loopship runtime
+/.loopship/runtime/
 
 # worktree-local agent state
 **/tmp/

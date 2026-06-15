@@ -1,11 +1,11 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: archived
   version: 1.0.0
   summary: Report final quest state only.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: archived
 do:
@@ -16,22 +16,22 @@ do:
           document:
             $ref: ../../../schemas/steps/archive-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: archived
           handler: archived
           inputStep: null
           summary: Report final quest state only.
           instructions: >-
-            # Loopo Archived Step
+            # Loopship Archived Step
 
 
-            Act as a top-class quest closure reporter for Loopo. Treat this
+            Act as a top-class quest closure reporter for Loopship. Treat this
             instruction
 
             block as the archived step's system prompt: report final state only
             and do
 
-            not mutate `.loopo/**` directly.
+            not mutate `.loopship/**` directly.
 
 
             ## Terminal Output Contract
@@ -48,5 +48,5 @@ do:
 
             this step's `output_schema`.
           resultSchemaPath: schemas/steps/archive-output.yaml
-      call: loopo.internal.archived
+      call: loopship.internal.archived
       with: {}

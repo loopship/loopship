@@ -3,12 +3,12 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopo_core.ts";
+import { parseTasksYaml, questFiles } from "./loopship_core.ts";
 import {
   DEFAULT_FLOW_ID,
   flowStep,
   loadFlowDefinition,
-} from "./loopo_workflow_runner.ts";
+} from "./loopship_workflow_runner.ts";
 import {
   readHookDecision as readSupervisorHookDecision,
 } from "./runtime_supervisor.ts";
@@ -19,10 +19,10 @@ import {
   readText,
   runCommand,
   tsRunner,
-} from "./loopo_utils.ts";
+} from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const LOOPO_SCRIPT = resolve(SCRIPT_DIR, "loopo.ts");
+const LOOPSHIP_SCRIPT = resolve(SCRIPT_DIR, "loopship.ts");
 const SETUP_RUNTIME_HOOKS_SCRIPT = resolve(
   SCRIPT_DIR,
   "setup_runtime_hooks.ts",
@@ -61,9 +61,9 @@ type QuestLikeState = Partial<{
 function usage(exitCode = 1): number {
   const text = [
     "Usage:",
-    '  loopo sim init "loopo: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
-    "  loopo sim quest next --wtree <name> [--repo <path>] --json <json|@file|@->",
-    "  loopo sim hook [--repo <path>] [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]",
+    '  loopship sim init "loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
+    "  loopship sim quest next --wtree <name> [--repo <path>] --json <json|@file|@->",
+    "  loopship sim hook [--repo <path>] [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]",
   ].join("\n");
   if (exitCode === 0) console.log(text);
   else console.error(text);
@@ -112,7 +112,7 @@ function parseArgs(argv: string[]): SimArgs {
     if (arg === "--repo") repo = body[++i] ?? null;
     else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
-      throw new Error("loopo sim no longer accepts --cwd; use --repo or run from the repo root");
+      throw new Error("loopship sim no longer accepts --cwd; use --repo or run from the repo root");
     } else if (arg === "--wtree") wtree = body[++i] ?? null;
     else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
     else if (arg === "--runtime") runtime = body[++i] ?? null;
@@ -156,7 +156,7 @@ function resolveRuntime(
 function normalizeRequestText(request: string): string {
   const raw = request.trim();
   if (!raw) fail("sim init requires a request");
-  return /^loopo:/i.test(raw) ? raw : `loopo: ${raw}`;
+  return /^loopship:/i.test(raw) ? raw : `loopship: ${raw}`;
 }
 
 function resolveFlowId(value: string | null | undefined): string {
@@ -224,7 +224,7 @@ function setupSimulationHooks(repoRoot: string, runtime: Runtime): void {
     "--runtime",
     runtime,
     "--hook-script",
-    resolve(SCRIPT_DIR, "loopo_sim.ts"),
+    resolve(SCRIPT_DIR, "loopship_sim.ts"),
   ]);
   const proc = runCommand(launch.cmd, launch.args, {
     cwd: repoRoot,
@@ -233,15 +233,15 @@ function setupSimulationHooks(repoRoot: string, runtime: Runtime): void {
   if (proc.status !== 0) fail(proc.stderr || proc.stdout);
 }
 
-function runLoopo(
+function runLoopship(
   repoRoot: string,
   args: string[],
   input?: Record<string, unknown>,
 ) {
-  const launch = tsRunner(LOOPO_SCRIPT, args);
+  const launch = tsRunner(LOOPSHIP_SCRIPT, args);
   return runCommand(launch.cmd, launch.args, {
     cwd: repoRoot,
-    env: { LOOPO_COMPACT_INIT_SCHEMA: "1" },
+    env: { LOOPSHIP_COMPACT_INIT_SCHEMA: "1" },
     timeoutMs: 60_000,
     input: input ? JSON.stringify(input) : undefined,
   });
@@ -261,14 +261,14 @@ function currentFlowStepId(repoRoot: string, wtree: string): string {
 function inferSimulationRuntime(repoRoot: string): Runtime {
   if (existsSync(resolve(repoRoot, ".codex", "hooks.json"))) return "codex";
   if (existsSync(resolve(repoRoot, ".gemini", "settings.json"))) return "gemini";
-  if (existsSync(resolve(repoRoot, ".github", "hooks", "loopo.json"))) {
+  if (existsSync(resolve(repoRoot, ".github", "hooks", "loopship.json"))) {
     return "copilot";
   }
   return "codex";
 }
 
 function simCommand(args: string[]): Record<string, unknown> {
-  return { cmd: "loopo", args };
+  return { cmd: "loopship", args };
 }
 
 function simNextCommand(repoRoot: string, wtree: string): Record<string, unknown> {
@@ -365,8 +365,8 @@ function routeSimQuestInit(input: {
     input.flowId,
   ];
   if (input.wtree) initArgs.push("--wtree", input.wtree);
-  const init = runLoopo(input.repoRoot, initArgs);
-  if (init.status !== 0) fail(init.stderr || init.stdout || "loopo init failed");
+  const init = runLoopship(input.repoRoot, initArgs);
+  if (init.status !== 0) fail(init.stderr || init.stdout || "loopship init failed");
   const route = parseJsonText(init.stdout, "init output");
   const newQuest =
     route.new_quest && typeof route.new_quest === "object"
@@ -378,8 +378,8 @@ function routeSimQuestInit(input: {
     newQuest.input && typeof newQuest.input === "object"
       ? (newQuest.input as Record<string, unknown>)
       : null;
-  if (!createInput) fail("loopo init did not emit a create_quest input");
-  const routeProc = runLoopo(
+  if (!createInput) fail("loopship init did not emit a create_quest input");
+  const routeProc = runLoopship(
     input.repoRoot,
     [
       "quest",
@@ -412,7 +412,7 @@ function runHookMode(args: SimArgs): number {
 function runSimInit(args: SimArgs): number {
   if (!args.request) {
     throw new Error(
-      'sim init requires a request, for example: loopo sim init "loopo: build the app" --flow swe --runtime codex',
+      'sim init requires a request, for example: loopship sim init "loopship: build the app" --flow swe --runtime codex',
     );
   }
   const repoRoot = defaultRepoRoot(args.repo);
@@ -468,13 +468,13 @@ function runSimQuestNext(args: SimArgs): number {
     "@-",
   ];
   if (args.full) questArgs.push("--full");
-  const proc = runLoopo(
+  const proc = runLoopship(
     repoRoot,
     questArgs,
     payload,
   );
   if (proc.status !== 0) {
-    throw new Error(proc.stderr || proc.stdout || "loopo quest next failed");
+    throw new Error(proc.stderr || proc.stdout || "loopship quest next failed");
   }
   const output = parseJsonText(proc.stdout, "guided sim output");
   const runtime = resolveRuntime(args.runtime, inferSimulationRuntime(repoRoot));

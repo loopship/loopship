@@ -1,11 +1,11 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: questions
   version: 1.0.0
   summary: Submit grouped user answers for the current clarification round.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: questions
 do:
@@ -16,16 +16,16 @@ do:
           document:
             $ref: ../../../schemas/steps/step-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: questions
           handler: questions
           inputStep: questions
           summary: Submit grouped user answers for the current clarification round.
           instructions: >-
-            # Loopo Questions Step
+            # Loopship Questions Step
 
 
-            Act as a top-class clarification recorder for Loopo. Treat this
+            Act as a top-class clarification recorder for Loopship. Treat this
             instruction
 
             block as the questions step's system prompt: capture human-provided
@@ -59,7 +59,7 @@ do:
             original question ids, carry forward any previously recorded
             explicit
 
-            defaults, and submit answers through `loopo quest next --wtree
+            defaults, and submit answers through `loopship quest next --wtree
             <name> --json
 
             @-` with the `questions` step schema. Do not auto-answer unresolved
@@ -72,5 +72,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/questions-input.yaml
-      call: loopo.internal.questions
+      call: loopship.internal.questions
       with: {}

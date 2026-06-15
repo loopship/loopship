@@ -19,27 +19,27 @@ import {
   shellQuote,
   writeJson,
   writeText,
-} from "./loopo_utils.ts";
-import { validateSchemaPath } from "./loopo_schema.ts";
+} from "./loopship_utils.ts";
+import { validateSchemaPath } from "./loopship_schema.ts";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-export const LOOPO_DIR = ".loopo";
-export const LOOPO_RUNTIME_DIR = join(LOOPO_DIR, "runtime");
-export const LOOPO_SYSTEM_FILE = join(LOOPO_DIR, "system.yaml");
-export const LOOPO_DOCS_DIR = join(LOOPO_DIR, "docs");
-export const LOOPO_ROOT_SIGNATURE_FILE = join(LOOPO_DIR, "signature.yaml");
-export const LOOPO_ROOT_MANIFEST_FILE = LOOPO_ROOT_SIGNATURE_FILE;
-export const LOOPO_ASSERTIONS_DIR = join(LOOPO_DOCS_DIR, "assertions");
-export const LOOPO_AREAS_DIR = join(LOOPO_DOCS_DIR, "areas");
-export const LOOPO_DECISIONS_DIR = join(LOOPO_DOCS_DIR, "decisions");
-export const LOOPO_ASSETS_DIR = join(LOOPO_DOCS_DIR, "assets");
-export const LOOPO_MEMORIES_DIR = join(LOOPO_DOCS_DIR, "memories");
-export const LOOPO_MIXED_DOCS_DIR = join(LOOPO_DOCS_DIR, "mixed");
-export const LOOPO_BIN_FILE = join(LOOPO_DIR, "bin", "loopo");
-export const LOOPO_GLOBAL_BIN_ENV = "LOOPO_GLOBAL_BIN";
-export const LOOPO_SCRIPT_ENV = "LOOPO_SCRIPT";
+export const LOOPSHIP_DIR = ".loopship";
+export const LOOPSHIP_RUNTIME_DIR = join(LOOPSHIP_DIR, "runtime");
+export const LOOPSHIP_SYSTEM_FILE = join(LOOPSHIP_DIR, "system.yaml");
+export const LOOPSHIP_DOCS_DIR = join(LOOPSHIP_DIR, "docs");
+export const LOOPSHIP_ROOT_SIGNATURE_FILE = join(LOOPSHIP_DIR, "signature.yaml");
+export const LOOPSHIP_ROOT_MANIFEST_FILE = LOOPSHIP_ROOT_SIGNATURE_FILE;
+export const LOOPSHIP_ASSERTIONS_DIR = join(LOOPSHIP_DOCS_DIR, "assertions");
+export const LOOPSHIP_AREAS_DIR = join(LOOPSHIP_DOCS_DIR, "areas");
+export const LOOPSHIP_DECISIONS_DIR = join(LOOPSHIP_DOCS_DIR, "decisions");
+export const LOOPSHIP_ASSETS_DIR = join(LOOPSHIP_DOCS_DIR, "assets");
+export const LOOPSHIP_MEMORIES_DIR = join(LOOPSHIP_DOCS_DIR, "memories");
+export const LOOPSHIP_MIXED_DOCS_DIR = join(LOOPSHIP_DOCS_DIR, "mixed");
+export const LOOPSHIP_BIN_FILE = join(LOOPSHIP_DIR, "bin", "loopship");
+export const LOOPSHIP_GLOBAL_BIN_ENV = "LOOPSHIP_GLOBAL_BIN";
+export const LOOPSHIP_SCRIPT_ENV = "LOOPSHIP_SCRIPT";
 export const CANONICAL_QUEST_RE =
-  /(?:^|[\\/])\.loopo[\\/]runtime[\\/]tasks\.yaml$/i;
+  /(?:^|[\\/])\.loopship[\\/]runtime[\\/]tasks\.yaml$/i;
 const LEGACY_WTREE_KEY = ["sl", "ug"].join("");
 const LEGACY_PARENT_WTREE_KEY = ["parent", "quest", ["sl", "ug"].join("")].join("_");
 const LEGACY_CHILD_WTREE_KEY = ["child", ["sl", "ug"].join("")].join("_");
@@ -47,7 +47,7 @@ const LEGACY_CHILD_WTREE_KEY = ["child", ["sl", "ug"].join("")].join("_");
 export type QuestFiles = {
   wtree: string;
   workspace_root: string;
-  loopo_root: string;
+  loopship_root: string;
   dir: string;
   tasks: string;
   events: string;
@@ -302,12 +302,12 @@ export function questFilesForWorkspace(
   wtree: string,
 ): QuestFiles {
   const workspace_root = resolve(workspaceRoot);
-  const loopo_root = resolve(workspace_root, LOOPO_DIR);
-  const dir = resolve(workspace_root, LOOPO_RUNTIME_DIR);
+  const loopship_root = resolve(workspace_root, LOOPSHIP_DIR);
+  const dir = resolve(workspace_root, LOOPSHIP_RUNTIME_DIR);
   return {
     wtree,
     workspace_root,
-    loopo_root,
+    loopship_root,
     dir,
     tasks: resolve(dir, "tasks.yaml"),
     events: resolve(dir, "events.jsonl"),
@@ -383,7 +383,7 @@ function signManifestReceipt(receiptHead: string): Record<string, string> {
   const value = signBytes(null, Buffer.from(receiptHead, "utf8"), privateKey).toString("base64");
   return {
     algorithm: "ed25519",
-    key_id: "loopo-local-v2",
+    key_id: "loopship-local-v2",
     value,
   };
 }
@@ -607,8 +607,8 @@ function defaultSystemRoot(repoRoot: string): Record<string, unknown> {
         id: "software-architecture",
         kind: "document",
         role: "canonical",
-        location: ".loopo/docs/software/architecture.yaml",
-        schema_ref: "loopo://schemas/docs/software-architecture.yaml",
+        location: ".loopship/docs/software/architecture.yaml",
+        schema_ref: "loopship://schemas/docs/software-architecture.yaml",
         text: "Full software architecture source using arc42 and C4-aligned concerns.",
         links: {
           about: ["object:system-model"],
@@ -619,8 +619,8 @@ function defaultSystemRoot(repoRoot: string): Record<string, unknown> {
         id: "decisions",
         kind: "document",
         role: "canonical",
-        location: ".loopo/docs/decisions/records.yaml",
-        schema_ref: "loopo://schemas/docs/decision-records.yaml",
+        location: ".loopship/docs/decisions/records.yaml",
+        schema_ref: "loopship://schemas/docs/decision-records.yaml",
         text: "Architecture-significant decisions for this system.",
         links: {
           about: ["object:system-model"],
@@ -700,11 +700,11 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
     interfaces: {
       "root-yaml-interface": {
         kind: "file",
-        text: ".loopo/system.yaml is the stable semantic interface for agents and humans.",
+        text: ".loopship/system.yaml is the stable semantic interface for agents and humans.",
       },
       "signature-yaml-interface": {
         kind: "file",
-        text: ".loopo/signature.yaml is the mechanical audit and digest sidecar for root and canonical resources.",
+        text: ".loopship/signature.yaml is the mechanical audit and digest sidecar for root and canonical resources.",
       },
     },
     data: {
@@ -737,14 +737,14 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
         kind: "context",
         syntax: "mermaid",
         text: "C4-style context diagram source for the root system, canonical docs, signature, and verifier.",
-        source: "flowchart LR\n  Root[.loopo/system.yaml] --> Docs[Canonical YAML Docs]\n  Docs --> Signature[.loopo/signature.yaml]\n  Verifier[verify_system_model] --> Root\n  Verifier --> Docs\n  Verifier --> Signature",
+        source: "flowchart LR\n  Root[.loopship/system.yaml] --> Docs[Canonical YAML Docs]\n  Docs --> Signature[.loopship/signature.yaml]\n  Verifier[verify_system_model] --> Root\n  Verifier --> Docs\n  Verifier --> Signature",
       },
     },
     examples: {
       "canonical-resource-link": {
         language: "yaml",
         text: "Example canonical document resource linked from the root system model.",
-        source: "resources:\n  - id: software-architecture\n    kind: document\n    role: canonical\n    location: .loopo/docs/software/architecture.yaml\n    schema_ref: loopo://schemas/docs/software-architecture.yaml",
+        source: "resources:\n  - id: software-architecture\n    kind: document\n    role: canonical\n    location: .loopship/docs/software/architecture.yaml\n    schema_ref: loopship://schemas/docs/software-architecture.yaml",
       },
     },
     decision_refs: ["resource:decisions"],
@@ -804,7 +804,7 @@ function defaultDecisionLogDoc(repoRoot: string): Record<string, unknown> {
 function systemResources(
   repoRoot: string,
 ): Array<SystemResourceEntry & Record<string, unknown>> {
-  const system = parseYamlFile(resolve(repoRoot, LOOPO_SYSTEM_FILE));
+  const system = parseYamlFile(resolve(repoRoot, LOOPSHIP_SYSTEM_FILE));
   const resources = Array.isArray(system?.resources) ? system.resources : [];
   return resources
     .map((item) => asRecord(item))
@@ -817,8 +817,8 @@ function systemResources(
 
 function schemaPathForResource(repoRoot: string, schemaRef: string): string {
   if (schemaRef === "self") return "";
-  if (schemaRef.startsWith("loopo://schemas/")) {
-    return schemaRef.slice("loopo://".length);
+  if (schemaRef.startsWith("loopship://schemas/")) {
+    return schemaRef.slice("loopship://".length);
   }
   return "";
 }
@@ -852,7 +852,7 @@ function canonicalManagedEntries(repoRoot: string): Array<{
   }));
   const resourceEntries = systemResources(repoRoot)
     .filter((entry) => entry.role === "canonical")
-    .filter((entry) => entry.location !== LOOPO_ROOT_MANIFEST_FILE)
+    .filter((entry) => entry.location !== LOOPSHIP_ROOT_MANIFEST_FILE)
     .filter((entry) => !String(entry.location).startsWith("http"))
     .map((entry) => ({
       resource_ref: `resource:${entry.id}`,
@@ -870,7 +870,7 @@ function canonicalManagedEntries(repoRoot: string): Array<{
 }
 
 export function rootManagedFiles(repoRoot: string): string[] {
-  const files = [resolve(repoRoot, LOOPO_SYSTEM_FILE)];
+  const files = [resolve(repoRoot, LOOPSHIP_SYSTEM_FILE)];
   for (const entry of canonicalManagedEntries(repoRoot)) {
     files.push(resolve(repoRoot, entry.path));
   }
@@ -882,11 +882,11 @@ export function writeSystemManifest(
   _requestId = "system",
   _writerCommand = "system_update",
 ): string {
-  const manifestPath = resolve(repoRoot, LOOPO_ROOT_MANIFEST_FILE);
+  const manifestPath = resolve(repoRoot, LOOPSHIP_ROOT_MANIFEST_FILE);
   const previous = parseYamlFile(manifestPath);
   const previousHead =
     typeof previous?.receipt_head === "string" ? previous.receipt_head : null;
-  const systemPath = resolve(repoRoot, LOOPO_SYSTEM_FILE);
+  const systemPath = resolve(repoRoot, LOOPSHIP_SYSTEM_FILE);
   const rootDigest = canonicalYamlDigest(systemPath);
   const entries = canonicalManagedEntries(repoRoot).map((entry) => ({
     resource_ref: entry.resource_ref,
@@ -909,11 +909,11 @@ export function writeSystemManifest(
   );
   writeText(manifestPath, renderYamlDocument({
     schema_version: 2,
-    canonicalization: "loopo-canonical-json-v1",
+    canonicalization: "loopship-canonical-json-v1",
     hash_algorithm: "sha256",
     root: {
       path: manifestPathKey(repoRoot, systemPath),
-      schema: "loopo://schemas/system.yaml",
+      schema: "loopship://schemas/system.yaml",
       digest: rootDigest,
     },
     entries,
@@ -928,24 +928,24 @@ export function writeSystemManifest(
 
 export function ensureSystemScaffold(repoRoot: string): string[] {
   const touched: string[] = [];
-  const systemPath = resolve(repoRoot, LOOPO_SYSTEM_FILE);
+  const systemPath = resolve(repoRoot, LOOPSHIP_SYSTEM_FILE);
   if (!existsSync(systemPath)) {
     writeText(systemPath, renderSystemYaml(defaultSystemRoot(repoRoot)));
     touched.push(systemPath);
   }
-  const architecturePath = resolve(repoRoot, ".loopo/docs/software/architecture.yaml");
+  const architecturePath = resolve(repoRoot, ".loopship/docs/software/architecture.yaml");
   if (!existsSync(architecturePath)) {
     mkdirSync(dirname(architecturePath), { recursive: true });
     writeText(architecturePath, renderSystemDocYaml(defaultArchitectureDoc(repoRoot)));
     touched.push(architecturePath);
   }
-  const decisionLogPath = resolve(repoRoot, ".loopo/docs/decisions/records.yaml");
+  const decisionLogPath = resolve(repoRoot, ".loopship/docs/decisions/records.yaml");
   if (!existsSync(decisionLogPath)) {
     mkdirSync(dirname(decisionLogPath), { recursive: true });
     writeText(decisionLogPath, renderSystemDocYaml(defaultDecisionLogDoc(repoRoot)));
     touched.push(decisionLogPath);
   }
-  touched.push(writeSystemManifest(repoRoot, "system-scaffold", "loopo init"));
+  touched.push(writeSystemManifest(repoRoot, "system-scaffold", "loopship init"));
   return touched;
 }
 
@@ -953,7 +953,7 @@ export function verifyRootManifest(repoRoot: string): {
   ok: boolean;
   errors: string[];
 } {
-  const manifestPath = resolve(repoRoot, LOOPO_ROOT_MANIFEST_FILE);
+  const manifestPath = resolve(repoRoot, LOOPSHIP_ROOT_MANIFEST_FILE);
   const manifest = parseYamlFile(manifestPath) as Record<string, any> | null;
   if (!manifest || typeof manifest !== "object") {
     return { ok: false, errors: [`missing root signature: ${manifestPath}`] };
@@ -963,8 +963,8 @@ export function verifyRootManifest(repoRoot: string): {
   if (!root || typeof root.path !== "string" || typeof root.digest !== "string") {
     return { ok: false, errors: [`invalid root signature entry: ${manifestPath}`] };
   }
-  if (root.schema !== "loopo://schemas/system.yaml") {
-    errors.push(`root signature schema must be loopo://schemas/system.yaml: ${manifestPath}`);
+  if (root.schema !== "loopship://schemas/system.yaml") {
+    errors.push(`root signature schema must be loopship://schemas/system.yaml: ${manifestPath}`);
   }
   const systemPath = resolve(repoRoot, String(root.path));
   if (!existsSync(systemPath)) {
@@ -1063,7 +1063,7 @@ export function applySystemUpdate(
   if (systemErrors.length) {
     throw new Error(`system_update root schema validation failed: ${systemErrors.join("; ")}`);
   }
-  const systemPath = resolve(repoRoot, LOOPO_SYSTEM_FILE);
+  const systemPath = resolve(repoRoot, LOOPSHIP_SYSTEM_FILE);
   writeText(systemPath, renderSystemYaml(root));
   touched.push(systemPath);
 
@@ -1120,25 +1120,25 @@ export function applySystemUpdate(
     touched.push(fullPath);
   }
 
-  touched.push(writeSystemManifest(repoRoot, requestId, "loopo quest next"));
+  touched.push(writeSystemManifest(repoRoot, requestId, "loopship quest next"));
   return touched;
 }
 
 export function renderMinimalSkillMd(): string {
   return [
     "---",
-    "name: loopo",
+    "name: loopship",
     "description: Bin-owned loop workflow launcher.",
     "---",
     "",
-    "# Loopo",
+    "# Loopship",
     "",
-    "Package source lives in `/Volumes/Projects/business/AstronLab/omar391/loopo`.",
+    "Package source lives in `/Volumes/Projects/business/AstronLab/omar391/loopship`.",
     "",
-    'When user prompt is `loopo: {request}`, invoke `loopo init "{request}" --runtime <runtime>` from the repo root and follow the instructions from output.',
+    'When user prompt is `loopship: {request}`, invoke `loopship init "{request}" --runtime <runtime>` from the repo root and follow the instructions from output.',
     "",
     "```bash",
-    'loopo init "loopo: build the app" --runtime codex',
+    'loopship init "loopship: build the app" --runtime codex',
     "```",
     "",
   ].join("\n");
@@ -1148,8 +1148,8 @@ export function ensureGlobalSkillFiles(skillRoot?: string | null): string {
   const home = process.env.HOME?.trim() || ".";
   const base =
     skillRoot?.trim() ||
-    process.env.LOOPO_SKILL_HOME?.trim() ||
-    resolve(home, ".agents", "skills", "loopo");
+    process.env.LOOPSHIP_SKILL_HOME?.trim() ||
+    resolve(home, ".agents", "skills", "loopship");
   const skillPath = resolve(expandHome(base), "SKILL.md");
   const expected = renderMinimalSkillMd();
   if (!existsSync(skillPath) || readText(skillPath) !== expected) {
@@ -1538,7 +1538,7 @@ function questManifestPathKey(files: QuestFiles, path: string): string {
 export function writeQuestManifest(
   files: QuestFiles,
   requestId = "quest",
-  writerCommand = "loopo quest",
+  writerCommand = "loopship quest",
 ): void {
   const previous = parseYamlFile(files.manifest);
   const previousHead =
@@ -1559,9 +1559,9 @@ export function writeQuestManifest(
   );
   writeText(files.manifest, renderYamlDocument({
     schema_version: 1,
-    canonicalization: "loopo-canonical-json-v1",
+    canonicalization: "loopship-canonical-json-v1",
     generated_at: nowIso(),
-    generated_by: "loopo",
+    generated_by: "loopship",
     writer_command: writerCommand,
     request_id: requestId,
     hash_algorithm: "sha256",
@@ -1633,7 +1633,7 @@ function normalizePlanTask(
   const contextRoot = String(state.context_root ?? ".");
   const normalizedPrompt = String(state.prompt ?? "")
     .toLowerCase()
-    .replace(/^loopo:\s*/, "")
+    .replace(/^loopship:\s*/, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
   const leafChild = normalizedPrompt.startsWith("execute child task ");
@@ -1923,7 +1923,7 @@ export function createQuest(input: {
     quest_id: input.wtree,
     stage: state.stage,
   });
-  writeQuestManifest(files, `start-${input.wtree}`, "loopo quest next");
+  writeQuestManifest(files, `start-${input.wtree}`, "loopship quest next");
   return { files, state };
 }
 
@@ -1931,7 +1931,7 @@ export function updateQuestStage(
   files: QuestFiles,
   nextStage: string,
   requestId = "quest-stage",
-  writerCommand = "loopo quest next",
+  writerCommand = "loopship quest next",
 ): Partial<QuestState> {
   const current = parseTasksYaml(readText(files.tasks));
   const state = {
@@ -1950,9 +1950,9 @@ export function updateQuestStage(
 
 export function extractWtreeFromTasksPath(path: string): string | null {
   const normalized = path.replace(/\\/g, "/");
-  if (/(?:^|\/)\.loopo\/runtime\/tasks\.yaml$/i.test(normalized)) {
+  if (/(?:^|\/)\.loopship\/runtime\/tasks\.yaml$/i.test(normalized)) {
     const worktreeMatch = normalized.match(
-      /(?:^|\/)worktrees\/([a-z0-9]+(?:-[a-z0-9]+)*)\/\.loopo\/runtime\/tasks\.yaml$/i,
+      /(?:^|\/)worktrees\/([a-z0-9]+(?:-[a-z0-9]+)*)\/\.loopship\/runtime\/tasks\.yaml$/i,
     );
     return worktreeMatch?.[1] ?? null;
   }
@@ -2033,8 +2033,8 @@ function isRuntimeScaffoldOnlyDirectory(path: string): boolean {
   try {
     const entries = readdirSync(path);
     if (!entries.length) return true;
-    if (entries.some((entry) => entry !== ".loopo")) return false;
-    const runtimeDir = resolve(path, ".loopo", "runtime");
+    if (entries.some((entry) => entry !== ".loopship")) return false;
+    const runtimeDir = resolve(path, ".loopship", "runtime");
     if (!existsSync(runtimeDir)) return false;
     const runtimeEntries = readdirSync(runtimeDir);
     return runtimeEntries.every(
@@ -2161,10 +2161,10 @@ export function ensureTaskWorkspace(
   return ensureNamedWorkspace(repoRoot, branchRef, resolve(worktreePath));
 }
 
-function renderLoopoShim(loopoScriptAbs: string): string {
-  const script = shellQuote(resolveCanonicalLoopoScriptPath(loopoScriptAbs));
-  const scriptEnvExpr = `\${${LOOPO_SCRIPT_ENV}:-}`;
-  const scriptEnvValue = `$${LOOPO_SCRIPT_ENV}`;
+function renderLoopshipShim(loopshipScriptAbs: string): string {
+  const script = shellQuote(resolveCanonicalLoopshipScriptPath(loopshipScriptAbs));
+  const scriptEnvExpr = `\${${LOOPSHIP_SCRIPT_ENV}:-}`;
+  const scriptEnvValue = `$${LOOPSHIP_SCRIPT_ENV}`;
   return [
     "#!/bin/sh",
     "set -eu",
@@ -2207,44 +2207,45 @@ function renderLoopoShim(loopoScriptAbs: string): string {
   ].join("\n");
 }
 
-export function resolveCanonicalLoopoScriptPath(
-  loopoScriptAbs: string,
+export function resolveCanonicalLoopshipScriptPath(
+  loopshipScriptAbs: string,
 ): string {
-  const normalized = resolve(loopoScriptAbs);
+  const normalized = resolve(loopshipScriptAbs);
   const worktreeMatch = normalized.match(
     /^(.*?)(?:[\\/])worktrees(?:[\\/])[^\\/]+(?:[\\/])(.*)$/,
   );
   const canonical = worktreeMatch
     ? resolve(worktreeMatch[1], worktreeMatch[2])
     : normalized;
-  if (canonical.match(/(?:^|[\\/])scripts[\\/]loopo\.ts$/)) {
-    return resolve(dirname(dirname(canonical)), "index.ts");
+  const scriptPath = worktreeMatch && !existsSync(canonical) ? normalized : canonical;
+  if (scriptPath.match(/(?:^|[\\/])scripts[\\/]loopship\.ts$/)) {
+    return resolve(dirname(dirname(scriptPath)), "index.ts");
   }
-  return canonical;
+  return scriptPath;
 }
 
-export function resolveGlobalLoopoBinPath(): string {
-  const envPath = process.env[LOOPO_GLOBAL_BIN_ENV]?.trim();
+export function resolveGlobalLoopshipBinPath(): string {
+  const envPath = process.env[LOOPSHIP_GLOBAL_BIN_ENV]?.trim();
   if (envPath) return resolve(expandHome(envPath));
   const home = process.env.HOME?.trim();
-  if (!home) return resolve(".loopo", "global", "loopo");
-  return resolve(home, ".local", "bin", "loopo");
+  if (!home) return resolve(".loopship", "global", "loopship");
+  return resolve(home, ".local", "bin", "loopship");
 }
 
-export function createLoopoShim(
+export function createLoopshipShim(
   targetPath: string,
-  loopoScriptAbs: string,
+  loopshipScriptAbs: string,
 ): void {
-  writeText(targetPath, renderLoopoShim(loopoScriptAbs));
+  writeText(targetPath, renderLoopshipShim(loopshipScriptAbs));
   chmodSync(targetPath, 0o755);
 }
 
 export function createRepoWrapper(
   repoRoot: string,
-  loopoScriptAbs: string,
+  loopshipScriptAbs: string,
 ): void {
-  const wrapper = resolve(repoRoot, LOOPO_BIN_FILE);
-  createLoopoShim(wrapper, loopoScriptAbs);
+  const wrapper = resolve(repoRoot, LOOPSHIP_BIN_FILE);
+  createLoopshipShim(wrapper, loopshipScriptAbs);
 }
 
 export function renderEmptyTasksDocument(meta: {
@@ -2310,11 +2311,11 @@ export function ensureQuestFiles(
 
 export function resolveRepoFromCwd(cwd: string): string {
   const resolved = resolve(cwd);
-  const direct = resolve(resolved, LOOPO_DIR);
+  const direct = resolve(resolved, LOOPSHIP_DIR);
   if (existsSync(direct)) return resolved;
   let cursor = resolved;
   while (true) {
-    if (existsSync(resolve(cursor, LOOPO_DIR))) return cursor;
+    if (existsSync(resolve(cursor, LOOPSHIP_DIR))) return cursor;
     const parent = dirname(cursor);
     if (parent === cursor) break;
     cursor = parent;

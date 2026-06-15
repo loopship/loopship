@@ -10,11 +10,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopo_core.ts";
-import { validateV3Input } from "./loopo_schema.ts";
-import { readText, runCommand } from "./loopo_utils.ts";
+import { parseTasksYaml, questFiles } from "./loopship_core.ts";
+import { validateV3Input } from "./loopship_schema.ts";
+import { readText, runCommand } from "./loopship_utils.ts";
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 const EMPTY_SYSTEM_CONTEXT = {
   relevant_object_refs: [],
   relevant_assertion_refs: [],
@@ -55,7 +55,7 @@ export type MatrixScenarioResult = {
   unique_worktrees: boolean;
   unique_branches: boolean;
   merge_commits_recorded: boolean;
-  loopo_routed: boolean;
+  loopship_routed: boolean;
   general_task_present: boolean;
   question_round_used: boolean;
 };
@@ -71,7 +71,7 @@ function expectValidSchema(
   expect(validateV3Input(payload, schemaName)).toEqual([]);
 }
 
-export function runLoopo(
+export function runLoopship(
   cwd: string,
   args: string[],
   input?: Record<string, unknown>,
@@ -96,14 +96,14 @@ export function createFixture(prefix: string): MatrixFixture {
   const repo = join(root, "repo");
   const env = {
     HOME: join(root, "home"),
-    LOOPO_GLOBAL_BIN: join(root, "bin", "loopo"),
-    LOOPO_SCRIPT: SCRIPT,
+    LOOPSHIP_GLOBAL_BIN: join(root, "bin", "loopship"),
+    LOOPSHIP_SCRIPT: SCRIPT,
   };
   const initGit = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
   expect(initGit.status, initGit.stderr || initGit.stdout).toBe(0);
-  runGit(repo, ["config", "user.email", "loopo-test@example.invalid"], env);
-  runGit(repo, ["config", "user.name", "Loopo Matrix"], env);
-  writeFileSync(join(repo, "README.md"), "# loopo lifecycle matrix\n", "utf8");
+  runGit(repo, ["config", "user.email", "loopship-test@example.invalid"], env);
+  runGit(repo, ["config", "user.name", "Loopship Matrix"], env);
+  writeFileSync(join(repo, "README.md"), "# loopship lifecycle matrix\n", "utf8");
   writeFileSync(join(repo, "src.txt"), "fixture\n", "utf8");
   runGit(repo, ["add", "README.md", "src.txt"], env);
   runGit(repo, ["commit", "-m", "fixture"], env);
@@ -115,7 +115,7 @@ function next(
   wtree: string,
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
-  const proc = runLoopo(
+  const proc = runLoopship(
     fixture.repo,
     [
       "quest",
@@ -163,7 +163,7 @@ function routeAndCreateQuest(
   fixture: MatrixFixture,
   prompt: string,
 ): { wtree: string; route: any; created: Record<string, unknown> } {
-  const init = runLoopo(
+  const init = runLoopship(
     fixture.repo,
     ["init", prompt, "--runtime", "codex"],
     undefined,
@@ -172,7 +172,7 @@ function routeAndCreateQuest(
   expect(init.status, init.stderr || init.stdout).toBe(0);
   const route = parseJson(init.stdout);
   expectValidSchema(route, "init-output");
-  expect(route.new_quest.command.cmd).toBe("loopo");
+  expect(route.new_quest.command.cmd).toBe("loopship");
   expect(route.new_quest.command.args).toEqual(
     expect.arrayContaining(["quest", "next"]),
   );
@@ -242,7 +242,7 @@ function driveScenario(
   const childWorktrees = children.map((child) => resolve(String(child.worktree_path)));
   const childBranches = children.map((child) => String(child.branch_ref));
   for (const child of children) {
-    expect(child.commands.init.cmd).toBe("loopo");
+    expect(child.commands.init.cmd).toBe("loopship");
     expect(child.commands.init.args).toEqual(
       expect.arrayContaining([
         "init",
@@ -321,10 +321,10 @@ function driveScenario(
     merge_commits_recorded: finalTasks.every(
       (task: any) => typeof task.merge_commit === "string" && task.merge_commit.trim(),
     ),
-    loopo_routed: children.every(
+    loopship_routed: children.every(
       (child) =>
-        child.commands.init.cmd === "loopo" &&
-        child.commands.next.cmd === "loopo",
+        child.commands.init.cmd === "loopship" &&
+        child.commands.next.cmd === "loopship",
     ),
     general_task_present: scenario.tasks.some((task) => String(task.type) === "general"),
     question_round_used: questionRoundUsed,
@@ -334,7 +334,7 @@ function driveScenario(
 export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   {
     id: "bugfix",
-    prompt: "loopo: fix a failing React test in this repo",
+    prompt: "loopship: fix a failing React test in this repo",
     classification: "bugfix",
     scope: "Fix the failing React test and preserve existing behavior.",
     summary: "Reproduce the failing test, apply the smallest fix, and confirm the regression is closed.",
@@ -354,7 +354,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   },
   {
     id: "repair",
-    prompt: "loopo: repair a broken build after a dependency upgrade",
+    prompt: "loopship: repair a broken build after a dependency upgrade",
     classification: "refactor",
     scope: "Repair the broken build caused by a dependency upgrade.",
     summary: "Restore a clean build by adjusting compatibility issues introduced by the upgrade.",
@@ -374,7 +374,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   },
   {
     id: "general-coding-parallel",
-    prompt: "loopo: implement a small general coding task with two independent subtasks",
+    prompt: "loopship: implement a small general coding task with two independent subtasks",
     classification: "general",
     scope: "Implement two independent coding subtasks with disjoint file scope.",
     summary: "Decompose the general coding request into two independent parallel-ready children.",
@@ -403,7 +403,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   },
   {
     id: "open-research",
-    prompt: "loopo: research the best storage approach for this feature and produce a recommendation",
+    prompt: "loopship: research the best storage approach for this feature and produce a recommendation",
     classification: "general",
     scope: "Research storage options and produce a recommendation with tradeoffs.",
     summary: "Treat the request as a non-coding research task and return a bounded recommendation.",
@@ -423,7 +423,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   },
   {
     id: "feature-parallel",
-    prompt: "loopo: build a small feature that intentionally decomposes into frontend and backend child tasks",
+    prompt: "loopship: build a small feature that intentionally decomposes into frontend and backend child tasks",
     classification: "feature",
     scope: "Deliver a small feature with explicit frontend and backend slices.",
     summary: "Split the feature into two merge-safe child tasks for frontend and backend.",
@@ -452,7 +452,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   },
   {
     id: "vague-greenfield",
-    prompt: "loopo: a fullstack app",
+    prompt: "loopship: a fullstack app",
     classification: "greenfield_app",
     scope: "Generic greenfield product request that requires clarification before decomposition.",
     summary: "Ask one clarification round, then constrain the app to a single MVP implementation child.",
@@ -489,7 +489,7 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
 
 export function runLifecycleMatrix(): MatrixScenarioResult[] {
   return LIFECYCLE_MATRIX.map((scenario) => {
-    const fixture = createFixture(`loopo-matrix-${scenario.id}-`);
+    const fixture = createFixture(`loopship-matrix-${scenario.id}-`);
     try {
       return driveScenario(fixture, scenario);
     } finally {
@@ -502,7 +502,7 @@ export function summarizeLifecycleMatrix(results: MatrixScenarioResult[]): {
   passed: number;
   total: number;
   all_archived: boolean;
-  all_loopo_routed: boolean;
+  all_loopship_routed: boolean;
   all_merge_commits_recorded: boolean;
 } {
   return {
@@ -512,11 +512,11 @@ export function summarizeLifecycleMatrix(results: MatrixScenarioResult[]): {
         result.unique_worktrees &&
         result.unique_branches &&
         result.merge_commits_recorded &&
-        result.loopo_routed,
+        result.loopship_routed,
     ).length,
     total: results.length,
     all_archived: results.every((result) => result.archived),
-    all_loopo_routed: results.every((result) => result.loopo_routed),
+    all_loopship_routed: results.every((result) => result.loopship_routed),
     all_merge_commits_recorded: results.every(
       (result) => result.merge_commits_recorded,
     ),
@@ -530,10 +530,10 @@ export function lifecycleMatrixMarkdown(results: MatrixScenarioResult[]): string
     "",
     `- Cases passed: ${summary.passed}/${summary.total}`,
     `- All archived: ${summary.all_archived ? "yes" : "no"}`,
-    `- All loopo-routed: ${summary.all_loopo_routed ? "yes" : "no"}`,
+    `- All loopship-routed: ${summary.all_loopship_routed ? "yes" : "no"}`,
     `- All merge commits recorded: ${summary.all_merge_commits_recorded ? "yes" : "no"}`,
     "",
-    "| Case | Classification | Children | Archived | Unique Worktrees | Unique Branches | Merge Commits | Loopo Routed | Notes |",
+    "| Case | Classification | Children | Archived | Unique Worktrees | Unique Branches | Merge Commits | Loopship Routed | Notes |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const result of results) {
@@ -544,7 +544,7 @@ export function lifecycleMatrixMarkdown(results: MatrixScenarioResult[]): string
       .filter(Boolean)
       .join(", ");
     lines.push(
-      `| ${result.id} | ${result.classification} | ${result.child_count} | ${result.archived ? "yes" : "no"} | ${result.unique_worktrees ? "yes" : "no"} | ${result.unique_branches ? "yes" : "no"} | ${result.merge_commits_recorded ? "yes" : "no"} | ${result.loopo_routed ? "yes" : "no"} | ${notes} |`,
+      `| ${result.id} | ${result.classification} | ${result.child_count} | ${result.archived ? "yes" : "no"} | ${result.unique_worktrees ? "yes" : "no"} | ${result.unique_branches ? "yes" : "no"} | ${result.merge_commits_recorded ? "yes" : "no"} | ${result.loopship_routed ? "yes" : "no"} | ${notes} |`,
     );
   }
   return `${lines.join("\n")}\n`;

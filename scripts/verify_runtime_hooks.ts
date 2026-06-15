@@ -10,15 +10,15 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommand } from "./loopo_utils.ts";
+import { runCommand } from "./loopship_utils.ts";
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopo.ts");
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 
 function fail(message: string): never {
   throw new Error(message);
 }
 
-function runLoopo(
+function runLoopship(
   repo: string,
   args: string[],
   input?: Record<string, unknown>,
@@ -38,7 +38,7 @@ function parseJson(text: string): Record<string, any> {
   }
 }
 
-function assertHookNoop(label: string, hook: ReturnType<typeof runLoopo>): void {
+function assertHookNoop(label: string, hook: ReturnType<typeof runLoopship>): void {
   if (hook.status !== 0) fail(hook.stderr || hook.stdout);
   if (hook.stdout.trim() !== "{}") {
     fail(`${label} must emit an empty object: ${hook.stdout}`);
@@ -47,7 +47,7 @@ function assertHookNoop(label: string, hook: ReturnType<typeof runLoopo>): void 
 
 function assertHookContinuation(
   label: string,
-  hook: ReturnType<typeof runLoopo>,
+  hook: ReturnType<typeof runLoopship>,
 ): Record<string, any> {
   if (hook.status !== 0) fail(hook.stderr || hook.stdout);
   const parsed = parseJson(hook.stdout);
@@ -117,47 +117,47 @@ function assertSimpleHookConfig(
 }
 
 function main(): number {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopo-v3-hooks-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-v3-hooks-")));
   const repo = join(root, "repo");
   try {
     const git = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
     if (git.status !== 0) fail(git.stderr || git.stdout);
-    runCommand("git", ["config", "user.email", "loopo-test@example.invalid"], {
+    runCommand("git", ["config", "user.email", "loopship-test@example.invalid"], {
       cwd: repo,
     });
-    runCommand("git", ["config", "user.name", "Loopo Test"], { cwd: repo });
-    writeFileSync(join(repo, "README.md"), "# loopo hooks\n", "utf8");
+    runCommand("git", ["config", "user.name", "Loopship Test"], { cwd: repo });
+    writeFileSync(join(repo, "README.md"), "# loopship hooks\n", "utf8");
     runCommand("git", ["add", "README.md"], { cwd: repo });
     runCommand("git", ["commit", "-m", "fixture"], { cwd: repo });
 
-    const init = runLoopo(repo, [
+    const init = runLoopship(repo, [
       "init",
-      "loopo: hook check",
+      "loopship: hook check",
       "--runtime",
       "all",
     ]);
     if (init.status !== 0) fail(init.stderr || init.stdout);
     const wtree = String(parseJson(init.stdout).new_quest.suggested_wtree);
-    const create = runLoopo(
+    const create = runLoopship(
       repo,
       ["quest", "next", "--wtree", wtree, "--json", "@-"],
       {
         step: "select_quest",
         action: "create_quest",
         wtree,
-        request: "loopo: hook check",
+        request: "loopship: hook check",
       },
     );
     if (create.status !== 0) fail(create.stderr || create.stdout);
     const otherWtree = "hook-check-other";
-    const createOther = runLoopo(
+    const createOther = runLoopship(
       repo,
       ["quest", "next", "--wtree", otherWtree, "--json", "@-"],
       {
         step: "select_quest",
         action: "create_quest",
         wtree: otherWtree,
-        request: "loopo: other hook check",
+        request: "loopship: other hook check",
       },
     );
     if (createOther.status !== 0) fail(createOther.stderr || createOther.stdout);
@@ -173,16 +173,16 @@ function main(): number {
       "gemini",
     );
     assertSimpleHookConfig(
-      ".github/hooks/loopo.json",
+      ".github/hooks/loopship.json",
       parseJson(
-        readFileSync(join(repo, ".github", "hooks", "loopo.json"), "utf8"),
+        readFileSync(join(repo, ".github", "hooks", "loopship.json"), "utf8"),
       ),
       "copilot",
     );
 
     assertHookNoop(
       "repo-root hook with multiple quests",
-      runLoopo(repo, ["hook", "--runtime", "codex"], {
+      runLoopship(repo, ["hook", "--runtime", "codex"], {
         cwd: repo,
         hook_event_name: "RootStop",
       }),
@@ -190,7 +190,7 @@ function main(): number {
 
     const matching = assertHookContinuation(
       "explicit wtree plus matching cwd hook",
-      runLoopo(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
+      runLoopship(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
         cwd: join(repo, "worktrees", wtree),
         hook_event_name: "ExplicitMatchStop",
       }),
@@ -201,7 +201,7 @@ function main(): number {
 
     assertHookNoop(
       "explicit wtree plus conflicting cwd hook",
-      runLoopo(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
+      runLoopship(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
         cwd: join(repo, "worktrees", otherWtree),
         hook_event_name: "ExplicitConflictStop",
       }),
@@ -209,12 +209,12 @@ function main(): number {
 
     assertHookNoop(
       "missing selector hook",
-      runLoopo(repo, ["hook", "--runtime", "codex", "--repo", repo], {
+      runLoopship(repo, ["hook", "--runtime", "codex", "--repo", repo], {
         hook_event_name: "MissingSelectorStop",
       }),
     );
 
-    const hook = runLoopo(repo, ["hook", "--runtime", "codex"], {
+    const hook = runLoopship(repo, ["hook", "--runtime", "codex"], {
       cwd: join(repo, "worktrees", wtree),
       hook_event_name: "Stop",
     });
@@ -253,7 +253,7 @@ function main(): number {
       fail(`hook quest next output must use output_schema: ${hook.stdout}`);
     }
 
-    const duplicate = runLoopo(repo, ["hook", "--runtime", "codex"], {
+    const duplicate = runLoopship(repo, ["hook", "--runtime", "codex"], {
       cwd: join(repo, "worktrees", wtree),
       hook_event_name: "Stop",
     });
@@ -262,7 +262,7 @@ function main(): number {
       fail(`duplicate hook event must be suppressed: ${duplicate.stdout}`);
     }
 
-    const copilot = runLoopo(repo, ["hook", "--runtime", "copilot"], {
+    const copilot = runLoopship(repo, ["hook", "--runtime", "copilot"], {
       cwd: join(repo, "worktrees", wtree),
       hook_event_name: "Stop",
     });
@@ -272,7 +272,7 @@ function main(): number {
       fail(`copilot hook must include hookSpecificOutput: ${copilot.stdout}`);
     }
 
-    console.log("loopo v3 hook verification passed");
+    console.log("loopship v3 hook verification passed");
     return 0;
   } finally {
     rmSync(root, { recursive: true, force: true });

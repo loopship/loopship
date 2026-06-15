@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/task-graph-input.yaml
-title: Loopo V3 Task Graph Input
+title: Loopship V3 Task Graph Input
 type: object
 additionalProperties: false
 required:

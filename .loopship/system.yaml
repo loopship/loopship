@@ -1,6 +1,6 @@
 schema_version: 2
-id: loopo
-title: Loopo
+id: loopship
+title: Loopship
 kinds:
   - software
   - workflow
@@ -14,8 +14,8 @@ scope_in:
   - Hook continuation logic.
   - Planning and system-update control contracts.
 scope_out:
-  - Generated application product behavior outside Loopo runtime.
-  - Third-party runtime internals not controlled by Loopo.
+  - Generated application product behavior outside Loopship runtime.
+  - Third-party runtime internals not controlled by Loopship.
 objects:
   - id: system-model
     kind: unit
@@ -59,8 +59,8 @@ assertions:
     kind: rule
     level: must
     text: |-
-      Canonical Loopo documents must be declared as canonical resources and covered by
-      .loopo/signature.yaml.
+      Canonical Loopship documents must be declared as canonical resources and covered by
+      .loopship/signature.yaml.
     links:
       about:
         - object:system-model
@@ -81,7 +81,7 @@ assertions:
     kind: rule
     level: must
     text: |-
-      Planning must scout .loopo/system.yaml and relevant canonical docs before making durable
+      Planning must scout .loopship/system.yaml and relevant canonical docs before making durable
       execution decisions.
     links:
       about:
@@ -92,7 +92,7 @@ assertions:
     kind: rule
     level: must
     text: |-
-      Durable Loopo knowledge changes must be written through the system_update step after
+      Durable Loopship knowledge changes must be written through the system_update step after
       verified evidence.
     links:
       about:
@@ -126,10 +126,10 @@ resources:
   - id: software-architecture
     kind: document
     role: canonical
-    location: .loopo/docs/software/architecture.yaml
-    schema_ref: loopo://schemas/docs/software-architecture.yaml
+    location: .loopship/docs/software/architecture.yaml
+    schema_ref: loopship://schemas/docs/software-architecture.yaml
     text: |-
-      Full software architecture source using arc42 and C4-aligned concerns for Loopo runtime,
+      Full software architecture source using arc42 and C4-aligned concerns for Loopship runtime,
       structure, interfaces, quality, risks, and diagrams.
     links:
       about:
@@ -138,11 +138,11 @@ resources:
   - id: decisions
     kind: document
     role: canonical
-    location: .loopo/docs/decisions/records.yaml
-    schema_ref: loopo://schemas/docs/decision-records.yaml
+    location: .loopship/docs/decisions/records.yaml
+    schema_ref: loopship://schemas/docs/decision-records.yaml
     text: |-
       Architecture-significant
-      decisions for Loopo.
+      decisions for Loopship.
     links:
       about:
         - object:system-model
@@ -150,8 +150,8 @@ resources:
   - id: workflow-spec
     kind: document
     role: canonical
-    location: .loopo/docs/workflow/spec.yaml
-    schema_ref: loopo://schemas/docs/workflow-spec.yaml
+    location: .loopship/docs/workflow/spec.yaml
+    schema_ref: loopship://schemas/docs/workflow-spec.yaml
     text: |-
       Full workflow specification covering participants, triggers, inputs, outputs, processes,
       invariants, exceptions, monitoring, and diagrams.
@@ -162,8 +162,8 @@ resources:
   - id: agent-system-card
     kind: document
     role: canonical
-    location: .loopo/docs/agent/system-card.yaml
-    schema_ref: loopo://schemas/docs/agent-system-card.yaml
+    location: .loopship/docs/agent/system-card.yaml
+    schema_ref: loopship://schemas/docs/agent-system-card.yaml
     text: |-
       Full agent system card covering responsibilities, autonomy, tools, memory, safety,
       oversight, evaluation, monitoring, incidents, and handoffs.
@@ -175,7 +175,7 @@ resources:
     kind: evidence
     role: reference
     location: scripts/verify_system_model.ts
-    schema_ref: loopo://schemas/docs/artifact-bom.yaml
+    schema_ref: loopship://schemas/docs/artifact-bom.yaml
     text: |-
       Semantic verifier for concrete canonical docs, signature coverage, typed links, and
       anti-shell rules.

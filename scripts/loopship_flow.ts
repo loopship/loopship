@@ -4,38 +4,38 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { readText } from "./loopo_utils.ts";
+import { readText } from "./loopship_utils.ts";
 import {
   FLOW_SCHEMA_PATH,
-  type LoopoSchemaSource,
+  type LoopshipSchemaSource,
   v3SchemaFilePath,
   validateSchemaPath,
-} from "./loopo_schema.ts";
+} from "./loopship_schema.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const DEFAULT_FLOW_ID = "swe";
 export const DEFAULT_FLOW_VERSION = 1;
 
-export type LoopoStepDefinition = {
+export type LoopshipStepDefinition = {
   schema_version: 1;
   id: string;
   handler: string;
   input_step: string | null;
-  input_schema: LoopoSchemaSource;
-  output_schema: LoopoSchemaSource;
+  input_schema: LoopshipSchemaSource;
+  output_schema: LoopshipSchemaSource;
   result_schema: string;
   summary: string;
   instructions: string;
 };
 
-export type LoopoFlowStage = {
+export type LoopshipFlowStage = {
   id: string;
   step: string;
   transitions: Record<string, string>;
 };
 
-export type LoopoSubflowDefinition = {
+export type LoopshipSubflowDefinition = {
   id: string;
   type: "in_flow_detour" | "spawned_quest";
   starts_at: string;
@@ -45,18 +45,18 @@ export type LoopoSubflowDefinition = {
   flow_id?: string;
 };
 
-export type LoopoFlowDefinition = {
+export type LoopshipFlowDefinition = {
   schema_version: 1;
   id: string;
   version: number;
   default_stage: string;
-  stages: LoopoFlowStage[];
-  subflows: LoopoSubflowDefinition[];
+  stages: LoopshipFlowStage[];
+  subflows: LoopshipSubflowDefinition[];
 };
 
-export type LoadedLoopoFlow = LoopoFlowDefinition & {
-  stages_by_id: Record<string, LoopoFlowStage>;
-  steps_by_id: Record<string, LoopoStepDefinition>;
+export type LoadedLoopshipFlow = LoopshipFlowDefinition & {
+  stages_by_id: Record<string, LoopshipFlowStage>;
+  steps_by_id: Record<string, LoopshipStepDefinition>;
 };
 
 function fail(message: string): never {
@@ -85,7 +85,7 @@ function stringValue(value: unknown, path: string): string {
 function schemaSourceFromSwfSchema(
   workflowPath: string,
   schema: unknown,
-): LoopoSchemaSource {
+): LoopshipSchemaSource {
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) return null;
   const document = (schema as Record<string, unknown>).document;
   if (!document || typeof document !== "object" || Array.isArray(document)) {
@@ -132,7 +132,7 @@ function assertSchemaValid(
 }
 
 function hasTransitionPath(
-  stagesById: Record<string, LoopoFlowStage>,
+  stagesById: Record<string, LoopshipFlowStage>,
   startsAt: string,
   returnsTo: string,
 ): boolean {
@@ -168,23 +168,23 @@ function assertKnownFlowRef(
 
 export function loadStepDefinitions(
   dir = resolve(ROOT, "assets", "workflows", "steps"),
-): Record<string, LoopoStepDefinition> {
+): Record<string, LoopshipStepDefinition> {
   if (!existsSync(dir)) fail(`missing steps directory: ${dir}`);
-  const steps: Record<string, LoopoStepDefinition> = {};
+  const steps: Record<string, LoopshipStepDefinition> = {};
   for (const name of readdirSync(dir).filter((entry) =>
     entry.endsWith(".yaml"),
   )) {
     const path = resolve(dir, name);
     const raw = readYamlObject(path);
     assertSchemaValid(raw, path, FLOW_SCHEMA_PATH, "workflow");
-    const loopoMeta =
-      raw.document?.metadata?.loopo &&
-      typeof raw.document.metadata.loopo === "object" &&
-      !Array.isArray(raw.document.metadata.loopo)
-        ? (raw.document.metadata.loopo as Record<string, any>)
+    const loopshipMeta =
+      raw.document?.metadata?.loopship &&
+      typeof raw.document.metadata.loopship === "object" &&
+      !Array.isArray(raw.document.metadata.loopship)
+        ? (raw.document.metadata.loopship as Record<string, any>)
         : null;
-    if (!loopoMeta || String(loopoMeta.kind ?? "") !== "step-workflow") {
-      fail(`${path} step workflow must set document.metadata.loopo.kind`);
+    if (!loopshipMeta || String(loopshipMeta.kind ?? "") !== "step-workflow") {
+      fail(`${path} step workflow must set document.metadata.loopship.kind`);
     }
     if (!Array.isArray(raw.do) || raw.do.length !== 1) {
       fail(`${path} step workflow must contain exactly one task`);
@@ -202,40 +202,40 @@ export function loadStepDefinitions(
       string,
       Record<string, any>,
     ];
-    const taskLoopo =
-      taskDef?.metadata?.loopo &&
-      typeof taskDef.metadata.loopo === "object" &&
-      !Array.isArray(taskDef.metadata.loopo)
-        ? (taskDef.metadata.loopo as Record<string, any>)
+    const taskLoopship =
+      taskDef?.metadata?.loopship &&
+      typeof taskDef.metadata.loopship === "object" &&
+      !Array.isArray(taskDef.metadata.loopship)
+        ? (taskDef.metadata.loopship as Record<string, any>)
         : null;
-    const id = String(taskLoopo?.stepId ?? loopoMeta.stepId ?? taskName);
+    const id = String(taskLoopship?.stepId ?? loopshipMeta.stepId ?? taskName);
     if (steps[id]) fail(`duplicate step definition id: ${id}`);
     const inputSchema = schemaSourceFromSwfSchema(path, taskDef?.input?.schema);
     const outputSchema = schemaSourceFromSwfSchema(path, taskDef?.output?.schema);
     if (typeof inputSchema === "string") assertKnownStepSchema(inputSchema, path);
     if (typeof outputSchema === "string") assertKnownStepSchema(outputSchema, path);
     const resultSchema = String(
-      taskLoopo?.resultSchemaPath ?? "schemas/steps/step-output.yaml",
+      taskLoopship?.resultSchemaPath ?? "schemas/steps/step-output.yaml",
     );
     steps[id] = {
       schema_version: 1,
       id,
-      handler: String(taskLoopo?.handler ?? id),
+      handler: String(taskLoopship?.handler ?? id),
       input_step:
-        taskLoopo?.inputStep == null ? null : String(taskLoopo.inputStep),
+        taskLoopship?.inputStep == null ? null : String(taskLoopship.inputStep),
       input_schema: inputSchema,
       output_schema: outputSchema,
       result_schema: resultSchema,
       summary: String(
-        taskLoopo?.summary ?? raw.document?.summary ?? loopoMeta.summary ?? "",
+        taskLoopship?.summary ?? raw.document?.summary ?? loopshipMeta.summary ?? "",
       ),
-      instructions: String(taskLoopo?.instructions ?? ""),
+      instructions: String(taskLoopship?.instructions ?? ""),
     };
   }
   return steps;
 }
 
-export function loadFlowDefinition(flowId = DEFAULT_FLOW_ID): LoadedLoopoFlow {
+export function loadFlowDefinition(flowId = DEFAULT_FLOW_ID): LoadedLoopshipFlow {
   const path = resolve(ROOT, "assets", "flows", `${flowId}.yaml`);
   if (!existsSync(path)) fail(`unknown flow: ${flowId}`);
   return loadFlowDefinitionFromPath(path, flowId);
@@ -245,34 +245,34 @@ export function loadFlowDefinitionFromPath(
   path: string,
   expectedFlowId?: string,
   stepsById = loadStepDefinitions(),
-): LoadedLoopoFlow {
+): LoadedLoopshipFlow {
   const raw = readYamlObject(path);
   assertSchemaValid(raw, path, FLOW_SCHEMA_PATH, "workflow");
-  const loopoMeta =
-    raw.document?.metadata?.loopo &&
-    typeof raw.document.metadata.loopo === "object" &&
-    !Array.isArray(raw.document.metadata.loopo)
-      ? (raw.document.metadata.loopo as Record<string, any>)
+  const loopshipMeta =
+    raw.document?.metadata?.loopship &&
+    typeof raw.document.metadata.loopship === "object" &&
+    !Array.isArray(raw.document.metadata.loopship)
+      ? (raw.document.metadata.loopship as Record<string, any>)
       : null;
-  if (!loopoMeta || String(loopoMeta.kind ?? "") !== "flow") {
-    fail(`${path} workflow must set document.metadata.loopo.kind to "flow"`);
+  if (!loopshipMeta || String(loopshipMeta.kind ?? "") !== "flow") {
+    fail(`${path} workflow must set document.metadata.loopship.kind to "flow"`);
   }
   const flowId = String(raw.document?.name ?? "");
   if (expectedFlowId && flowId !== expectedFlowId) {
     fail(`${path} workflow name must match requested flow ${expectedFlowId}`);
   }
   const defaultStage = stringValue(
-    loopoMeta.defaultStage,
-    `${path}.document.metadata.loopo.defaultStage`,
+    loopshipMeta.defaultStage,
+    `${path}.document.metadata.loopship.defaultStage`,
   );
   const stageRecords =
-    loopoMeta.stages &&
-    typeof loopoMeta.stages === "object" &&
-    !Array.isArray(loopoMeta.stages)
-      ? (loopoMeta.stages as Record<string, any>)
+    loopshipMeta.stages &&
+    typeof loopshipMeta.stages === "object" &&
+    !Array.isArray(loopshipMeta.stages)
+      ? (loopshipMeta.stages as Record<string, any>)
       : null;
   if (!stageRecords || !Object.keys(stageRecords).length) {
-    fail(`${path} workflow must declare metadata.loopo.stages`);
+    fail(`${path} workflow must declare metadata.loopship.stages`);
   }
 
   const taskMap = new Map<string, Record<string, any>>();
@@ -288,10 +288,10 @@ export function loadFlowDefinitionFromPath(
     taskMap.set(taskName, taskDef);
   }
 
-  const stages: LoopoFlowStage[] = Object.entries(stageRecords).map(
+  const stages: LoopshipFlowStage[] = Object.entries(stageRecords).map(
     ([stageId, stageDef]) => {
       if (!stageDef || typeof stageDef !== "object" || Array.isArray(stageDef)) {
-        fail(`${path}.document.metadata.loopo.stages.${stageId} must be an object`);
+        fail(`${path}.document.metadata.loopship.stages.${stageId} must be an object`);
       }
       const taskName = String(
         stageDef.task ?? stageDef.taskName ?? stageDef.stageTask ?? stageId,
@@ -301,7 +301,7 @@ export function loadFlowDefinitionFromPath(
         fail(`${path} stage ${stageId} references missing task ${taskName}`);
       }
       const stepId = String(
-        stageDef.step ?? stageDef.stepId ?? taskDef?.metadata?.loopo?.stepId ?? "",
+        stageDef.step ?? stageDef.stepId ?? taskDef?.metadata?.loopship?.stepId ?? "",
       );
       if (!stepsById[stepId]) {
         fail(`${path} stage ${stageId} references missing step workflow ${stepId}`);
@@ -320,13 +320,13 @@ export function loadFlowDefinitionFromPath(
     },
   );
 
-  const stagesById: Record<string, LoopoFlowStage> = {};
+  const stagesById: Record<string, LoopshipFlowStage> = {};
   for (const stage of stages) {
     if (stagesById[stage.id]) fail(`duplicate flow stage id: ${stage.id}`);
     stagesById[stage.id] = stage;
   }
   if (!stagesById[defaultStage]) {
-    fail(`${path} default stage is not in metadata.loopo.stages: ${defaultStage}`);
+    fail(`${path} default stage is not in metadata.loopship.stages: ${defaultStage}`);
   }
   for (const stage of stages) {
     for (const [name, target] of Object.entries(stage.transitions)) {
@@ -337,10 +337,10 @@ export function loadFlowDefinitionFromPath(
   }
 
   const subflowIds = new Set<string>();
-  const subflowsRaw = Array.isArray(loopoMeta.subflows) ? loopoMeta.subflows : [];
-  const subflows: LoopoSubflowDefinition[] = subflowsRaw.map(
+  const subflowsRaw = Array.isArray(loopshipMeta.subflows) ? loopshipMeta.subflows : [];
+  const subflows: LoopshipSubflowDefinition[] = subflowsRaw.map(
     (subflow: Record<string, any>, index: number) => {
-      const prefix = `${path}.document.metadata.loopo.subflows[${index}]`;
+      const prefix = `${path}.document.metadata.loopship.subflows[${index}]`;
       if (!subflow || typeof subflow !== "object" || Array.isArray(subflow)) {
         fail(`${prefix} must be an object`);
       }
@@ -378,7 +378,7 @@ export function loadFlowDefinitionFromPath(
       }
       return {
         id,
-        type: type as LoopoSubflowDefinition["type"],
+        type: type as LoopshipSubflowDefinition["type"],
         starts_at: startsAt,
         returns_to: returnsTo,
         trigger: stringValue(subflow.trigger, `${prefix}.trigger`),
@@ -391,7 +391,7 @@ export function loadFlowDefinitionFromPath(
   return {
     schema_version: 1,
     id: flowId,
-    version: Number(loopoMeta.version ?? 1),
+    version: Number(loopshipMeta.version ?? 1),
     default_stage: defaultStage,
     stages,
     subflows,
@@ -401,17 +401,17 @@ export function loadFlowDefinitionFromPath(
 }
 
 export function flowStage(
-  flow: LoadedLoopoFlow,
+  flow: LoadedLoopshipFlow,
   stageId: string | null | undefined,
-): LoopoFlowStage {
+): LoopshipFlowStage {
   const id = stageId?.trim() || flow.default_stage;
   return flow.stages_by_id[id] ?? flow.stages_by_id[flow.default_stage];
 }
 
 export function flowStep(
-  flow: LoadedLoopoFlow,
+  flow: LoadedLoopshipFlow,
   stageId: string | null | undefined,
-): LoopoStepDefinition {
+): LoopshipStepDefinition {
   const stage = flowStage(flow, stageId);
   return flow.steps_by_id[stage.step];
 }

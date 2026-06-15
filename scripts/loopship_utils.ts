@@ -15,8 +15,8 @@ export type RunResult = {
   signal: NodeJS.Signals | null;
 };
 
-export const HOOK_STATE_FILE = join(".loopo", "runtime", "hook-state.json");
-export const HOOK_EVENT_FILE = join(".loopo", "runtime", "events.jsonl");
+export const HOOK_STATE_FILE = join(".loopship", "runtime", "hook-state.json");
+export const HOOK_EVENT_FILE = join(".loopship", "runtime", "events.jsonl");
 export const AUTO_CONTINUE_BUDGET = 12;
 
 export function expandHome(path: string): string {

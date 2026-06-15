@@ -1,22 +1,22 @@
 schema_version: 2
 required_document_schemas_by_system_kind:
   software:
-    - loopo://schemas/docs/software-architecture.yaml
-    - loopo://schemas/docs/decision-records.yaml
+    - loopship://schemas/docs/software-architecture.yaml
+    - loopship://schemas/docs/decision-records.yaml
   workflow:
-    - loopo://schemas/docs/workflow-spec.yaml
+    - loopship://schemas/docs/workflow-spec.yaml
   knowledge:
-    - loopo://schemas/docs/knowledge-report.yaml
+    - loopship://schemas/docs/knowledge-report.yaml
   data:
-    - loopo://schemas/docs/dataset-datasheet.yaml
+    - loopship://schemas/docs/dataset-datasheet.yaml
   model:
-    - loopo://schemas/docs/model-card.yaml
+    - loopship://schemas/docs/model-card.yaml
   agent:
-    - loopo://schemas/docs/agent-system-card.yaml
+    - loopship://schemas/docs/agent-system-card.yaml
   organization:
-    - loopo://schemas/docs/business-architecture.yaml
+    - loopship://schemas/docs/business-architecture.yaml
   artifact:
-    - loopo://schemas/docs/artifact-bom.yaml
+    - loopship://schemas/docs/artifact-bom.yaml
 root_rules:
   global_id_uniqueness_across_loaded_files: true
   links_are_relation_keyed_maps: true
@@ -99,7 +99,7 @@ local_key_policy:
     - landing
     - learning
     - llm
-    - loopo
+    - loopship
     - mermaid
     - observation
     - plantuml

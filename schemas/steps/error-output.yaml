@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/error-output.yaml
-title: Loopo V3 Error Output
+title: Loopship V3 Error Output
 type: object
 additionalProperties: false
 required:

@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/archive-output.yaml
-title: Loopo V3 Archive Output
+title: Loopship V3 Archive Output
 type: object
 additionalProperties: false
 required:

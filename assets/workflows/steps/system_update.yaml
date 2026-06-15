@@ -1,11 +1,11 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: system-update
   version: 1.0.0
-  summary: Submit system doc updates. Loopo writes signed repo docs.
+  summary: Submit system doc updates. Loopship writes signed repo docs.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: system_update
 do:
@@ -16,16 +16,16 @@ do:
           document:
             $ref: ../../../schemas/steps/step-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: system_update
           handler: system_update
           inputStep: system_update
-          summary: Submit system doc updates. Loopo writes signed repo docs.
+          summary: Submit system doc updates. Loopship writes signed repo docs.
           instructions: >-
-            # Loopo System Update Step
+            # Loopship System Update Step
 
 
-            Act as a top-class system knowledge curator for Loopo. Treat this
+            Act as a top-class system knowledge curator for Loopship. Treat this
             instruction
 
             block as the system update step's system prompt: review canonical
@@ -59,7 +59,7 @@ do:
             present, and return a `system_update` payload. The binary validates
             and
 
-            writes `.loopo/system.yaml` plus affected `.loopo/docs/**/*.yaml`.
+            writes `.loopship/system.yaml` plus affected `.loopship/docs/**/*.yaml`.
 
 
             Treat merged child output in the coordinator quest branch as the
@@ -73,7 +73,7 @@ do:
 
             Before proposing updates, review the approved plan, validation
             receipt, verification receipt, `plan_detail.system_context`,
-            current `.loopo/system.yaml`, and the relevant canonical
+            current `.loopship/system.yaml`, and the relevant canonical
             `objects[]`, `assertions[]`, `resources[]`, `memories[]`,
             relation-keyed `links` maps, and concrete resource-backed
             canonical docs referenced by the touched IDs.
@@ -83,7 +83,7 @@ do:
 
 
             Translate durable, verified system truths into the flat canonical
-            root model inside `.loopo/system.yaml`.
+            root model inside `.loopship/system.yaml`.
 
 
             - Promote only verified durable truths into assertion-like records
@@ -100,7 +100,7 @@ do:
             - Write all prose fields named `text`, `context`, `decision`, or
               `rationale` as multiline strings in the JSON callback. Entries
               inside `consequences[]` and `options[]` are also multiline prose.
-              Loopo renders those values as YAML block scalars in canonical
+              Loopship renders those values as YAML block scalars in canonical
               files; single-line prose fails schema and semantic verification.
 
             - Every active `level: must` assertion-like record must include at
@@ -110,10 +110,10 @@ do:
             - Write or update canonical YAML docs only when the root
               `resources[]` declares a resource record with `role: canonical`
               and concrete industry-shaped schemas such as
-              `schema_ref: loopo://schemas/docs/software-architecture.yaml`,
-              `loopo://schemas/docs/decision-records.yaml`,
-              `loopo://schemas/docs/workflow-spec.yaml`, or
-              `loopo://schemas/docs/agent-system-card.yaml`.
+              `schema_ref: loopship://schemas/docs/software-architecture.yaml`,
+              `loopship://schemas/docs/decision-records.yaml`,
+              `loopship://schemas/docs/workflow-spec.yaml`, or
+              `loopship://schemas/docs/agent-system-card.yaml`.
 
             - Concrete industry docs are section-shaped document models, not
               record shards. Use schema fields as Markdown-renderable
@@ -162,5 +162,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/system-update-input.yaml
-      call: loopo.internal.system_update
+      call: loopship.internal.system_update
       with: {}

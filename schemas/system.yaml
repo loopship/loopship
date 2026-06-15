@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: loopo://schemas/system.yaml
-title: Loopo Universal System Root v2
+$id: loopship://schemas/system.yaml
+title: Loopship Universal System Root v2
 type: object
 additionalProperties: false
 required:
@@ -62,7 +62,7 @@ properties:
     maxItems: 64
     items:
       $ref: "#/$defs/memory"
-x-loopo-semantic-rules: schemas/semantic-rules.yaml
+x-loopship-semantic-rules: schemas/semantic-rules.yaml
 $defs:
   id:
     type: string
@@ -271,7 +271,7 @@ $defs:
       schema_ref:
         type: string
         minLength: 1
-        pattern: "^(self|loopo://schemas/[a-z0-9._/-]+\\.yaml)$"
+        pattern: "^(self|loopship://schemas/[a-z0-9._/-]+\\.yaml)$"
       text:
         type: string
         minLength: 1

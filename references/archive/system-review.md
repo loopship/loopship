@@ -1,13 +1,13 @@
-# Loopo Universal System Kernel Review
+# Loopship Universal System Kernel Review
 
 ## Final Model
 
-Loopo uses a small universal semantic root plus full industry-profile canonical YAML docs.
+Loopship uses a small universal semantic root plus full industry-profile canonical YAML docs.
 
-- `.loopo/system.yaml` is the first-read semantic frontier.
-- `.loopo/signature.yaml` is the mechanical signature and audit sidecar.
-- `.loopo/docs/**/*.yaml` contains full canonical documents when detail earns a file.
-- `.loopo/packs/**/*.yaml` is reserved for rare scale-out record shards.
+- `.loopship/system.yaml` is the first-read semantic frontier.
+- `.loopship/signature.yaml` is the mechanical signature and audit sidecar.
+- `.loopship/docs/**/*.yaml` contains full canonical documents when detail earns a file.
+- `.loopship/packs/**/*.yaml` is reserved for rare scale-out record shards.
 - `schemas/docs/*.yaml` gives each canonical document a concrete industry-profile contract.
 
 The root keeps four mental models:
@@ -29,7 +29,7 @@ links:
 
 ## Concrete Docs
 
-Loopo does not use a generic section/profile schema as the canonical document model. Canonical docs use concrete full-profile schemas:
+Loopship does not use a generic section/profile schema as the canonical document model. Canonical docs use concrete full-profile schemas:
 
 - `schemas/docs/software-architecture.yaml`
 - `schemas/docs/decision-records.yaml`
@@ -53,21 +53,21 @@ Required docs are satisfied by canonical resources whose `schema_ref` equals the
 
 | System Kind | Required Schema Refs |
 | --- | --- |
-| `software` | `loopo://schemas/docs/software-architecture.yaml`, `loopo://schemas/docs/decision-records.yaml` |
-| `workflow` | `loopo://schemas/docs/workflow-spec.yaml` |
-| `knowledge` | `loopo://schemas/docs/knowledge-report.yaml` |
-| `data` | `loopo://schemas/docs/dataset-datasheet.yaml` |
-| `model` | `loopo://schemas/docs/model-card.yaml` |
-| `agent` | `loopo://schemas/docs/agent-system-card.yaml` |
-| `organization` | `loopo://schemas/docs/business-architecture.yaml` |
-| `artifact` | `loopo://schemas/docs/artifact-bom.yaml` |
+| `software` | `loopship://schemas/docs/software-architecture.yaml`, `loopship://schemas/docs/decision-records.yaml` |
+| `workflow` | `loopship://schemas/docs/workflow-spec.yaml` |
+| `knowledge` | `loopship://schemas/docs/knowledge-report.yaml` |
+| `data` | `loopship://schemas/docs/dataset-datasheet.yaml` |
+| `model` | `loopship://schemas/docs/model-card.yaml` |
+| `agent` | `loopship://schemas/docs/agent-system-card.yaml` |
+| `organization` | `loopship://schemas/docs/business-architecture.yaml` |
+| `artifact` | `loopship://schemas/docs/artifact-bom.yaml` |
 
-Loopo currently has `kinds: [software, workflow, agent]`, so it requires:
+Loopship currently has `kinds: [software, workflow, agent]`, so it requires:
 
-- `.loopo/docs/software/architecture.yaml`
-- `.loopo/docs/decisions/records.yaml`
-- `.loopo/docs/workflow/spec.yaml`
-- `.loopo/docs/agent/system-card.yaml`
+- `.loopship/docs/software/architecture.yaml`
+- `.loopship/docs/decisions/records.yaml`
+- `.loopship/docs/workflow/spec.yaml`
+- `.loopship/docs/agent/system-card.yaml`
 
 These four documents are full YAML sources. Generated Markdown may render them into longer human-facing architecture, ADR, workflow, or agent-card documents.
 
@@ -117,7 +117,7 @@ Generated decision summaries are derived from decision records. They are not a s
 
 ## Signature
 
-`.loopo/signature.yaml` signs deterministic canonical YAML data after parsing and canonical JSON normalization. The file contains manifest-style audit fields because it covers root data, schema files, and canonical resource files:
+`.loopship/signature.yaml` signs deterministic canonical YAML data after parsing and canonical JSON normalization. The file contains manifest-style audit fields because it covers root data, schema files, and canonical resource files:
 
 - root path/schema/digest
 - canonical entries with path/schema/role/digest
@@ -136,14 +136,14 @@ resources:
   - id: software-architecture
     kind: document
     role: canonical
-    location: .loopo/docs/software/architecture.yaml
-    schema_ref: loopo://schemas/docs/software-architecture.yaml
+    location: .loopship/docs/software/architecture.yaml
+    schema_ref: loopship://schemas/docs/software-architecture.yaml
     text: |-
       Full software architecture source using arc42 and C4-aligned concerns
       for runtime, structure, interfaces, quality, risks, and diagrams.
 ```
 
-Do not use abstract slot declarations or schema-resource indirection for canonical docs. Schema files are part of the Loopo schema library and are covered by `.loopo/signature.yaml`.
+Do not use abstract slot declarations or schema-resource indirection for canonical docs. Schema files are part of the Loopship schema library and are covered by `.loopship/signature.yaml`.
 
 ## Anti-Shell Rules
 

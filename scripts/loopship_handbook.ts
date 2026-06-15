@@ -11,13 +11,13 @@ import {
   fixHandbookDuplicates,
   renderDuplicateReport,
   renderFixReport,
-} from "./loopo_handbook_duplicates.ts";
-import { hashText, readText, writeText } from "./loopo_utils.ts";
+} from "./loopship_handbook_duplicates.ts";
+import { hashText, readText, writeText } from "./loopship_utils.ts";
 
 export {
   detectHandbookDuplicates,
   fixHandbookDuplicates,
-} from "./loopo_handbook_duplicates.ts";
+} from "./loopship_handbook_duplicates.ts";
 
 type YamlMap = Record<string, unknown>;
 
@@ -55,18 +55,18 @@ function parseYamlMap(text: string, label: string): YamlMap {
 function resolveRepoRoot(input?: string): string {
   let cursor = resolve(input || process.cwd());
   while (true) {
-    if (existsSync(join(cursor, ".loopo", "system.yaml"))) return cursor;
+    if (existsSync(join(cursor, ".loopship", "system.yaml"))) return cursor;
     const parent = resolve(cursor, "..");
     if (parent === cursor) break;
     cursor = parent;
   }
-  throw new Error("cannot find .loopo/system.yaml from current directory");
+  throw new Error("cannot find .loopship/system.yaml from current directory");
 }
 
 function handbookPath(repoRoot: string): string {
   return join(
     tmpdir(),
-    "loopo",
+    "loopship",
     "handbooks",
     hashText(resolve(repoRoot)).slice(0, 16),
     "handbook.md",
@@ -285,9 +285,9 @@ function canonicalDocumentResources(system: YamlMap): YamlMap[] {
 }
 
 function renderSystemRoot(lines: string[], system: YamlMap): void {
-  lines.push("# Loopo Handbook", "");
+  lines.push("# Loopship Handbook", "");
   lines.push(
-    "Generated from canonical Loopo YAML. Do not edit this Markdown manually.",
+    "Generated from canonical Loopship YAML. Do not edit this Markdown manually.",
     "",
   );
   lines.push(heading(2, "Root System"), "");
@@ -351,14 +351,14 @@ function renderDocument(
 
 function renderSourceManifest(lines: string[], repoRoot: string, system: YamlMap): void {
   lines.push("# Source Manifest", "");
-  lines.push(`- Root: \`.loopo/system.yaml\``);
-  lines.push(`- Signature: \`.loopo/signature.yaml\``);
+  lines.push(`- Root: \`.loopship/system.yaml\``);
+  lines.push(`- Signature: \`.loopship/signature.yaml\``);
   for (const resource of canonicalDocumentResources(system)) {
     lines.push(`- Canonical document: \`${String(resource.location)}\``);
   }
-  const signaturePath = join(repoRoot, ".loopo", "signature.yaml");
+  const signaturePath = join(repoRoot, ".loopship", "signature.yaml");
   if (existsSync(signaturePath)) {
-    const signature = parseYamlMap(readText(signaturePath), ".loopo/signature.yaml");
+    const signature = parseYamlMap(readText(signaturePath), ".loopship/signature.yaml");
     const root = isMap(signature.root) ? signature.root : {};
     if (typeof root.digest === "string") {
       lines.push(`- Root digest: \`${root.digest}\``);
@@ -370,11 +370,11 @@ function renderSourceManifest(lines: string[], repoRoot: string, system: YamlMap
   lines.push("");
 }
 
-export function renderLoopoHandbook(repo?: string): string {
+export function renderLoopshipHandbook(repo?: string): string {
   const repoRoot = resolveRepoRoot(repo);
   const system = parseYamlMap(
-    readText(join(repoRoot, ".loopo", "system.yaml")),
-    ".loopo/system.yaml",
+    readText(join(repoRoot, ".loopship", "system.yaml")),
+    ".loopship/system.yaml",
   );
   const lines: string[] = [];
   renderSystemRoot(lines, system);
@@ -385,9 +385,9 @@ export function renderLoopoHandbook(repo?: string): string {
   return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
 }
 
-export function writeLoopoHandbook(repo?: string): HandbookWriteResult {
+export function writeLoopshipHandbook(repo?: string): HandbookWriteResult {
   const repoRoot = resolveRepoRoot(repo);
-  const markdown = renderLoopoHandbook(repoRoot);
+  const markdown = renderLoopshipHandbook(repoRoot);
   const path = handbookPath(repoRoot);
   writeText(path, markdown);
   return {
@@ -455,10 +455,10 @@ export function runHandbook(argv: string[]): number {
     return failOnDuplicates && report.duplicate_count > 0 ? 2 : 0;
   }
   if (raw) {
-    process.stdout.write(renderLoopoHandbook(repo));
+    process.stdout.write(renderLoopshipHandbook(repo));
     return 0;
   }
-  const result = writeLoopoHandbook(repo);
+  const result = writeLoopshipHandbook(repo);
   process.stdout.write(`handbook: ${result.file_url}\n`);
   return 0;
 }

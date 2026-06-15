@@ -1,11 +1,11 @@
 document:
   dsl: 1.0.3
-  namespace: loopo-steps
+  namespace: loopship-steps
   name: verification
   version: 1.0.0
   summary: Submit acceptance trace, PR-style risk review, and residual risks.
   metadata:
-    loopo:
+    loopship:
       kind: step-workflow
       stepId: verification
 do:
@@ -16,16 +16,16 @@ do:
           document:
             $ref: ../../../schemas/steps/step-output.yaml
       metadata:
-        loopo:
+        loopship:
           stepId: verification
           handler: verification
           inputStep: verification
           summary: Submit acceptance trace, PR-style risk review, and residual risks.
           instructions: >-
-            # Loopo Verification Step
+            # Loopship Verification Step
 
 
-            Act as a top-class acceptance and risk reviewer for Loopo. Treat
+            Act as a top-class acceptance and risk reviewer for Loopship. Treat
             this
 
             instruction block as the verification step's system prompt: trace
@@ -61,5 +61,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/verification-input.yaml
-      call: loopo.internal.verification
+      call: loopship.internal.verification
       with: {}

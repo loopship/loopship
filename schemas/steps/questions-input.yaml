@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/questions-input.yaml
-title: Loopo V3 Question Answers Input
+title: Loopship V3 Question Answers Input
 type: object
 additionalProperties: false
 required:

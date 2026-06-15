@@ -4,13 +4,13 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMap, isScalar, isSeq, parse as parseYaml, parseDocument } from "yaml";
-import { verifyRootManifest } from "./loopo_core.ts";
-import { validateSchemaPath } from "./loopo_schema.ts";
-import { readText } from "./loopo_utils.ts";
+import { verifyRootManifest } from "./loopship_core.ts";
+import { validateSchemaPath } from "./loopship_schema.ts";
+import { readText } from "./loopship_utils.ts";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ROOT_SYSTEM_PATH = resolve(PACKAGE_ROOT, ".loopo", "system.yaml");
-const ROOT_SIGNATURE_PATH = resolve(PACKAGE_ROOT, ".loopo", "signature.yaml");
+const ROOT_SYSTEM_PATH = resolve(PACKAGE_ROOT, ".loopship", "system.yaml");
+const ROOT_SIGNATURE_PATH = resolve(PACKAGE_ROOT, ".loopship", "signature.yaml");
 const SEMANTIC_RULES_PATH = resolve(PACKAGE_ROOT, "schemas", "semantic-rules.yaml");
 
 type JsonRecord = Record<string, unknown>;
@@ -219,7 +219,7 @@ function addRecords(
 
 function schemaPathForResource(schemaRef: string, records: Map<string, JsonRecord>): string {
   if (schemaRef === "self") return "";
-  if (schemaRef.startsWith("loopo://schemas/")) return schemaRef.slice("loopo://".length);
+  if (schemaRef.startsWith("loopship://schemas/")) return schemaRef.slice("loopship://".length);
   return "";
 }
 
@@ -327,8 +327,8 @@ function requiredSlotsForKinds(kinds: string[], semanticRules: JsonRecord): Set<
 }
 
 function schemaKeyForSchemaRef(schemaRef: string): string {
-  if (!schemaRef.startsWith("loopo://schemas/docs/")) return "";
-  return schemaRef.slice("loopo://schemas/docs/".length).replace(/\.yaml$/, "");
+  if (!schemaRef.startsWith("loopship://schemas/docs/")) return "";
+  return schemaRef.slice("loopship://schemas/docs/".length).replace(/\.yaml$/, "");
 }
 
 function numberValue(value: unknown): number | null {
@@ -580,17 +580,17 @@ function validateDocText(
 function main(): number {
   const errors: string[] = [];
   const legacyPaths = [
-    ".loopo/manifest.sign.json",
-    ".loopo/manifest.yaml",
-    ".loopo/docs/system-behaviours.yaml",
-    ".loopo/docs/architecture.yaml",
-    ".loopo/docs/design-system.yaml",
-    ".loopo/docs/high-level-design.yaml",
-    ".loopo/docs/low-level-design.yaml",
-    ".loopo/docs/views",
-    ".loopo/docs/contexts",
-    ".loopo/docs/domains",
-    ".loopo/docs/adrs",
+    ".loopship/manifest.sign.json",
+    ".loopship/manifest.yaml",
+    ".loopship/docs/system-behaviours.yaml",
+    ".loopship/docs/architecture.yaml",
+    ".loopship/docs/design-system.yaml",
+    ".loopship/docs/high-level-design.yaml",
+    ".loopship/docs/low-level-design.yaml",
+    ".loopship/docs/views",
+    ".loopship/docs/contexts",
+    ".loopship/docs/domains",
+    ".loopship/docs/adrs",
     "schemas/system-common.yaml",
     "schemas/system-assertion.yaml",
     "schemas/system-domain.yaml",
@@ -633,7 +633,7 @@ function main(): number {
     "records",
     "slots",
   ]) {
-    if (oldField in root) errors.push(`.loopo/system.yaml must not contain root field: ${oldField}`);
+    if (oldField in root) errors.push(`.loopship/system.yaml must not contain root field: ${oldField}`);
   }
 
   const signature = readYamlObject(ROOT_SIGNATURE_PATH);
@@ -646,7 +646,7 @@ function main(): number {
   if (!manifestCheck.ok) errors.push(...manifestCheck.errors);
 
   if (arrayOfStrings(root.kinds)[0] !== "software") {
-    errors.push("Loopo primary kind must be kinds[0]=software");
+    errors.push("Loopship primary kind must be kinds[0]=software");
   }
 
   const records = new Map<string, JsonRecord>();
@@ -662,8 +662,8 @@ function main(): number {
     .filter((record) => stringValue(record.location));
   const canonicalDocLocations = new Set(canonicalDocs.map((record) => stringValue(record.location)));
 
-  for (const relativeDoc of collectYamlFiles(resolve(PACKAGE_ROOT, ".loopo", "docs"))) {
-    const location = `.loopo/docs/${relativeDoc}`;
+  for (const relativeDoc of collectYamlFiles(resolve(PACKAGE_ROOT, ".loopship", "docs"))) {
+    const location = `.loopship/docs/${relativeDoc}`;
     if (!canonicalDocLocations.has(location)) {
       errors.push(`canonical docs file has no root resource: ${location}`);
     }
@@ -701,7 +701,7 @@ function main(): number {
     }
     const docId = stringValue(doc.id);
     if (!docId) errors.push(`${path} document missing id`);
-    if (schemaRef === "loopo://schemas/system-pack.yaml") {
+    if (schemaRef === "loopship://schemas/system-pack.yaml") {
       addRecords(path, "object", arrayOfRecords(doc.objects), records, errors);
       addRecords(path, "assertion", arrayOfRecords(doc.assertions), records, errors);
       addRecords(path, "resource", arrayOfRecords(doc.resources), records, errors);
@@ -727,7 +727,7 @@ function main(): number {
       } else {
         const schemaPath = schemaPathForResource(schemaRef, records);
         if (!schemaPath) {
-          errors.push(`resource ${id} schema_ref must point to a loopo schema URI: ${schemaRef}`);
+          errors.push(`resource ${id} schema_ref must point to a loopship schema URI: ${schemaRef}`);
         } else if (!existsSync(resolve(PACKAGE_ROOT, schemaPath))) {
           errors.push(`resource ${id} unresolved schema_ref: ${schemaRef}`);
         }
@@ -770,12 +770,12 @@ function main(): number {
     }
   }
 
-  const docsDir = resolve(PACKAGE_ROOT, ".loopo", "docs");
+  const docsDir = resolve(PACKAGE_ROOT, ".loopship", "docs");
   if (existsSync(docsDir)) {
     for (const entry of readdirSync(docsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       if (!["software", "workflow", "agent", "decisions", "knowledge", "data", "model", "organization", "artifacts", "packs"].includes(entry.name)) {
-        errors.push(`unexpected durable docs directory: .loopo/docs/${entry.name}`);
+        errors.push(`unexpected durable docs directory: .loopship/docs/${entry.name}`);
       }
     }
   }

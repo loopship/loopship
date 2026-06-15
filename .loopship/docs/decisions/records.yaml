@@ -2,7 +2,7 @@ schema_version: 2
 id: decisions
 title: Decision Records
 text: |-
-  Architecture-significant decision records for Loopo system-model and lifecycle
+  Architecture-significant decision records for Loopship system-model and lifecycle
   architecture choices.
 links:
   about:
@@ -17,7 +17,7 @@ decisions:
     date: 2026-06-08
     title: Minimal universal system kernel
     context: |-
-      Loopo needs one minimal schema-backed root model that works for software, workflows,
+      Loopship needs one minimal schema-backed root model that works for software, workflows,
       agents, data, models, knowledge artifacts, organizations, and generated artifacts.
     drivers:
       - The durable root must support many system kinds without software-only assumptions or nested architecture taxonomy.
@@ -60,7 +60,7 @@ decisions:
     date: 2026-06-08
     title: YAML signature sidecar
     context: |-
-      Loopo needs tamper-evident canonical files without embedding digest state into the human
+      Loopship needs tamper-evident canonical files without embedding digest state into the human
       and LLM first-read semantic root.
     drivers:
       - The root should remain semantic and human-editable instead of carrying mechanical digest and receipt metadata.
@@ -68,7 +68,7 @@ decisions:
     options:
       embedded-digests:
         text: |-
-          Embed digest fields directly in .loopo/system.yaml and canonical resource records,
+          Embed digest fields directly in .loopship/system.yaml and canonical resource records,
           keeping semantic state and integrity state in one file.
         tradeoffs:
           - This keeps one required file but creates self-hash complexity and noisy root diffs whenever canonical data changes.
@@ -77,22 +77,22 @@ decisions:
           Use a JSON signature sidecar as the root integrity surface while keeping the semantic
           root in YAML.
         tradeoffs:
-          - This is mechanically fine but conflicts with the YAML-first durable knowledge model used for Loopo-readable system state.
+          - This is mechanically fine but conflicts with the YAML-first durable knowledge model used for Loopship-readable system state.
       yaml-signature:
         text: |-
-          Use .loopo/signature.yaml as a YAML signature manifest with canonical JSON hashing
+          Use .loopship/signature.yaml as a YAML signature manifest with canonical JSON hashing
           for deterministic byte-level verification.
         tradeoffs:
           - This keeps the mechanical audit data outside the root while preserving readable YAML and deterministic canonicalization.
     decision: |-
       Store root and canonical resource digests plus Ed25519 receipt data in
-      .loopo/signature.yaml.
+      .loopship/signature.yaml.
     rationale: |-
-      A YAML signature sidecar keeps .loopo/system.yaml semantic and readable while preserving
+      A YAML signature sidecar keeps .loopship/system.yaml semantic and readable while preserving
       deterministic audit metadata for canonical files.
     consequences:
-      - Loopo has two required durable root files, but only .loopo/system.yaml is semantic first-read context.
-      - Runtime must regenerate .loopo/signature.yaml after canonical root or document writes so signature coverage matches current durable state.
+      - Loopship has two required durable root files, but only .loopship/system.yaml is semantic first-read context.
+      - Runtime must regenerate .loopship/signature.yaml after canonical root or document writes so signature coverage matches current durable state.
       - Signature entries may include schema files even when they are not root resources, because schema integrity is part of the canonical verification surface.
     links:
       about:

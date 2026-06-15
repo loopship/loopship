@@ -1,6 +1,6 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/system-update-input.yaml
-title: Loopo V3 System Update Input
+title: Loopship V3 System Update Input
 type: object
 additionalProperties: false
 required:
@@ -10,4 +10,4 @@ properties:
   step:
     const: system_update
   system_update:
-    $ref: loopo://schemas/system-update.yaml
+    $ref: loopship://schemas/system-update.yaml
