@@ -6,8 +6,8 @@ import {
   LOOPSHIP_AFN_CALLS,
   LOOPSHIP_AFN_DESCRIPTORS,
   LOOPSHIP_CALL_CATALOG_ROOT,
-  buildLoopshipFastflowAuditRunRequest,
   buildLoopshipFastflowFlowWorkflow,
+  buildLoopshipFastflowSuperviseStepRunRequest,
   buildLoopshipFastflowStepWorkflows,
   createLoopshipFastflowAdapters,
 } from "./loopship_fastflow.ts";
@@ -191,17 +191,17 @@ describe("Loopship Fastflow-native bridge", () => {
     validateNativeWorkflows(workflows);
   });
 
-  test("validates the generated flow scaffold and audit run request", () => {
+  test("validates the generated flow scaffold and supervise-step run request", () => {
     validateNativeWorkflows({ swe: buildLoopshipFastflowFlowWorkflow("swe") });
     expect(
-      buildLoopshipFastflowAuditRunRequest({
+      buildLoopshipFastflowSuperviseStepRunRequest({
         workflowRef: "loopship.workflow.service.flows.swe",
         inputs: { request: "loopship: test" },
       }),
     ).toEqual({
       workflowRef: "loopship.workflow.service.flows.swe",
       inputs: { request: "loopship: test" },
-      supervisionMode: "audit",
+      superviseStep: true,
     });
   });
 

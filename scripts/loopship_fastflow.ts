@@ -383,14 +383,14 @@ export function buildLoopshipFastflowFlowWorkflow(
   };
 }
 
-export function buildLoopshipFastflowAuditRunRequest(input: {
+export function buildLoopshipFastflowSuperviseStepRunRequest(input: {
   workflowRef: string;
   inputs?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
     workflowRef: input.workflowRef,
     inputs: input.inputs || {},
-    supervisionMode: "audit",
+    superviseStep: true,
   };
 }
 
@@ -453,7 +453,7 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
     },
     async executeAfn({ action }: { action?: { call?: string } } = {}) {
       throw new Error(
-        `Loopship AFN '${action?.call || ""}' is registered but normal execution is not wired in this migration slice; run audit mode or the existing Loopship CLI.`,
+        `Loopship AFN '${action?.call || ""}' is registered but normal execution is not wired in this migration slice; use Fastflow supervise-step planning or the existing Loopship CLI.`,
       );
     },
     async auditAfn({
