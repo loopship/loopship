@@ -1,0 +1,27 @@
+schemaVersion: fastflow/call-catalog-manifest/v2
+pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml"
+prefixes:
+  loopship:
+    afn:
+      service:
+        child:
+          path: loopship/afn/service/child/index.yaml
+          tags:
+            - loopship
+            - child
+            - worktree
+            - quest
+        system:
+          path: loopship/afn/service/system/index.yaml
+          tags:
+            - loopship
+            - system
+            - docs
+            - signature
+        landing:
+          path: loopship/afn/service/landing/index.yaml
+          tags:
+            - loopship
+            - landing
+            - git
+            - merge

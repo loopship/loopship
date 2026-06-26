@@ -1,0 +1,49 @@
+schemaVersion: fastflow/call-catalog-scope/v1
+calls:
+  - call: loopship.afn.service.landing.apply
+    summary: Apply Loopship landing policy, merge results, and record landed state.
+    inputs:
+      required:
+        - repo
+        - wtree
+      optional:
+        - receipt
+        - summary
+        - target_branch
+        - dry_run
+      schema:
+        type: object
+        additionalProperties: true
+        required:
+          - repo
+          - wtree
+        properties:
+          repo:
+            type: string
+            minLength: 1
+          wtree:
+            type: string
+            minLength: 1
+          receipt:
+            type: object
+          summary:
+            type: string
+          target_branch:
+            type: string
+          dry_run:
+            type: boolean
+    tags:
+      - loopship
+      - landing
+      - git
+      - merge
+    preferWhen:
+      - "A Loopship workflow needs to apply landing policy and record landed state."
+    avoidWhen:
+      - "The workflow only needs to inspect validation, verification, or review output."
+    metadata:
+      allowed_phases:
+        - action
+      effects:
+        - git.merge
+        - quest.land

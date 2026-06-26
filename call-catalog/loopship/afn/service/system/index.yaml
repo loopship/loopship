@@ -1,0 +1,45 @@
+schemaVersion: fastflow/call-catalog-scope/v1
+calls:
+  - call: loopship.afn.service.system.apply
+    summary: Apply Loopship system document updates and refresh managed signatures.
+    inputs:
+      required:
+        - repo
+        - update
+      optional:
+        - actor
+        - reason
+        - dry_run
+      schema:
+        type: object
+        additionalProperties: true
+        required:
+          - repo
+          - update
+        properties:
+          repo:
+            type: string
+            minLength: 1
+          update:
+            type: object
+          actor:
+            type: string
+          reason:
+            type: string
+          dry_run:
+            type: boolean
+    tags:
+      - loopship
+      - system
+      - docs
+      - signature
+    preferWhen:
+      - "A Loopship workflow needs to apply schema-aware system document changes."
+    avoidWhen:
+      - "The workflow only needs to read or draft system document updates."
+    metadata:
+      allowed_phases:
+        - action
+      effects:
+        - file.write
+        - signature.write
