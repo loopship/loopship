@@ -2825,7 +2825,7 @@ export function runHook(argv: string[]): number {
     step: stageToV3Step(stage, loadStateFlow(activeQuest.state)),
     stop_reason: "budget_exhausted",
     summary:
-      "Continuation budget exhausted. Resume manually with loopship resume --wtree <name> --json @-.",
+      "Continuation budget exhausted. Continue manually with the latest emitted commands.next payload.",
   });
   if (budgetExhausted) chain.budget_prompted = true;
   else chain.continuation_count = budgetUsed + 1;

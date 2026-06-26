@@ -24,7 +24,7 @@ const CMDPROTO_HELP_COMMANDS = [
   },
   {
     path: "init",
-    summary: "Start or resume a Loopship quest from an objective.",
+    summary: "Start a Loopship quest from an objective.",
   },
 ] as const;
 const CMDPROTO_HELP_EXECJSON = {

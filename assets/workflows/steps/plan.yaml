@@ -257,9 +257,9 @@ do:
             8. Apply OF to collapse decisions into deterministic scope,
             constraints,
                acceptance, evidence, and task-sizing rationale.
-            9. Submit the schema-valid `plan` payload through
-               `loopship resume --wtree <name> --json @-`; the binary owns creation and
-               mutation of the active worktree's `.loopship/runtime/tasks.yaml`.
+            9. Submit the schema-valid `plan` payload through the emitted
+               `commands.next`; the binary owns creation and mutation of the
+               active worktree's `.loopship/runtime/tasks.yaml`.
 
             ## Plan Gate
 

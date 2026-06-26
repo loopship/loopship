@@ -163,6 +163,7 @@ describe("loopship v3 child wtree integration", () => {
         "  loopship hook --runtime <codex|gemini|copilot>",
       ]);
       expect(usage.stdout).not.toContain("loopship quest next --wtree <name>");
+      expect(usage.stdout).not.toContain("loopship resume ");
       expect(usage.stdout).toContain("loopship sim init");
       expect(usage.stdout).toContain("loopship sim step");
       expect(usage.stdout).toContain("loopship sim hook");

@@ -44,6 +44,13 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # ignored worktree-local loopship runtime
 /.loopship/runtime/
+/.loopship/.gitignore
+/.loopship/cache
+/.loopship/data/
+/.loopship/workflows/
+/.loopship/catalog.db
+/.loopship/catalog.db-shm
+/.loopship/catalog.db-wal
 
 # worktree-local agent state
 **/tmp/

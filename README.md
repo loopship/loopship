@@ -7,7 +7,6 @@ Publishable Loopship runtime package for deterministic V3 worktree-based quest w
 ```bash
 npx @omar391/loopship init "loopship: build the app" --runtime codex
 node index.ts init "loopship: build the app" --runtime codex --flow swe
-node index.ts resume --wtree build-the-app --json @request.json
 node index.ts hook --runtime codex
 node index.ts sim init "loopship: build me a python app" --runtime codex --flow swe
 node index.ts sim step --wtree build-me-a-python-app --json @request.json
@@ -29,16 +28,18 @@ workflows, the Loopship Fastflow consumer adapter, YAML/JSONL workflow-data
 operations, and `schemas/steps`.
 
 The reusable Fastflow consumer facade is exported at `@omar391/loopship/fastflow`.
-The legacy workflow-runner export is retained only for validation tooling and
-must not be used as the execution authority.
+The legacy workflow runner is validation tooling only and is not exported as a
+package API.
 
 `cmdproto` is wired in as a transparent command wrapper. `loopship cmdproto`
 mirrors the current public command paths through `cmdproto execjson <path> <payload>`,
 while still delegating to `loopship init`, `loopship hook`, `loopship doctor`,
 and `loopship handbook` command logic. Local simulation remains CLI-only via
 `loopship sim`.
-The V3 lifecycle state machine and JSON Schema payload contracts remain
-authoritative.
+The hidden `resume` command is an internal continuation bridge emitted by
+Loopship route and hook responses; it is not a public cmdproto or documented
+automation ABI. Fastflow-native generated workflows, the Loopship Fastflow
+consumer adapter, and JSON Schema payload contracts are the lifecycle contract.
 
 `loopship handbook` renders a standalone generated Markdown handbook from
 `.loopship/system.yaml` and canonical document resources. By default it writes to a

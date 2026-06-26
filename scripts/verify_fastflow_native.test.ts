@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  createQuest,
+  ensureCoordinatorWorkspace,
+  parseTasksYaml,
+  renderTasksYaml,
+  type QuestState,
+} from "./loopship_core.ts";
 import {
   LOOPSHIP_AFN_CALLS,
   LOOPSHIP_AFN_DESCRIPTORS,
@@ -14,6 +22,7 @@ import {
   buildLoopshipWorkflowDataTasks,
   createLoopshipFastflowAdapters,
 } from "./loopship_fastflow.ts";
+import { runCommand } from "./loopship_utils.ts";
 
 function parseCallId(call: string): {
   registry: string;
@@ -52,9 +61,18 @@ function runNodeCheck(source: string, args: string[] = []): string {
 }
 
 function fastflowImport(subpath: "root" | "workflow"): string {
+  const fastflowRoot = resolveFastflowRoot();
+  const sourcePath =
+    subpath === "root"
+      ? join(fastflowRoot, "src", "index.mjs")
+      : join(fastflowRoot, "src", "workflow.mjs");
+  return pathToFileURL(sourcePath).href;
+}
+
+function resolveFastflowRoot(): string {
   const installedRoot = join(process.cwd(), "node_modules", "@cueintent", "fastflow");
   if (existsSync(join(installedRoot, "package.json"))) {
-    return subpath === "root" ? "@cueintent/fastflow" : "@cueintent/fastflow/workflow";
+    return installedRoot;
   }
 
   const siblingRoots = [
@@ -67,11 +85,11 @@ function fastflowImport(subpath: "root" | "workflow"): string {
   if (!fastflowRoot) {
     throw new Error("could not resolve @cueintent/fastflow from node_modules or sibling repos");
   }
-  const sourcePath =
-    subpath === "root"
-      ? join(fastflowRoot, "src", "index.mjs")
-      : join(fastflowRoot, "src", "workflow.mjs");
-  return pathToFileURL(sourcePath).href;
+  return fastflowRoot;
+}
+
+function fastflowSourceImport(relativePath: string): string {
+  return pathToFileURL(join(resolveFastflowRoot(), relativePath)).href;
 }
 
 function validateNativeWorkflows(workflows: Record<string, unknown>): void {
@@ -115,6 +133,93 @@ function validateNativeWorkflows(workflows: Record<string, unknown>): void {
   }
 }
 
+function executeNativeWorkflow(
+  workflow: Record<string, unknown>,
+  inputs: Record<string, unknown>,
+): Record<string, any> {
+  const dir = mkdtempSync(join(process.cwd(), "tmp", "loopship-fastflow-exec-"));
+  const workflowFile = join(dir, "workflow.json");
+  const inputsFile = join(dir, "inputs.json");
+  writeFileSync(workflowFile, JSON.stringify(workflow), "utf8");
+  writeFileSync(inputsFile, JSON.stringify(inputs), "utf8");
+  try {
+    const output = runNodeCheck(
+      `
+        import { readFileSync } from "node:fs";
+        import { configureFastflowApp } from ${JSON.stringify(fastflowImport("root"))};
+        import {
+          normalizeSwfWorkflow,
+          validateFastflowSwfSubset,
+          validateFastflowWorkflowSchema,
+        } from ${JSON.stringify(fastflowImport("workflow"))};
+        import { markWorkflowRecordValidated } from ${JSON.stringify(fastflowSourceImport("src/lib/workflows.mjs"))};
+        import { executeWorkflow } from ${JSON.stringify(fastflowSourceImport("src/lib/engine.mjs"))};
+        import {
+          LOOPSHIP_CALL_CATALOG_ROOT,
+          createLoopshipFastflowAdapters,
+        } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "scripts", "loopship_fastflow.ts")).href)};
+
+        const workflow = JSON.parse(readFileSync(process.argv[2], "utf8"));
+        const inputs = JSON.parse(readFileSync(process.argv[3], "utf8"));
+        configureFastflowApp({
+          appName: "loopship",
+          systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT,
+          callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT],
+          adapters: createLoopshipFastflowAdapters(),
+        });
+        const recordSeed = {
+          filePath: "generated/loopship-native-test.yaml",
+          store: "project",
+        };
+        const errors = [];
+        validateFastflowWorkflowSchema(workflow, errors);
+        validateFastflowSwfSubset(workflow, recordSeed, errors);
+        if (errors.length) throw new Error(errors.join("; "));
+        const normalizeErrors = [];
+        const normalized = normalizeSwfWorkflow(workflow, recordSeed, normalizeErrors);
+        if (normalizeErrors.length) throw new Error(normalizeErrors.join("; "));
+        const record = markWorkflowRecordValidated({
+          ...recordSeed,
+          rawWorkflow: workflow,
+          reference: "loopship.workflow.service.steps.test",
+          workflow_call_id: "loopship.workflow.service.steps.test",
+          summary: {
+            id: "loopship.workflow.service.steps.test",
+            name: normalized.name,
+            namespace: normalized.namespace,
+            version: normalized.version,
+            dsl: normalized.dsl,
+            filePath: recordSeed.filePath,
+            store: recordSeed.store,
+            reference: "loopship.workflow.service.steps.test",
+            digest: "sha256:test",
+            target: normalized.target,
+          },
+          workflow: normalized,
+        });
+        const runtime = {
+          target: normalized.target,
+          currentMode: "headed",
+          preferredMode: "headed",
+          async close() {},
+        };
+        const result = await executeWorkflow(runtime, record, inputs, {
+          workspaceRoot: process.cwd(),
+        });
+        console.log(JSON.stringify({
+          output: result.output,
+          state: result.state,
+          status: result.status,
+        }));
+      `,
+      [workflowFile, inputsFile],
+    );
+    return JSON.parse(output);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function walk(value: unknown, visit: (value: unknown) => void): void {
   visit(value);
   if (Array.isArray(value)) {
@@ -126,6 +231,37 @@ function walk(value: unknown, visit: (value: unknown) => void): void {
       walk(item, visit);
     }
   }
+}
+
+function runGit(cwd: string, args: string[]): string {
+  const proc = runCommand("git", args, { cwd, timeoutMs: 30_000 });
+  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+  return proc.stdout.trim();
+}
+
+function createGitFixture(prefix: string): { root: string; repo: string } {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const repo = join(root, "repo");
+  const init = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
+  expect(init.status, init.stderr || init.stdout).toBe(0);
+  runGit(repo, ["config", "user.email", "loopship-test@example.invalid"]);
+  runGit(repo, ["config", "user.name", "Loopship Fastflow Test"]);
+  writeFileSync(join(repo, "README.md"), "# loopship fastflow\n", "utf8");
+  runGit(repo, ["add", "README.md"]);
+  runGit(repo, ["commit", "-m", "fixture"]);
+  return { root, repo };
+}
+
+function createNativeQuest(repo: string, wtree = "demo") {
+  const workspace = ensureCoordinatorWorkspace(repo, wtree);
+  return createQuest({
+    repoRoot: repo,
+    wtree,
+    prompt: "loopship: native landing",
+    resolutionSource: "test",
+    workspace,
+    flowId: "swe",
+  });
 }
 
 describe("Loopship Fastflow-native bridge", () => {
@@ -190,7 +326,7 @@ describe("Loopship Fastflow-native bridge", () => {
       schema_version: "loopship.child.prepare/v1",
       parent_wtree: "demo",
       commands: {
-        resume: { cmd: "loopship" },
+        next: { cmd: "loopship" },
       },
     });
   });
@@ -228,10 +364,18 @@ describe("Loopship Fastflow-native bridge", () => {
         }
       });
     }
+    const landingStep = workflows.landing as Record<string, any>;
+    const landingBody = landingStep.do[0].landing.with.body;
+    expect(landingBody.receipt).toBeUndefined();
+    expect(landingBody.status).toBe("${inputs.status || 'landed'}");
+    const systemStep = workflows.system_update as Record<string, any>;
+    expect(systemStep.do[0].system_update.with.body.update).toBe(
+      "${inputs.system_update || inputs.update || inputs}",
+    );
     validateNativeWorkflows(workflows);
   });
 
-  test("validates the generated flow scaffold and supervise-step run request", () => {
+  test("validates the generated flow runtime snapshot and supervise-step run request", () => {
     const workflow = buildLoopshipFastflowFlowWorkflow("swe");
     validateNativeWorkflows({ swe: workflow });
     const calls = new Set<string>();
@@ -280,6 +424,219 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       }),
     ).toThrow("does not allow body.unexpected");
+  });
+
+  test("rejects unknown nested Loopship AFN payload fields before promotion", () => {
+    const adapters = createLoopshipFastflowAdapters();
+    expect(() =>
+      (adapters.validateCallInvocation as Function)({
+        call: LOOPSHIP_AFN_CALLS.childPrepare,
+        phase: "action",
+        with: {
+          body: {
+            repo: "/tmp/repo",
+            wtree: "demo",
+            task: {
+              id: "task-a",
+              title: "Task A",
+              acceptance: "done",
+              shell: "rm -rf /",
+            },
+          },
+        },
+      }),
+    ).toThrow("body.task.shell is not allowed");
+    expect(() =>
+      (adapters.validateCallInvocation as Function)({
+        call: LOOPSHIP_AFN_CALLS.systemApply,
+        phase: "action",
+        with: {
+          body: {
+            repo: "/tmp/repo",
+            update: {
+              schema_version: 1,
+              mode: "replace",
+              summary: "update",
+              unexpected: true,
+            },
+          },
+        },
+      }),
+    ).toThrow("body.update.unexpected is not allowed");
+    expect(() =>
+      (adapters.validateCallInvocation as Function)({
+        call: LOOPSHIP_AFN_CALLS.landingApply,
+        phase: "action",
+        with: {
+          body: {
+            repo: "/tmp/repo",
+            wtree: "demo",
+            receipt: {
+              landed_commit: "abc",
+              unsafe: true,
+            },
+          },
+        },
+      }),
+    ).toThrow("body.receipt.unsafe is not allowed");
+  });
+
+  test("landing.apply preserves landing preflights and verifies recorded receipts", async () => {
+    const fixture = createGitFixture("loopship-native-landing-preflight-");
+    try {
+      const adapters = createLoopshipFastflowAdapters();
+      const { files, state } = createNativeQuest(fixture.repo, "demo");
+      writeFileSync(
+        files.tasks,
+        renderTasksYaml({
+          ...(state as QuestState),
+          tasks: [
+            {
+              id: "task-a",
+              title: "Task A",
+              acceptance: "done",
+              status: "child_archived",
+              dependencies: [],
+              scope_files: [],
+            },
+          ],
+        }),
+      );
+      await expect(
+        (adapters.executeAfn as Function)({
+          action: {
+            call: LOOPSHIP_AFN_CALLS.landingApply,
+            with: {
+              body: {
+                repo: fixture.repo,
+                wtree: "demo",
+              },
+            },
+          },
+        }),
+      ).rejects.toThrow("missing merge_commit");
+
+      writeFileSync(files.tasks, renderTasksYaml(state));
+      await expect(
+        (adapters.executeAfn as Function)({
+          action: {
+            call: LOOPSHIP_AFN_CALLS.landingApply,
+            with: {
+              body: {
+                repo: fixture.repo,
+                wtree: "demo",
+                receipt: {
+                  landed_commit: "not-a-commit",
+                },
+              },
+            },
+          },
+        }),
+      ).rejects.toThrow("Needed a single revision");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("landing.apply performs a real safe merge and archives canonical state", async () => {
+    const fixture = createGitFixture("loopship-native-landing-merge-");
+    try {
+      const adapters = createLoopshipFastflowAdapters();
+      const { files, state } = createNativeQuest(fixture.repo, "demo");
+      const coordinatorWorktree = String(state.coordinator_worktree);
+      writeFileSync(join(coordinatorWorktree, "FEATURE.md"), "# feature\n", "utf8");
+      runGit(coordinatorWorktree, ["add", "FEATURE.md"]);
+      runGit(coordinatorWorktree, ["commit", "-m", "feature"]);
+
+      const result = await (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingApply,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "demo",
+            },
+          },
+        },
+      });
+      expect(result).toMatchObject({
+        schema_version: "loopship.landing.apply/v1",
+        dry_run: false,
+        source_branch: "demo",
+        target_branch: "main",
+      });
+      expect(String(result.landed_commit)).toMatch(/^[0-9a-f]{40}$/);
+      expect(readFileSync(join(fixture.repo, "FEATURE.md"), "utf8")).toContain("feature");
+      const landedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
+      expect(landedState.stage).toBe("archived");
+      expect(landedState.landed_commit).toBe(result.landed_commit);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("generated landing workflow executes through Fastflow and archives state", async () => {
+    const fixture = createGitFixture("loopship-native-fastflow-landing-");
+    try {
+      const { files, state } = createNativeQuest(fixture.repo, "demo");
+      const coordinatorWorktree = String(state.coordinator_worktree);
+      writeFileSync(join(coordinatorWorktree, "FASTFLOW.md"), "# fastflow\n", "utf8");
+      runGit(coordinatorWorktree, ["add", "FASTFLOW.md"]);
+      runGit(coordinatorWorktree, ["commit", "-m", "fastflow native landing"]);
+
+      const workflows = buildLoopshipFastflowStepWorkflows();
+      const result = await executeNativeWorkflow(workflows.landing as Record<string, unknown>, {
+        step: "landing",
+        status: "landed",
+        summary: "landed through Fastflow",
+        repo: fixture.repo,
+        wtree: "demo",
+      });
+
+      expect(result.output).toMatchObject({
+        schema_version: "loopship.landing.apply/v1",
+        status: "landed",
+        target_branch: "main",
+      });
+      expect(readFileSync(join(fixture.repo, "FASTFLOW.md"), "utf8")).toContain("fastflow");
+      const landedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
+      expect(landedState.stage).toBe("archived");
+      expect(String(landedState.landed_commit || "")).toMatch(/^[0-9a-f]{40}$/);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("landing.apply preserves blocked landing without merging", async () => {
+    const fixture = createGitFixture("loopship-native-landing-blocked-");
+    try {
+      const adapters = createLoopshipFastflowAdapters();
+      const { files } = createNativeQuest(fixture.repo, "demo");
+      const result = await (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingApply,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "demo",
+              status: "blocked",
+              summary: "not ready",
+            },
+          },
+        },
+      });
+      expect(result).toMatchObject({
+        schema_version: "loopship.landing.apply/v1",
+        dry_run: false,
+        status: "blocked",
+      });
+      const blockedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
+      expect(blockedState.stage).toBe("landing_ready");
+      expect(String(blockedState.landed_commit || "")).toBe("");
+      expect(readFileSync(files.events, "utf8")).toContain("landing_submitted");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
   });
 
   test("builds canonical YAML and JSONL workflow-data tasks", () => {

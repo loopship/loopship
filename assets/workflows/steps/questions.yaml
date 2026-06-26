@@ -59,10 +59,8 @@ do:
             original question ids, carry forward any previously recorded
             explicit
 
-            defaults, and submit answers through `loopship resume --wtree
-            <name> --json
-
-            @-` with the `questions` step schema. Do not auto-answer unresolved
+            defaults, and submit answers through the emitted `commands.next`
+            with the `questions` step schema. Do not auto-answer unresolved
 
             questions; wait for human-provided answers before submitting this
             callback.

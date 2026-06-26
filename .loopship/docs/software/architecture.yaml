@@ -28,7 +28,7 @@ stakeholders:
       Human operators submit Loopship requests, answer clarifications, inspect compact JSON route
       outputs, run verification commands, and make high-risk decisions.
     concerns:
-      - Operators need a small public command surface based on loopship init, loopship resume, loopship hook, loopship sim, loopship doctor, loopship handbook, and loopship cmdproto execjson.
+      - Operators need a small public command surface based on loopship init, loopship hook, loopship sim, loopship doctor, loopship handbook, and loopship cmdproto execjson.
       - Operators need canonical task, event, signature, and system files to identify truth when agent narration and runtime state disagree.
   root-agent:
     role: root coordinator agent
@@ -47,7 +47,7 @@ stakeholders:
       - Child quests created from execute-child tasks are leaf workers by default and must not recursively create child quests unless explicitly planned.
 constraints:
   - The root semantic file contains objects, assertions, resources, and optional memories; relation semantics live in relation-keyed typed links rather than a relations block.
-  - After init, loopship resume --wtree <name> --json <json|@file|@-> is the only state-mutating quest command in the public contract.
+  - After init, state-mutating continuation is carried by the hidden command emitted in Loopship route or hook output; it is not a public cmdproto ABI.
   - Implementation work happens inside dedicated task worktrees while root sessions remain coordinator-only during child execution.
   - Agents must never edit .loopship/** directly; root and child state changes go through schema-valid quest payloads for the current step.
   - Shipped schemas use stable loopship://schemas/... identifiers for cross-schema refs while runtime may resolve them from local repository paths.
@@ -92,7 +92,7 @@ structure:
       and durable knowledge update boundary for worktree-based quest flows.
   containers:
     cli: |-
-      The CLI exposes init, resume, hook, sim, doctor, and cmdproto execjson surfaces for
+      The CLI exposes init, hook, sim, doctor, handbook, and cmdproto execjson surfaces for
       humans, agents, tests, and verification scripts.
     flow-and-schema-library: |-
       Workflow definition YAML, reusable step workflow YAML, and the schema library define
@@ -109,12 +109,12 @@ structure:
       continuation decisions.
   components:
     cli-routing: |-
-      Init and resume routing rank quest candidates, propose worktree names, emit
+      Init and internal continuation routing rank quest candidates, propose worktree names, emit
       create-quest input, validate step payloads, mutate canonical quest state, and return the
       next compact JSON command.
     workflow-runner: |-
-      The workflow runner loads flow and step YAML, validates Serverless Workflow-shaped
-      records, and enforces step-local callback contracts.
+      The legacy workflow runner loads flow and step YAML for validation and migration
+      checks only; package consumers should use the Fastflow facade and CLI contracts.
     system-update: |-
       The system_update component validates replacement root data and external docs, writes
       canonical files, and refreshes root signature coverage.
@@ -130,14 +130,14 @@ structure:
       surface coherence, hook behavior, simulations, and durable system-model semantics.
   code_units:
     loopship-ts: |-
-      scripts/loopship.ts owns command parsing, init route output, resume execution, hook
-      handling, simulation entrypoints, doctor behavior, and CLI JSON writing.
+      scripts/loopship.ts owns command parsing, init route output, hidden continuation
+      bridging, hook handling, simulation entrypoints, doctor behavior, and CLI JSON writing.
     loopship-core: |-
       scripts/loopship_core.ts owns quest state IO, task normalization, system scaffold
       generation, signature writing, and system_update application logic.
     flow-runtime: |-
       scripts/loopship_flow.ts and scripts/loopship_workflow_runner.ts load flow definitions,
-      resolve step schemas, validate step workflow records, and compute flow transitions.
+      resolve step schemas, and validate step workflow records for migration tooling.
     system-verifier: |-
       scripts/verify_system_model.ts validates root semantics, concrete document schemas,
       typed links, global record ids, signature coverage, and anti-shell rules.
@@ -207,8 +207,8 @@ interfaces:
   quest-commands:
     kind: cli
     text: |-
-      loopship init starts a quest and returns route output, while loopship resume --wtree
-      <name> --json <json|@file|@-> is the only state-mutating quest command after init.
+      loopship init starts a quest and returns route output. After init, the route or hook
+      response emits the hidden continuation command that carries schema-backed step JSON.
       Public quest identity is wtree, the base worktree name.
   hook-command:
     kind: cli
@@ -472,11 +472,12 @@ examples:
       links:
         supported_by:
           - resource:software-architecture#/constraints
-  resume-command:
+  internal-continuation-command:
     language: bash
     text: |-
-      The public state-mutating continuation command after init uses wtree identity and
-      schema-backed JSON input.
+      Internal state-mutating continuation after init uses wtree identity and schema-backed
+      JSON input. It remains hidden from public cmdproto and normal help while the native
+      Fastflow execution path settles.
     source: |-
-      loopship resume --wtree build-the-app --json @request.json
+      loopship <hidden-continuation> --wtree build-the-app --json @request.json
       # request.json conforms to the current step input schema.

@@ -7,6 +7,7 @@ calls:
         - repo
         - wtree
       optional:
+        - status
         - receipt
         - summary
         - target_branch
@@ -27,8 +28,31 @@ calls:
           wtree:
             type: string
             minLength: 1
+          status:
+            enum:
+              - landed
+              - blocked
           receipt:
             type: object
+            additionalProperties: false
+            required:
+              - landed_commit
+            properties:
+              source_branch:
+                type: string
+              target_branch:
+                type: string
+              target_worktree:
+                type: string
+              landed_commit:
+                type: string
+                minLength: 1
+              strategy:
+                enum:
+                  - already-up-to-date
+                  - fast-forward
+                  - merge-commit
+                  - recorded
           summary:
             type: string
           target_branch:

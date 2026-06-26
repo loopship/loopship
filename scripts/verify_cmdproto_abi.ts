@@ -116,6 +116,12 @@ function prepareExistingGitRepoFixture(
 
 function main(): number {
   const protoText = readFileSync(join(ROOT, "proto", "loopship", "v1", "loopship.proto"), "utf8");
+  const packageJson = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+    exports?: Record<string, unknown>;
+  };
+  if (packageJson.exports?.["./workflow-runner"]) {
+    fail("package exports must not expose the legacy workflow runner");
+  }
   for (const removed of [
     "rpc QuestNext",
     "rpc SimInit",

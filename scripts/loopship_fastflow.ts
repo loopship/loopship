@@ -7,6 +7,7 @@ import {
   applySystemUpdate,
   appendJsonl,
   ensureTaskWorkspace,
+  landingTargetWorktreePath,
   parseTasksYaml,
   questFiles,
   taskAssignmentBranchRef,
@@ -31,6 +32,98 @@ const PACKAGE_JSON = JSON.parse(
   readFileSync(resolve(LOOPSHIP_ROOT, "package.json"), "utf8"),
 ) as { name?: string; version?: string };
 const LOOPSHIP_RUNTIME_NAMESPACE = ".loopship/runtime";
+
+const TASK_PAYLOAD_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: "string" },
+    task_id: { type: "string" },
+    title: { type: "string" },
+    name: { type: "string" },
+    type: { enum: ["coding", "general"] },
+    status: { type: "string" },
+    dependencies: { type: "array", items: { type: "string" } },
+    depends_on: { type: "array", items: { type: "string" } },
+    scope_files: { type: "array", items: { type: "string" } },
+    scope: { type: "array", items: { type: "string" } },
+    spec_refs: { type: "array", items: { type: "string" } },
+    specs: { type: "array", items: { type: "string" } },
+    context_refs: { type: "array", items: { type: "string" } },
+    context: { type: "array", items: { type: "string" } },
+    branch_ref: { type: "string" },
+    worktree_path: { type: "string" },
+    child_wtree: { type: "string" },
+    concurrency_group: { type: "string" },
+    merge_target: { type: "string" },
+    merge_lease_id: { type: "string" },
+    merge_commit: { type: "string" },
+    system_impact_ref: { type: "string" },
+    acceptance: {
+      oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+    },
+    acceptance_criteria: {
+      oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+    },
+  },
+} as const;
+
+const PARENT_PAYLOAD_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    task_id: { type: "string" },
+    parent_wtree: { type: "string" },
+    parent_context_ref: { type: "string" },
+    landing_target_branch: { type: "string" },
+    landing_target_worktree: { type: "string" },
+    merge_lease_id: { type: "string" },
+  },
+} as const;
+
+const SYSTEM_UPDATE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["schema_version", "mode", "summary"],
+  properties: {
+    schema_version: { const: 1 },
+    mode: { enum: ["no_change", "replace"] },
+    summary: { type: "string", minLength: 1 },
+    root: { type: "object", additionalProperties: true },
+    external_docs: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["op", "resource_ref"],
+        properties: {
+          op: { enum: ["upsert", "delete"] },
+          resource_ref: { type: "string", minLength: 1 },
+          document: { type: "object", additionalProperties: true },
+        },
+      },
+    },
+  },
+} as const;
+
+const LANDING_RECEIPT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["landed_commit"],
+  properties: {
+    source_branch: { type: "string" },
+    target_branch: { type: "string" },
+    target_worktree: { type: "string" },
+    landed_commit: { type: "string", minLength: 1 },
+    strategy: {
+      enum: ["already-up-to-date", "fast-forward", "merge-commit", "recorded"],
+    },
+  },
+} as const;
+
+const LANDING_STATUS_SCHEMA = {
+  enum: ["landed", "blocked"],
+} as const;
 
 export const LOOPSHIP_AFN_CALLS = Object.freeze({
   childPrepare: "loopship.afn.service.child.prepare",
@@ -59,6 +152,9 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
         "runtime",
         "branch",
         "base_branch",
+        "child_wtree",
+        "worktree_path",
+        "dry_run",
       ],
       schema: {
         type: "object",
@@ -69,8 +165,8 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
           wtree: { type: "string", minLength: 1 },
           child_wtree: { type: "string" },
           task_id: { type: "string" },
-          task: { type: "object" },
-          parent: { type: "object" },
+          task: TASK_PAYLOAD_SCHEMA,
+          parent: PARENT_PAYLOAD_SCHEMA,
           runtime: { type: "string" },
           branch: { type: "string" },
           base_branch: { type: "string" },
@@ -99,7 +195,7 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
         required: ["repo", "update"],
         properties: {
           repo: { type: "string", minLength: 1 },
-          update: { type: "object" },
+          update: SYSTEM_UPDATE_SCHEMA,
           request_id: { type: "string" },
           actor: { type: "string" },
           reason: { type: "string" },
@@ -121,6 +217,7 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     inputs: {
       required: ["repo", "wtree"],
       optional: [
+        "status",
         "receipt",
         "summary",
         "target_branch",
@@ -136,7 +233,8 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
         properties: {
           repo: { type: "string", minLength: 1 },
           wtree: { type: "string", minLength: 1 },
-          receipt: { type: "object" },
+          status: LANDING_STATUS_SCHEMA,
+          receipt: LANDING_RECEIPT_SCHEMA,
           summary: { type: "string" },
           target_branch: { type: "string" },
           target_worktree: { type: "string" },
@@ -192,9 +290,100 @@ function schemaAllowsType(schema: Record<string, unknown>, value: unknown): bool
   const type = schema.type;
   const types = Array.isArray(type) ? type : [type];
   if (types.includes("object")) return isPlainObject(value);
+  if (types.includes("array")) return Array.isArray(value);
   if (types.includes("string")) return typeof value === "string";
   if (types.includes("boolean")) return typeof value === "boolean";
+  if (types.includes("number")) return typeof value === "number";
+  if (types.includes("integer")) return Number.isInteger(value);
   return true;
+}
+
+function isFastflowExpression(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value.trim().startsWith("${") &&
+    value.trim().endsWith("}")
+  );
+}
+
+function validateValueAgainstSchema(
+  schema: Record<string, unknown>,
+  value: unknown,
+  path: string,
+): void {
+  if (isFastflowExpression(value)) return;
+  if (Array.isArray(schema.oneOf)) {
+    const errors: string[] = [];
+    for (const option of schema.oneOf) {
+      if (!isPlainObject(option)) continue;
+      try {
+        validateValueAgainstSchema(option, value, path);
+        return;
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+    throw new Error(`${path} does not match any allowed shape: ${errors.join("; ")}`);
+  }
+  if ("const" in schema && value !== schema.const) {
+    throw new Error(`${path} must be ${JSON.stringify(schema.const)}.`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value as never)) {
+    throw new Error(`${path} must be one of ${schema.enum.map(String).join(", ")}.`);
+  }
+  if (!schemaAllowsType(schema, value)) {
+    throw new Error(`${path} has invalid type.`);
+  }
+  if (
+    schema.type === "string" &&
+    schema.minLength === 1 &&
+    typeof value === "string" &&
+    !value.trim()
+  ) {
+    throw new Error(`${path} must be non-empty.`);
+  }
+  if (Array.isArray(value) && isPlainObject(schema.items)) {
+    value.forEach((item, index) =>
+      validateValueAgainstSchema(schema.items as Record<string, unknown>, item, `${path}[${index}]`),
+    );
+  }
+  if (!isPlainObject(value)) return;
+  const properties = isPlainObject(schema.properties)
+    ? (schema.properties as Record<string, Record<string, unknown>>)
+    : {};
+  if (schema.additionalProperties === false) {
+    for (const field of Object.keys(value)) {
+      if (!(field in properties)) {
+        throw new Error(`${path}.${field} is not allowed.`);
+      }
+    }
+  }
+  const required = Array.isArray(schema.required) ? schema.required.map(String) : [];
+  for (const field of required) {
+    if (!(field in value)) throw new Error(`${path}.${field} is required.`);
+  }
+  for (const [field, nestedValue] of Object.entries(value)) {
+    const nestedSchema = properties[field];
+    if (nestedSchema) validateValueAgainstSchema(nestedSchema, nestedValue, `${path}.${field}`);
+  }
+  if (
+    schema === SYSTEM_UPDATE_SCHEMA &&
+    isPlainObject(value) &&
+    value.mode === "replace" &&
+    !isPlainObject(value.root)
+  ) {
+    throw new Error(`${path}.root is required when mode is replace.`);
+  }
+  if (
+    schema === SYSTEM_UPDATE_SCHEMA &&
+    Array.isArray(value.external_docs)
+  ) {
+    value.external_docs.forEach((entry, index) => {
+      if (isPlainObject(entry) && entry.op === "upsert" && !isPlainObject(entry.document)) {
+        throw new Error(`${path}.external_docs[${index}].document is required for upsert.`);
+      }
+    });
+  }
 }
 
 function validateBodyAgainstDescriptor(
@@ -220,17 +409,7 @@ function validateBodyAgainstDescriptor(
   for (const [field, value] of Object.entries(body)) {
     const fieldSchema = properties[field];
     if (!fieldSchema) continue;
-    if (!schemaAllowsType(fieldSchema, value)) {
-      throw new Error(`Loopship call '${descriptor.call}' body.${field} has invalid type.`);
-    }
-    if (
-      fieldSchema.type === "string" &&
-      fieldSchema.minLength === 1 &&
-      typeof value === "string" &&
-      !value.trim()
-    ) {
-      throw new Error(`Loopship call '${descriptor.call}' body.${field} must be non-empty.`);
-    }
+    validateValueAgainstSchema(fieldSchema, value, `body.${field}`);
   }
 }
 
@@ -412,7 +591,7 @@ function sideEffectTask(step: LoopshipStepDefinition): Record<string, unknown> {
       with: {
         body: {
           repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}",
-          update: "${inputs.update || inputs}",
+          update: "${inputs.system_update || inputs.update || inputs}",
           actor: "${inputs.actor || 'loopship'}",
         },
       },
@@ -426,8 +605,11 @@ function sideEffectTask(step: LoopshipStepDefinition): Record<string, unknown> {
         body: {
           repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}",
           wtree: "${inputs.wtree || inputs.quest?.wtree || ''}",
-          receipt: "${inputs.receipt || inputs}",
+          status: "${inputs.status || 'landed'}",
           summary: "${inputs.summary || ''}",
+          target_branch: "${inputs.target_branch || ''}",
+          target_worktree: "${inputs.target_worktree || ''}",
+          source_branch: "${inputs.source_branch || ''}",
         },
       },
     };
@@ -435,11 +617,60 @@ function sideEffectTask(step: LoopshipStepDefinition): Record<string, unknown> {
   return requestInputTask(step);
 }
 
+function sideEffectOutputSchema(step: LoopshipStepDefinition): Record<string, unknown> | null {
+  if (!["executing", "system_update", "landing"].includes(step.id)) return null;
+  return {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      schema_version: { type: "string" },
+    },
+  };
+}
+
+function sideEffectInputSchemaSource(step: LoopshipStepDefinition): unknown {
+  if (["system_update", "landing"].includes(step.id)) return step.output_schema;
+  return step.input_schema;
+}
+
+function augmentSideEffectInputSchema(
+  step: LoopshipStepDefinition,
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!["executing", "system_update", "landing"].includes(step.id)) return schema;
+  const properties = isPlainObject(schema.properties)
+    ? { ...(schema.properties as Record<string, unknown>) }
+    : {};
+  return {
+    ...schema,
+    additionalProperties: false,
+    properties: {
+      ...properties,
+      repo: { type: "string" },
+      repoRoot: { type: "string" },
+      wtree: { type: "string" },
+      quest: { type: "object", additionalProperties: true },
+      runtime: { type: "string" },
+      actor: { type: "string" },
+      target_branch: { type: "string" },
+      target_worktree: { type: "string" },
+      source_branch: { type: "string" },
+      receipt: LANDING_RECEIPT_SCHEMA,
+      task: TASK_PAYLOAD_SCHEMA,
+      update: SYSTEM_UPDATE_SCHEMA,
+    },
+  };
+}
+
 export function buildLoopshipFastflowStepWorkflow(
   step: LoopshipStepDefinition,
 ): FastflowRecord {
-  const inputSchema = asObjectSchema(dereferencedSchemaSource(step.input_schema));
-  const outputSchema = asObjectSchema(dereferencedSchemaSource(step.output_schema));
+  const inputSchema = augmentSideEffectInputSchema(
+    step,
+    asObjectSchema(dereferencedSchemaSource(sideEffectInputSchemaSource(step))),
+  );
+  const outputSchema =
+    sideEffectOutputSchema(step) || asObjectSchema(dereferencedSchemaSource(step.output_schema));
   return {
     document: {
       dsl: "1.0.3",
@@ -506,7 +737,7 @@ export function buildLoopshipFastflowFlowWorkflow(
       namespace: "loopship-flows",
       name: flow.id.replace(/_/g, "-"),
       version: "0.1.0",
-      summary: `Loopship ${flow.id} flow scaffold generated for Fastflow-native execution.`,
+      summary: `Loopship ${flow.id} flow runtime snapshot for Fastflow-native supervision.`,
       metadata: {
         catalog: {
           tags: ["loopship", "flow", flow.id],
@@ -532,7 +763,7 @@ export function buildLoopshipFastflowFlowWorkflow(
         describe_flow: {
           metadata: commonTaskMetadata("Expose the Loopship flow graph and runtime data as Fastflow-native data."),
           set: {
-            schema_version: "loopship.flow-scaffold/v1",
+            schema_version: "loopship.flow-runtime-snapshot/v1",
             flow_id: flow.id,
             default_stage: flow.default_stage,
             stages: flow.stages,
@@ -579,6 +810,13 @@ function command(cmd: string, args: string[]): Record<string, unknown> {
   return { cmd, args };
 }
 
+const CHILD_DONE_STATUSES = new Set([
+  "child_merged",
+  "child_archived",
+  "done",
+  "merged",
+]);
+
 function executeChildPrepare(body: Record<string, unknown>): Record<string, unknown> {
   const repo = requireString(body.repo, "repo");
   const parentWtree = requireString(body.wtree, "wtree");
@@ -623,7 +861,7 @@ function executeChildPrepare(body: Record<string, unknown>): Record<string, unkn
         "--runtime",
         runtime,
       ]),
-      resume: command("loopship", ["resume", "--wtree", childWtree, "--json", "@-"]),
+      next: command("loopship", ["resume", "--wtree", childWtree, "--json", "@-"]),
     },
   };
 }
@@ -669,6 +907,139 @@ function gitCurrentBranch(cwd: string): string | null {
   return proc.stdout.trim() || null;
 }
 
+function gitWorktreeDirtyEntries(path: string): string[] {
+  const cwd = path.trim();
+  if (!cwd || !existsSync(cwd)) return [];
+  const probe = runCommand("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  if (probe.status !== 0) return [];
+  const status = runCommand(
+    "git",
+    ["status", "--short", "--untracked-files=all"],
+    {
+      cwd,
+      timeoutMs: 15_000,
+    },
+  );
+  if (status.status !== 0) return [];
+  return status.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function dirtyEntryPath(entry: string): string {
+  return entry.replace(/^[A-Z?!]{1,2}\s+/, "").trim();
+}
+
+function isIgnorableOperationalDirtyPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  return (
+    normalized === ".codex/hooks.json" ||
+    normalized === ".gemini/settings.json" ||
+    normalized === ".github/hooks/loopship.json" ||
+    normalized === ".github/hooks" ||
+    normalized === ".loopship/runtime/hook-state.json" ||
+    normalized === ".loopship/runtime/lock.json" ||
+    normalized.startsWith("worktrees/")
+  );
+}
+
+function isDurableLoopshipDirtyPath(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(".loopship/");
+}
+
+function nonLoopshipGitDirtyEntries(path: string): string[] {
+  return gitWorktreeDirtyEntries(path).filter((entry) => {
+    const dirtyPath = dirtyEntryPath(entry);
+    return (
+      !isIgnorableOperationalDirtyPath(dirtyPath) &&
+      !isDurableLoopshipDirtyPath(dirtyPath)
+    );
+  });
+}
+
+function commitDurableLoopshipState(cwd: string, message: string): string | null {
+  if (!existsSync(resolve(cwd, ".loopship"))) return null;
+  const add = runCommand("git", ["add", "--", ".loopship"], {
+    cwd,
+    timeoutMs: 30_000,
+  });
+  if (add.status !== 0) {
+    throw new Error(add.stderr || add.stdout || "failed to stage .loopship state");
+  }
+  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ".loopship"], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  if (diff.status === 0) return null;
+  if (diff.status !== 1) {
+    throw new Error(diff.stderr || diff.stdout || "failed to inspect staged .loopship state");
+  }
+  const commit = runCommand("git", ["commit", "-m", message], {
+    cwd,
+    timeoutMs: 60_000,
+  });
+  if (commit.status !== 0) {
+    throw new Error(commit.stderr || commit.stdout || "failed to commit .loopship state");
+  }
+  return gitRevParse(cwd, "HEAD");
+}
+
+function gitIsAncestor(cwd: string, ancestor: string, descendant: string): boolean {
+  const proc = runCommand("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  return proc.status === 0;
+}
+
+function assertNoTrackedWorktreePaths(repo: string): void {
+  const trackedWorktreePaths = runCommand(
+    "git",
+    ["ls-files", "--", "worktrees"],
+    { cwd: repo, timeoutMs: 15_000 },
+  );
+  if (trackedWorktreePaths.status !== 0) return;
+  const leakedPaths = trackedWorktreePaths.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (leakedPaths.length) {
+    throw new Error(
+      `cannot land while tracked files remain under worktrees/: ${leakedPaths.slice(0, 5).join(", ")}`,
+    );
+  }
+}
+
+function assertLandingPreflight(input: {
+  repo: string;
+  state: Record<string, unknown>;
+}): void {
+  const tasks = Array.isArray(input.state.tasks) ? input.state.tasks : [];
+  const unmerged = tasks.filter(
+    (task) =>
+      isPlainObject(task) &&
+      CHILD_DONE_STATUSES.has(String(task.status ?? "")) &&
+      !String(task.merge_commit ?? "").trim(),
+  );
+  if (unmerged.length) {
+    throw new Error(
+      `cannot land while child tasks are missing merge_commit: ${unmerged.map((task) => String((task as Record<string, unknown>).id ?? "")).join(", ")}`,
+    );
+  }
+  const coordinatorWorktree = String(input.state.coordinator_worktree ?? "");
+  const dirtyCoordinatorEntries = nonLoopshipGitDirtyEntries(coordinatorWorktree);
+  if (dirtyCoordinatorEntries.length) {
+    throw new Error(
+      `cannot land while coordinator worktree has uncommitted changes: ${dirtyCoordinatorEntries.slice(0, 5).join(", ")}`,
+    );
+  }
+  assertNoTrackedWorktreePaths(input.repo);
+}
+
 function gitMergeIntoTarget(input: {
   repo: string;
   sourceBranch: string;
@@ -686,7 +1057,32 @@ function gitMergeIntoTarget(input: {
       `landing target worktree ${workspace.worktree_path} is on ${currentBranch || "unknown"} instead of ${input.targetBranch}`,
     );
   }
-  const merge = runCommand("git", ["merge", "--no-ff", "--no-edit", input.sourceBranch], {
+  const dirtyTargetNonLoopshipEntries = nonLoopshipGitDirtyEntries(workspace.worktree_path);
+  if (dirtyTargetNonLoopshipEntries.length) {
+    throw new Error(
+      `cannot merge into dirty landing target worktree ${workspace.worktree_path}: ${dirtyTargetNonLoopshipEntries.slice(0, 5).join(", ")}`,
+    );
+  }
+  commitDurableLoopshipState(
+    workspace.worktree_path,
+    `chore(loopship): record ${input.targetBranch} target state`,
+  );
+  const sourceCommit = gitRevParse(input.repo, input.sourceBranch);
+  const targetCommit = gitRevParse(input.repo, input.targetBranch);
+  if (sourceCommit === targetCommit) {
+    return {
+      source_branch: input.sourceBranch,
+      target_branch: input.targetBranch,
+      target_worktree: workspace.worktree_path,
+      landed_commit: sourceCommit,
+      strategy: "already-up-to-date",
+    };
+  }
+  const ffOnly = gitIsAncestor(input.repo, targetCommit, sourceCommit);
+  const mergeArgs = ffOnly
+    ? ["merge", "--ff-only", input.sourceBranch]
+    : ["merge", "--no-ff", "--no-edit", input.sourceBranch];
+  const merge = runCommand("git", mergeArgs, {
     cwd: workspace.worktree_path,
     timeoutMs: 60_000,
   });
@@ -697,12 +1093,63 @@ function gitMergeIntoTarget(input: {
         `failed to merge ${input.sourceBranch} into ${input.targetBranch}`,
     );
   }
+  const dirtyAfterMerge = nonLoopshipGitDirtyEntries(workspace.worktree_path);
+  if (dirtyAfterMerge.length) {
+    throw new Error(
+      `landing target worktree ${workspace.worktree_path} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
+    );
+  }
   return {
     source_branch: input.sourceBranch,
     target_branch: input.targetBranch,
     target_worktree: workspace.worktree_path,
     landed_commit: gitRevParse(workspace.worktree_path, "HEAD"),
-    strategy: "merge-commit",
+    strategy: ffOnly ? "fast-forward" : "merge-commit",
+  };
+}
+
+function verifiedRecordedReceipt(input: {
+  repo: string;
+  sourceBranch: string;
+  targetBranch: string;
+  targetWorktree: string;
+  receipt: Record<string, unknown>;
+}): Record<string, unknown> {
+  const landedCommit = requireString(input.receipt.landed_commit, "receipt.landed_commit");
+  const targetBranch = optionalString(input.receipt.target_branch) || input.targetBranch;
+  const sourceBranch = optionalString(input.receipt.source_branch) || input.sourceBranch;
+  const targetWorktree = optionalString(input.receipt.target_worktree) || input.targetWorktree;
+  gitRevParse(input.repo, landedCommit);
+  if (sourceBranch) {
+    const sourceCommit = gitRevParse(input.repo, sourceBranch);
+    if (!gitIsAncestor(input.repo, sourceCommit, landedCommit)) {
+      throw new Error(
+        `landing receipt commit ${landedCommit} does not contain source branch ${sourceBranch}`,
+      );
+    }
+  }
+  if (targetBranch) {
+    gitRevParse(input.repo, targetBranch);
+    if (!gitIsAncestor(input.repo, landedCommit, targetBranch)) {
+      throw new Error(
+        `landing receipt commit ${landedCommit} is not present in target branch ${targetBranch}`,
+      );
+    }
+  }
+  if (targetWorktree && existsSync(targetWorktree)) {
+    const dirtyTargetEntries = nonLoopshipGitDirtyEntries(targetWorktree);
+    if (dirtyTargetEntries.length) {
+      throw new Error(
+        `cannot record landing receipt for dirty target worktree ${targetWorktree}: ${dirtyTargetEntries.slice(0, 5).join(", ")}`,
+      );
+    }
+  }
+  return {
+    source_branch: sourceBranch,
+    target_branch: targetBranch,
+    target_worktree: targetWorktree,
+    landed_commit: landedCommit,
+    strategy: optionalString(input.receipt.strategy) || "recorded",
   };
 }
 
@@ -714,31 +1161,60 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
     throw new Error(`missing Loopship quest state for ${wtree}`);
   }
   const requestId = optionalString(body.request_id) || `fastflow-landing-${Date.now().toString(36)}`;
-  const state = parseTasksYaml(readText(files.tasks));
+  const state = parseTasksYaml(readText(files.tasks)) as Record<string, unknown>;
   const sourceBranch = optionalString(body.source_branch) || String(state.coordinator_branch || "");
   const targetBranch =
     optionalString(body.target_branch) || String(state.landing_target_branch || "main");
   const targetWorktree =
     optionalString(body.target_worktree) ||
-    String(state.landing_target_worktree || `${repo}/worktrees/${targetBranch}`);
+    String(state.landing_target_worktree || landingTargetWorktreePath(repo, targetBranch));
   const receipt = isPlainObject(body.receipt) ? body.receipt : {};
+  const status = optionalString(body.status) || "landed";
+  if (!["landed", "blocked"].includes(status)) {
+    throw new Error("landing.apply status must be landed or blocked");
+  }
   if (body.dry_run === true) {
     return {
       schema_version: "loopship.landing.apply/v1",
       dry_run: true,
+      status,
       source_branch: sourceBranch,
       target_branch: targetBranch,
       target_worktree: targetWorktree,
     };
   }
+  if (status === "blocked") {
+    appendJsonl(files.events, {
+      event: "landing_submitted",
+      quest_id: files.wtree,
+      stage: "landing_ready",
+      request_id: requestId,
+      payload: { status, summary: optionalString(body.summary) },
+    });
+    updateQuestStage(files, "landing_ready", requestId, "loopship fastflow afn landing.apply");
+    writeQuestManifest(files, requestId, "loopship fastflow afn landing.apply");
+    return {
+      schema_version: "loopship.landing.apply/v1",
+      dry_run: false,
+      status,
+      source_branch: sourceBranch,
+      target_branch: targetBranch,
+      target_worktree: targetWorktree,
+      summary: optionalString(body.summary),
+    };
+  }
+  assertLandingPreflight({ repo, state });
+  if (!sourceBranch) {
+    throw new Error("landing.apply requires source_branch or state.coordinator_branch");
+  }
   const landingReceipt = optionalString(receipt.landed_commit)
-    ? {
-        source_branch: sourceBranch,
-        target_branch: optionalString(receipt.target_branch) || targetBranch,
-        target_worktree: optionalString(receipt.target_worktree) || targetWorktree,
-        landed_commit: optionalString(receipt.landed_commit),
-        strategy: optionalString(receipt.strategy) || "recorded",
-      }
+    ? verifiedRecordedReceipt({
+        repo,
+        sourceBranch,
+        targetBranch,
+        targetWorktree,
+        receipt,
+      })
     : gitMergeIntoTarget({
         repo,
         sourceBranch,
@@ -763,6 +1239,7 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
   return {
     schema_version: "loopship.landing.apply/v1",
     dry_run: false,
+    status,
     ...landingReceipt,
   };
 }
