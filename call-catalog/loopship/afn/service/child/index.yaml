@@ -13,9 +13,12 @@ calls:
         - runtime
         - branch
         - base_branch
+        - child_wtree
+        - worktree_path
+        - dry_run
       schema:
         type: object
-        additionalProperties: true
+        additionalProperties: false
         required:
           - repo
           - wtree
@@ -26,6 +29,8 @@ calls:
           wtree:
             type: string
             minLength: 1
+          child_wtree:
+            type: string
           task_id:
             type: string
           task:
@@ -38,6 +43,10 @@ calls:
             type: string
           base_branch:
             type: string
+          worktree_path:
+            type: string
+          dry_run:
+            type: boolean
     tags:
       - loopship
       - child

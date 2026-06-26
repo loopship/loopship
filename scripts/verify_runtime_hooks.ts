@@ -58,10 +58,10 @@ function assertHookContinuation(
       : String(reason.step?.id ?? "");
   if (
     parsed.decision !== "block" ||
-    reason.command !== "quest.next" ||
+    reason.command !== "fastflow.resume" ||
     step !== "plan"
   ) {
-    fail(`${label} must wrap quest next output: ${hook.stdout}`);
+    fail(`${label} must wrap Fastflow resume output: ${hook.stdout}`);
   }
   return { parsed, reason };
 }
@@ -140,7 +140,7 @@ function main(): number {
     const wtree = String(parseJson(init.stdout).new_quest.suggested_wtree);
     const create = runLoopship(
       repo,
-      ["quest", "next", "--wtree", wtree, "--json", "@-"],
+      ["resume", "--wtree", wtree, "--json", "@-"],
       {
         step: "select_quest",
         action: "create_quest",
@@ -152,7 +152,7 @@ function main(): number {
     const otherWtree = "hook-check-other";
     const createOther = runLoopship(
       repo,
-      ["quest", "next", "--wtree", otherWtree, "--json", "@-"],
+      ["resume", "--wtree", otherWtree, "--json", "@-"],
       {
         step: "select_quest",
         action: "create_quest",
@@ -232,14 +232,14 @@ function main(): number {
       "docs" in reason ||
       "allowed_transitions" in reason
     ) {
-      fail(`hook quest next output must stay compact: ${hook.stdout}`);
+      fail(`hook resume output must stay compact: ${hook.stdout}`);
     }
     if (
       reason.step &&
       typeof reason.step === "object" &&
       "summary" in reason.step
     ) {
-      fail(`hook quest next step must omit summary: ${hook.stdout}`);
+      fail(`hook resume step must omit summary: ${hook.stdout}`);
     }
     if (
       !reason.output_schema ||
@@ -247,10 +247,10 @@ function main(): number {
       reason.output_schema.$id !==
         "schemas/steps/plan-input.yaml"
     ) {
-      fail(`hook quest next output must embed output schema: ${hook.stdout}`);
+      fail(`hook resume output must embed output schema: ${hook.stdout}`);
     }
     if ("input_schema" in reason) {
-      fail(`hook quest next output must use output_schema: ${hook.stdout}`);
+      fail(`hook resume output must use output_schema: ${hook.stdout}`);
     }
 
     const duplicate = runLoopship(repo, ["hook", "--runtime", "codex"], {

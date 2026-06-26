@@ -128,5 +128,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/child-result-input.yaml
-      call: loopship.internal.executing
+      call: loopship.afn.service.child.prepare
       with: {}

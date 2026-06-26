@@ -7,7 +7,6 @@ import {
   renderLoopshipHandbook,
   writeLoopshipHandbook,
 } from "./loopship_handbook.ts";
-import { runSimCli } from "./loopship_sim.ts";
 import { expandHome, readStdinText, readText } from "./loopship_utils.ts";
 
 const CMDPROTO_HELP_COMMANDS = [
@@ -26,22 +25,6 @@ const CMDPROTO_HELP_COMMANDS = [
   {
     path: "init",
     summary: "Start or resume a Loopship quest from an objective.",
-  },
-  {
-    path: "quest next",
-    summary: "Advance a quest with the next lifecycle payload.",
-  },
-  {
-    path: "sim hook",
-    summary: "Handle a simulated runtime hook event payload.",
-  },
-  {
-    path: "sim init",
-    summary: "Start a simulated Loopship quest from an objective.",
-  },
-  {
-    path: "sim quest next",
-    summary: "Advance a simulated quest with the next lifecycle payload.",
   },
 ] as const;
 const CMDPROTO_HELP_EXECJSON = {
@@ -308,22 +291,6 @@ async function invokeInit(params: Record<string, unknown>): Promise<CommandExecu
   return { statusCode: output.statusCode, stdout, stderr: output.stderr };
 }
 
-async function invokeQuestNext(
-  params: Record<string, unknown>,
-): Promise<CommandExecution> {
-  const { runQuestNextV3 } = await loadLoopshipCommands();
-  const args: string[] = [];
-  pushFlag(args, "--repo", params.repo);
-  pushFlag(args, "--wtree", params.wtree);
-  pushJsonArg(args, params.payload);
-  const output = withCapturedOutput(() => runQuestNextV3(args));
-  return {
-    statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopship quest next"),
-    stderr: output.stderr,
-  };
-}
-
 async function invokeHook(params: Record<string, unknown>): Promise<CommandExecution> {
   const { runHook } = await loadLoopshipCommands();
   const args: string[] = [];
@@ -396,56 +363,6 @@ async function invokeHandbook(
   };
 }
 
-async function invokeSimInit(params: Record<string, unknown>): Promise<CommandExecution> {
-  const args = ["init"];
-  const request = stringValue(params.request);
-  if (request) {
-    args.push(request);
-  }
-  pushFlag(args, "--repo", params.repo);
-  pushFlag(args, "--runtime", params.runtime);
-  pushFlag(args, "--flow", params.flow);
-  pushFlag(args, "--wtree", params.wtree);
-  const output = withCapturedOutput(() => runSimCli(args));
-  return {
-    statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopship sim init"),
-    stderr: output.stderr,
-  };
-}
-
-async function invokeSimQuestNext(
-  params: Record<string, unknown>,
-): Promise<CommandExecution> {
-  const args = ["quest", "next"];
-  pushFlag(args, "--repo", params.repo);
-  pushFlag(args, "--wtree", params.wtree);
-  if (params.full === true) {
-    args.push("--full");
-  }
-  pushJsonArg(args, params.payload);
-  const output = withCapturedOutput(() => runSimCli(args));
-  return {
-    statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopship sim quest next"),
-    stderr: output.stderr,
-  };
-}
-
-async function invokeSimHook(params: Record<string, unknown>): Promise<CommandExecution> {
-  const args = ["hook"];
-  pushFlag(args, "--runtime", params.runtime);
-  pushFlag(args, "--repo", params.repo);
-  pushFlag(args, "--wtree", params.wtree);
-  pushJsonArg(args, params.payload);
-  const output = withCapturedOutput(() => runSimCli(args));
-  return {
-    statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopship sim hook"),
-    stderr: output.stderr,
-  };
-}
-
 async function runExecJsonCommand(argv: string[]): Promise<CommandExecution> {
   const { pathTokens, payload } = parseExecJsonInvocation(argv);
   const path = pathTokens.join(" ");
@@ -453,10 +370,6 @@ async function runExecJsonCommand(argv: string[]): Promise<CommandExecution> {
   if (path === "doctor") return await invokeDoctor(payload);
   if (path === "handbook") return await invokeHandbook(payload);
   if (path === "hook") return await invokeHook(payload);
-  if (path === "quest next") return await invokeQuestNext(payload);
-  if (path === "sim hook") return await invokeSimHook(payload);
-  if (path === "sim init") return await invokeSimInit(payload);
-  if (path === "sim quest next") return await invokeSimQuestNext(payload);
   throw new Error(`Unknown command: ${path}`);
 }
 

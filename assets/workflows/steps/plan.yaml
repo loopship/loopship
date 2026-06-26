@@ -258,7 +258,7 @@ do:
             constraints,
                acceptance, evidence, and task-sizing rationale.
             9. Submit the schema-valid `plan` payload through
-               `loopship quest next --wtree <name> --json @-`; the binary owns creation and
+               `loopship resume --wtree <name> --json @-`; the binary owns creation and
                mutation of the active worktree's `.loopship/runtime/tasks.yaml`.
 
             ## Plan Gate
@@ -587,5 +587,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/plan-input.yaml
-      call: loopship.internal.plan
+      call: fastflow.afn.core.request.input
       with: {}

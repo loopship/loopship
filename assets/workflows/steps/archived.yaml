@@ -48,5 +48,5 @@ do:
 
             this step's `output_schema`.
           resultSchemaPath: schemas/steps/archive-output.yaml
-      call: loopship.internal.archived
+      call: fastflow.afn.core.request.input
       with: {}

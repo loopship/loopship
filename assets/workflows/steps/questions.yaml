@@ -59,7 +59,7 @@ do:
             original question ids, carry forward any previously recorded
             explicit
 
-            defaults, and submit answers through `loopship quest next --wtree
+            defaults, and submit answers through `loopship resume --wtree
             <name> --json
 
             @-` with the `questions` step schema. Do not auto-answer unresolved
@@ -72,5 +72,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/questions-input.yaml
-      call: loopship.internal.questions
+      call: fastflow.afn.core.request.input
       with: {}

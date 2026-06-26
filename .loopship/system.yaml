@@ -49,7 +49,7 @@ objects:
   - id: cli-interface
     kind: interface
     text: |-
-      Human and agent command surface for init, quest next, hook, sim, doctor, and cmdproto
+      Human and agent command surface for init, resume, hook, sim, doctor, and cmdproto
       execjson.
     links:
       part_of:

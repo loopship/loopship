@@ -217,8 +217,7 @@ function assertGuidedStep(
   const args = Array.isArray(command.args) ? command.args : [];
   const expected = [
     "sim",
-    "quest",
-    "next",
+    "step",
     "--wtree",
     String(step.wtree ?? ""),
     "--json",

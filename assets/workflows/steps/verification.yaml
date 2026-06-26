@@ -61,5 +61,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/verification-input.yaml
-      call: loopship.internal.verification
+      call: fastflow.afn.core.request.input
       with: {}

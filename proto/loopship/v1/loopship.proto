@@ -18,18 +18,6 @@ service LoopshipService {
     };
   }
 
-  rpc QuestNext(QuestNextRequest) returns (QuestNextResponse) {
-    option (cmdproto.v1.command) = {
-      path: "quest next"
-      summary: "Advance a quest with the next lifecycle payload."
-      example: {
-        command: "quest next --wtree build-the-app --repo . --json {\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}"
-        description: "Send the payload required by the current response's output_schema; the response returns the next step instructions, output_schema, and commands.next."
-        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\".\",\"payload\":{\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}}"
-      }
-    };
-  }
-
   rpc Hook(HookRequest) returns (HookResponse) {
     option (cmdproto.v1.command) = {
       path: "hook"
@@ -62,42 +50,6 @@ service LoopshipService {
         command: "handbook --repo ."
         description: "Generate handbook Markdown in a recoverable system temp path and return its file URL."
         request_json: "{\"repo\":\".\"}"
-      }
-    };
-  }
-
-  rpc SimInit(SimInitRequest) returns (SimInitResponse) {
-    option (cmdproto.v1.command) = {
-      path: "sim init"
-      summary: "Start a simulated Loopship quest from an objective."
-      example: {
-        command: "sim init loopship:build-the-app --repo /tmp/loopship-sim --runtime codex --flow swe --wtree build-the-app"
-        description: "Start a guided simulated Loopship lifecycle run."
-        request_json: "{\"repo\":\"/tmp/loopship-sim\",\"runtime\":\"codex\",\"request\":\"loopship:build-the-app\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
-      }
-    };
-  }
-
-  rpc SimQuestNext(SimQuestNextRequest) returns (SimQuestNextResponse) {
-    option (cmdproto.v1.command) = {
-      path: "sim quest next"
-      summary: "Advance a simulated quest with the next lifecycle payload."
-      example: {
-        command: "sim quest next --wtree build-the-app --repo /tmp/loopship-sim --json {\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}"
-        description: "Send the simulated payload required by the current response's output_schema; the response pauses at the next selected-flow step."
-        request_json: "{\"wtree\":\"build-the-app\",\"repo\":\"/tmp/loopship-sim\",\"payload\":{\"step\":\"<current_step>\",\"<output_schema_fields>\":\"...\"}}"
-      }
-    };
-  }
-
-  rpc SimHook(SimHookRequest) returns (SimHookResponse) {
-    option (cmdproto.v1.command) = {
-      path: "sim hook"
-      summary: "Handle a simulated runtime hook event payload."
-      example: {
-        command: "sim hook --repo /tmp/loopship-sim --runtime codex --wtree build-the-app --json {\"event\":\"Stop\",\"stop_reason\":\"none\"}"
-        description: "Exercise runtime hook passthrough behavior in simulation mode."
-        request_json: "{\"repo\":\"/tmp/loopship-sim\",\"runtime\":\"codex\",\"wtree\":\"build-the-app\",\"payload\":{\"event\":\"Stop\",\"stop_reason\":\"none\"}}"
       }
     };
   }
@@ -136,32 +88,6 @@ message InitRequest {
     (cmdproto.v1.param) = {
       flag: { long: "wtree" }
       help: "Explicit base worktree name."
-    }
-  ];
-}
-
-message QuestNextRequest {
-  string wtree = 1 [
-    (cmdproto.v1.param) = {
-      flag: { long: "wtree" }
-      help: "Base worktree name to advance."
-    }
-  ];
-
-  string repo = 2 [
-    (cmdproto.v1.param) = {
-      flag: { long: "repo" }
-      help: "Repo root for quest resolution."
-    }
-  ];
-
-  google.protobuf.Struct payload = 3 [
-    (cmdproto.v1.param) = {
-      json: { enabled: true }
-      help: "Quest output payload matching the current output_schema."
-    },
-    (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"schemas/steps/next-input.yaml\"}"
     }
   ];
 }
@@ -238,121 +164,10 @@ message HandbookRequest {
   ];
 }
 
-message SimInitRequest {
-  string request = 1 [
-    (cmdproto.v1.param) = {
-      positional: { index: 1 }
-      help: "Guided simulation request text."
-    }
-  ];
-
-  string repo = 2 [
-    (cmdproto.v1.param) = {
-      flag: { long: "repo" }
-      help: "Repo root for simulation."
-    }
-  ];
-
-  string runtime = 3 [
-    (cmdproto.v1.param) = {
-      flag: { long: "runtime" }
-      help: "Simulation runtime lane."
-    }
-  ];
-
-  string flow = 4 [
-    (cmdproto.v1.param) = {
-      flag: { long: "flow" }
-      help: "Flow id for guided simulation start."
-    }
-  ];
-
-  string wtree = 5 [
-    (cmdproto.v1.param) = {
-      flag: { long: "wtree" }
-      help: "Explicit simulated base worktree name."
-    }
-  ];
-}
-
-message SimQuestNextRequest {
-  string wtree = 1 [
-    (cmdproto.v1.param) = {
-      flag: { long: "wtree" }
-      help: "Simulated base worktree name to advance."
-    }
-  ];
-
-  string repo = 2 [
-    (cmdproto.v1.param) = {
-      flag: { long: "repo" }
-      help: "Repo root for simulation."
-    }
-  ];
-
-  google.protobuf.Struct payload = 3 [
-    (cmdproto.v1.param) = {
-      json: { enabled: true }
-      help: "Simulated quest output payload matching the current output_schema."
-    },
-    (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$ref\":\"schemas/steps/next-input.yaml\"}"
-    }
-  ];
-
-  bool full = 4 [
-    (cmdproto.v1.param) = {
-      flag: { long: "full" }
-      help: "Return full simulated step output."
-    }
-  ];
-}
-
-message SimHookRequest {
-  string runtime = 1 [
-    (cmdproto.v1.param) = {
-      flag: { long: "runtime" }
-      help: "Simulation runtime lane."
-    }
-  ];
-
-  string repo = 2 [
-    (cmdproto.v1.param) = {
-      flag: { long: "repo" }
-      help: "Repo root for simulation."
-    }
-  ];
-
-  string wtree = 3 [
-    (cmdproto.v1.param) = {
-      flag: { long: "wtree" }
-      help: "Optional explicit simulated base worktree name."
-    }
-  ];
-
-  google.protobuf.Struct payload = 4 [
-    (cmdproto.v1.param) = {
-      json: { enabled: true }
-      help: "Simulation hook payload object."
-    },
-    (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
-    }
-  ];
-}
-
 message InitResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
       json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/init-output.yaml\"},{\"type\":\"object\",\"required\":[\"mode\",\"files\"],\"properties\":{\"mode\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"additionalProperties\":true}]}"
-    }
-  ];
-}
-
-message QuestNextResponse {
-  google.protobuf.Struct output = 1 [
-    (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/step-output.yaml\"},{\"$ref\":\"schemas/steps/error-output.yaml\"},{\"$ref\":\"schemas/steps/lock-error.yaml\"}]}"
     }
   ];
 }
@@ -377,30 +192,6 @@ message HandbookResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
       json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"oneOf\":[{\"required\":[\"path\",\"file_url\"],\"properties\":{\"path\":{\"type\":\"string\"},\"file_url\":{\"type\":\"string\"}},\"additionalProperties\":false},{\"required\":[\"markdown\"],\"properties\":{\"markdown\":{\"type\":\"string\"}},\"additionalProperties\":false}]}"
-    }
-  ];
-}
-
-message SimInitResponse {
-  google.protobuf.Struct output = 1 [
-    (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
-    }
-  ];
-}
-
-message SimQuestNextResponse {
-  google.protobuf.Struct output = 1 [
-    (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
-    }
-  ];
-}
-
-message SimHookResponse {
-  google.protobuf.Struct output = 1 [
-    (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
     }
   ];
 }

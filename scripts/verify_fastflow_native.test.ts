@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   LOOPSHIP_AFN_CALLS,
   LOOPSHIP_AFN_DESCRIPTORS,
   LOOPSHIP_CALL_CATALOG_ROOT,
+  LOOPSHIP_DATA_CALLS,
   buildLoopshipFastflowFlowWorkflow,
   buildLoopshipFastflowSuperviseStepRunRequest,
   buildLoopshipFastflowStepWorkflows,
+  buildLoopshipWorkflowDataTasks,
   createLoopshipFastflowAdapters,
 } from "./loopship_fastflow.ts";
 
@@ -48,6 +51,29 @@ function runNodeCheck(source: string, args: string[] = []): string {
   }
 }
 
+function fastflowImport(subpath: "root" | "workflow"): string {
+  const installedRoot = join(process.cwd(), "node_modules", "@cueintent", "fastflow");
+  if (existsSync(join(installedRoot, "package.json"))) {
+    return subpath === "root" ? "@cueintent/fastflow" : "@cueintent/fastflow/workflow";
+  }
+
+  const siblingRoots = [
+    resolve(process.cwd(), "..", "..", "orgs", "cueintent", "fastflow"),
+    resolve(process.cwd(), "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
+  ];
+  const fastflowRoot = siblingRoots.find((candidate) =>
+    existsSync(join(candidate, "package.json")),
+  );
+  if (!fastflowRoot) {
+    throw new Error("could not resolve @cueintent/fastflow from node_modules or sibling repos");
+  }
+  const sourcePath =
+    subpath === "root"
+      ? join(fastflowRoot, "src", "index.mjs")
+      : join(fastflowRoot, "src", "workflow.mjs");
+  return pathToFileURL(sourcePath).href;
+}
+
 function validateNativeWorkflows(workflows: Record<string, unknown>): void {
   const workflowDir = mkdtempSync(
     join(process.cwd(), "tmp", "loopship-fastflow-native-workflows-"),
@@ -62,7 +88,7 @@ function validateNativeWorkflows(workflows: Record<string, unknown>): void {
           normalizeSwfWorkflow,
           validateFastflowSwfSubset,
           validateFastflowWorkflowSchema,
-        } from "@cueintent/fastflow/workflow";
+        } from ${JSON.stringify(fastflowImport("workflow"))};
 
         const workflows = JSON.parse(readFileSync(process.argv[2], "utf8"));
         for (const [name, workflow] of Object.entries(workflows)) {
@@ -122,7 +148,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("loads the compact Loopship call catalog", async () => {
     const output = runNodeCheck(
       `
-        import { validateCallCatalogRoot } from "@cueintent/fastflow";
+        import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
         if (!result.ok || result.calls !== 3) {
           throw new Error(JSON.stringify(result));
@@ -145,13 +171,27 @@ describe("Loopship Fastflow-native bridge", () => {
       (adapters.auditAfn as Function)({
         action: {
           call: LOOPSHIP_AFN_CALLS.childPrepare,
-          with: { body: { repo: "/tmp/repo", wtree: "demo" } },
+          with: { body: { repo: "/tmp/repo", wtree: "demo", dry_run: true } },
         },
       }),
     ).resolves.toMatchObject({
       schemaVersion: "fastflow.audit.proposal/v1",
       audited: true,
       call: LOOPSHIP_AFN_CALLS.childPrepare,
+    });
+    await expect(
+      (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.childPrepare,
+          with: { body: { repo: "/tmp/repo", wtree: "demo", dry_run: true } },
+        },
+      }),
+    ).resolves.toMatchObject({
+      schema_version: "loopship.child.prepare/v1",
+      parent_wtree: "demo",
+      commands: {
+        resume: { cmd: "loopship" },
+      },
     });
   });
 
@@ -192,7 +232,16 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("validates the generated flow scaffold and supervise-step run request", () => {
-    validateNativeWorkflows({ swe: buildLoopshipFastflowFlowWorkflow("swe") });
+    const workflow = buildLoopshipFastflowFlowWorkflow("swe");
+    validateNativeWorkflows({ swe: workflow });
+    const calls = new Set<string>();
+    walk(workflow, (item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return;
+      const call = (item as Record<string, unknown>).call;
+      if (typeof call === "string") calls.add(call);
+    });
+    expect(calls.has(LOOPSHIP_DATA_CALLS.documentRead)).toBe(true);
+    expect(calls.has(LOOPSHIP_DATA_CALLS.eventLogQuery)).toBe(true);
     expect(
       buildLoopshipFastflowSuperviseStepRunRequest({
         workflowRef: "loopship.workflow.service.flows.swe",
@@ -214,5 +263,38 @@ describe("Loopship Fastflow-native bridge", () => {
         with: { body: { repo: "/tmp/repo" } },
       }),
     ).toThrow("requires body.wtree");
+  });
+
+  test("rejects unknown Loopship AFN body fields before promotion", () => {
+    const adapters = createLoopshipFastflowAdapters();
+    expect(() =>
+      (adapters.validateCallInvocation as Function)({
+        call: LOOPSHIP_AFN_CALLS.systemApply,
+        phase: "action",
+        with: {
+          body: {
+            repo: "/tmp/repo",
+            update: {},
+            unexpected: true,
+          },
+        },
+      }),
+    ).toThrow("does not allow body.unexpected");
+  });
+
+  test("builds canonical YAML and JSONL workflow-data tasks", () => {
+    const tasks = buildLoopshipWorkflowDataTasks();
+    expect(tasks.read_tasks.call).toBe(LOOPSHIP_DATA_CALLS.documentRead);
+    expect(tasks.query_events.call).toBe(LOOPSHIP_DATA_CALLS.eventLogQuery);
+    expect((tasks.read_tasks.with as any).body).toMatchObject({
+      adapter: "yaml",
+      namespace: ".loopship/runtime",
+      document: "tasks",
+    });
+    expect((tasks.query_events.with as any).body).toMatchObject({
+      adapter: "jsonl",
+      namespace: ".loopship/runtime",
+      log: "events",
+    });
   });
 });

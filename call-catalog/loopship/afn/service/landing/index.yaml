@@ -10,10 +10,13 @@ calls:
         - receipt
         - summary
         - target_branch
+        - target_worktree
+        - source_branch
+        - request_id
         - dry_run
       schema:
         type: object
-        additionalProperties: true
+        additionalProperties: false
         required:
           - repo
           - wtree
@@ -29,6 +32,12 @@ calls:
           summary:
             type: string
           target_branch:
+            type: string
+          target_worktree:
+            type: string
+          source_branch:
+            type: string
+          request_id:
             type: string
           dry_run:
             type: boolean

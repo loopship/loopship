@@ -118,8 +118,7 @@ function next(
   const proc = runLoopship(
     fixture.repo,
     [
-      "quest",
-      "next",
+      "resume",
       "--wtree",
       wtree,
       "--json",
@@ -174,7 +173,7 @@ function routeAndCreateQuest(
   expectValidSchema(route, "init-output");
   expect(route.new_quest.command.cmd).toBe("loopship");
   expect(route.new_quest.command.args).toEqual(
-    expect.arrayContaining(["quest", "next"]),
+    expect.arrayContaining(["resume"]),
   );
   const wtree = String(route.new_quest.suggested_wtree);
   const created = next(fixture, wtree, route.new_quest.input);

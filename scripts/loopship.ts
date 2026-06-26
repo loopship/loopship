@@ -65,7 +65,7 @@ import {
   flowStep,
   loadFlowDefinition,
   type LoadedLoopshipFlow,
-} from "./loopship_workflow_runner.ts";
+} from "./loopship_flow.ts";
 import {
   dereferencedSchemaSource,
   dereferencedV3Schema,
@@ -82,7 +82,7 @@ import { runSimCli } from "./loopship_sim.ts";
 type Command =
   | "init"
   | "doctor"
-  | "quest"
+  | "resume"
   | "hook"
   | "sim"
   | "cmdproto"
@@ -123,10 +123,9 @@ function usage(): void {
 
 Usage:
   loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow swe] [--wtree <name>]
-  loopship quest next --wtree <name> --json <json|@file|@->
   loopship hook --runtime <codex|gemini|copilot>
   loopship sim init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
-  loopship sim quest next --wtree <name> --json <json|@file|@->
+  loopship sim step --wtree <name> --json <json|@file|@->
   loopship sim hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
   loopship doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
   loopship handbook [--repo <path>] [--raw|--duplicates|--fix-duplicates] [--json] [--min-chars <n>]
@@ -139,7 +138,7 @@ function parseCommand(argv: string[]): Command {
   const cmd = argv[0] as Command | undefined;
   if (
     !cmd ||
-    !["init", "doctor", "quest", "hook", "sim", "cmdproto", "handbook"].includes(cmd)
+    !["init", "doctor", "resume", "hook", "sim", "cmdproto", "handbook"].includes(cmd)
   ) {
     usage();
     process.exit(1);
@@ -853,8 +852,7 @@ function rankQuestCandidates(
         flow_version: flowVersionForState(quest?.state ?? {}),
         worktree_path: String(quest?.state.coordinator_worktree ?? ""),
         command: compactCommand("loopship", [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",
@@ -946,8 +944,7 @@ function v3InitRoute(input: {
     new_quest: {
       suggested_wtree: wtree,
       command: compactCommand("loopship", [
-        "quest",
-        "next",
+        "resume",
         "--wtree",
         wtree,
         "--json",
@@ -1018,8 +1015,7 @@ function acquireWtreeLock(repoRoot: string, wtree: string): WtreeLock {
             path,
             pid,
             retry: compactCommand("loopship", [
-              "quest",
-              "next",
+              "resume",
               "--wtree",
               wtree,
               "--json",
@@ -1105,8 +1101,7 @@ function readyChildrenForV3(
           flowId,
         ]),
         next: command("loopship", [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           childWtree,
           "--json",
@@ -1185,8 +1180,7 @@ function v3StepOutput(input: {
   const step = stepDef.id;
   const schema = outputSchemaForStage(stage, flow);
   const nextArgs = [
-    "quest",
-    "next",
+    "resume",
     "--wtree",
     input.files.wtree,
     "--json",
@@ -1338,7 +1332,7 @@ function appendV3Event(
 }
 
 function writeV3Manifest(files: QuestFiles, requestId: string): void {
-  writeQuestManifest(files, requestId, "loopship quest next");
+  writeQuestManifest(files, requestId, "loopship resume");
 }
 
 function persistQuestState(
@@ -1500,7 +1494,7 @@ function handlePlan(input: {
       input.files,
       "awaiting_user_answers",
       input.requestId,
-      "loopship quest next",
+      "loopship resume",
     );
   }
   const plan = {
@@ -1535,7 +1529,7 @@ function handlePlan(input: {
     input.files,
     "plan_review",
     input.requestId,
-    "loopship quest next",
+    "loopship resume",
   );
 }
 
@@ -1565,7 +1559,7 @@ function handleQuestions(input: {
     input.files,
     "planning",
     input.requestId,
-    "loopship quest next",
+    "loopship resume",
   );
 }
 
@@ -1815,7 +1809,7 @@ function handleTaskGraph(input: {
       input.files,
       "planning",
       input.requestId,
-      "loopship quest next",
+      "loopship resume",
     );
   }
   const tasks = Array.isArray(input.state.tasks) ? input.state.tasks : [];
@@ -1826,14 +1820,14 @@ function handleTaskGraph(input: {
       input.files,
       "validating",
       input.requestId,
-      "loopship quest next",
+      "loopship resume",
     );
   }
   return updateQuestStage(
     input.files,
     "task_graph_ready",
     input.requestId,
-    "loopship quest next",
+    "loopship resume",
   );
 }
 
@@ -1950,7 +1944,7 @@ function handleChildResult(input: {
       input.files,
       "validating",
       input.requestId,
-      "loopship quest next",
+      "loopship resume",
     );
   }
   writeV3Manifest(input.files, input.requestId);
@@ -1997,7 +1991,7 @@ function handleValidation(input: {
         ? "validating"
         : "task_graph_ready",
     input.requestId,
-    "loopship quest next",
+    "loopship resume",
   );
 }
 
@@ -2042,7 +2036,7 @@ function handleVerification(input: {
     input.files,
     input.payload.status === "passed" ? "system_update_pending" : "validating",
     input.requestId,
-    "loopship quest next",
+    "loopship resume",
   );
 }
 
@@ -2079,7 +2073,7 @@ function handleSystemUpdate(input: {
     input.files,
     "landing_ready",
     input.requestId,
-    "loopship quest next",
+    "loopship resume",
   );
 }
 
@@ -2168,7 +2162,7 @@ function handleLanding(input: {
       input.files,
       "archived",
       input.requestId,
-      "loopship quest next",
+      "loopship resume",
     );
     return { files: input.files, state: archived };
   }
@@ -2185,7 +2179,7 @@ function handleLanding(input: {
       input.files,
       "landing_ready",
       input.requestId,
-      "loopship quest next",
+      "loopship resume",
     ),
   };
 }
@@ -2479,7 +2473,7 @@ function resolveHookWtree(input: {
   };
 }
 
-export function runQuestNextV3(argv: string[]): number {
+export function runFastflowResume(argv: string[]): number {
   const args = parseQuestRepoArg(argv);
   const payload = readJsonArg(args.json);
   const context = resolveRepoContext({
@@ -2494,7 +2488,7 @@ export function runQuestNextV3(argv: string[]): number {
       v3Error(
         error instanceof Error
           ? error.message
-          : "quest next requires --wtree <base-worktree-name>",
+          : "resume requires --wtree <base-worktree-name>",
       ),
     );
     return 1;
@@ -2821,17 +2815,17 @@ export function runHook(argv: string[]): number {
   });
   const reason = JSON.stringify({
     loopship: true,
-    command: "quest.next",
+    command: "fastflow.resume",
     ...stepDoc,
   });
   const budgetReason = JSON.stringify({
     loopship: true,
-    command: "quest.next",
+    command: "fastflow.resume",
     wtree: activeQuest.files.wtree,
     step: stageToV3Step(stage, loadStateFlow(activeQuest.state)),
     stop_reason: "budget_exhausted",
     summary:
-      "Continuation budget exhausted. Resume manually with loopship quest next --wtree <name> --json @-.",
+      "Continuation budget exhausted. Resume manually with loopship resume --wtree <name> --json @-.",
   });
   if (budgetExhausted) chain.budget_prompted = true;
   else chain.continuation_count = budgetUsed + 1;
@@ -2861,14 +2855,6 @@ export function runHook(argv: string[]): number {
     ),
   );
   return 0;
-}
-
-function runQuest(argv: string[]): number {
-  const subcommand = argv[0];
-  const rest = argv.slice(1);
-  if (subcommand === "next") return runQuestNextV3(rest);
-  usage();
-  return 1;
 }
 
 export function runInit(argv: string[]): number {
@@ -2925,7 +2911,7 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   const rest = argv.slice(1);
   if (cmd === "init") return runInit(rest);
   if (cmd === "hook") return runHook(rest);
-  if (cmd === "quest") return runQuest(rest);
+  if (cmd === "resume") return runFastflowResume(rest);
   if (cmd === "sim") return runSimCli(rest);
   if (cmd === "handbook") return runHandbook(rest);
   if (cmd === "cmdproto") return runLoopshipCmdproto(rest);
