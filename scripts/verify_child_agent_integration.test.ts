@@ -116,8 +116,7 @@ function next(
   const proc = runLoopship(
     fixture.repo,
     [
-      "quest",
-      "next",
+      "resume",
       "--wtree",
       wtree,
       "--json",
@@ -137,7 +136,7 @@ function compactCurrent(
 ): Record<string, unknown> {
   const proc = runLoopship(
     fixture.repo,
-    ["quest", "next", "--wtree", wtree, "--json", "@-"],
+    ["resume", "--wtree", wtree, "--json", "@-"],
     {},
     fixture.env,
   );
@@ -163,9 +162,9 @@ describe("loopship v3 child wtree integration", () => {
       expect(publicHookLines).toEqual([
         "  loopship hook --runtime <codex|gemini|copilot>",
       ]);
-      expect(usage.stdout).toContain("loopship quest next --wtree <name>");
+      expect(usage.stdout).not.toContain("loopship quest next --wtree <name>");
       expect(usage.stdout).toContain("loopship sim init");
-      expect(usage.stdout).toContain("loopship sim quest next");
+      expect(usage.stdout).toContain("loopship sim step");
       expect(usage.stdout).toContain("loopship sim hook");
       expect(usage.stdout).not.toContain("quest help");
       expect(usage.stdout).not.toContain("sim quest help");
@@ -317,14 +316,13 @@ describe("loopship v3 child wtree integration", () => {
       expect(compact).not.toHaveProperty("allowed_transitions");
       expect(compact).not.toHaveProperty("requirements");
       expect(compact).not.toHaveProperty("note");
-      expect(((compact.commands as any).next as any).args).toContain("next");
+      expect(((compact.commands as any).next as any).args).toContain("resume");
       expect((compact.commands as any).next).not.toHaveProperty("display");
 
       const unknownField = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",
@@ -349,8 +347,7 @@ describe("loopship v3 child wtree integration", () => {
       const blockedProc = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",
@@ -399,8 +396,7 @@ describe("loopship v3 child wtree integration", () => {
       const vagueBlockedProc = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           vagueWtree,
           "--json",
@@ -564,8 +560,7 @@ describe("loopship v3 child wtree integration", () => {
       const invalidValidation = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",
@@ -616,8 +611,7 @@ describe("loopship v3 child wtree integration", () => {
       const invalidSystemUpdate = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",
@@ -657,8 +651,7 @@ describe("loopship v3 child wtree integration", () => {
       const leakedLanding = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",
@@ -1242,8 +1235,7 @@ describe("loopship v3 child wtree integration", () => {
       const premature = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",
@@ -1356,8 +1348,7 @@ describe("loopship v3 child wtree integration", () => {
       const landing = runLoopship(
         fixture.repo,
         [
-          "quest",
-          "next",
+          "resume",
           "--wtree",
           wtree,
           "--json",

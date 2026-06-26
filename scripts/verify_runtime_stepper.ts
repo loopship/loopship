@@ -68,8 +68,7 @@ function assertGuidedStep(step: Record<string, any>, repo: string): void {
   const args = Array.isArray(command.args) ? command.args : [];
   const expected = [
     "sim",
-    "quest",
-    "next",
+    "step",
     "--wtree",
     String(step.wtree ?? ""),
     "--json",
@@ -105,9 +104,7 @@ function assertOldSimCommandsAreUnknown(): void {
     }
     const combined = `${oldCommand.stderr}\n${oldCommand.stdout}`;
     const expectedError =
-      args[0] === "quest"
-        ? "unknown sim quest command: help"
-        : `unknown sim command: ${args[0]}`;
+      `unknown sim command: ${args[0]}`;
     if (!combined.includes(expectedError)) {
       fail(`old sim command must hard-fail as unknown: ${combined}`);
     }

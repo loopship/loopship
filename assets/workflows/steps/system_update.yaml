@@ -162,5 +162,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/system-update-input.yaml
-      call: loopship.internal.system_update
+      call: loopship.afn.service.system.apply
       with: {}

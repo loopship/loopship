@@ -28,7 +28,7 @@ stakeholders:
       Human operators submit Loopship requests, answer clarifications, inspect compact JSON route
       outputs, run verification commands, and make high-risk decisions.
     concerns:
-      - Operators need a small public command surface based on loopship init, loopship quest next, loopship hook, loopship sim, loopship doctor, loopship handbook, and loopship cmdproto execjson.
+      - Operators need a small public command surface based on loopship init, loopship resume, loopship hook, loopship sim, loopship doctor, loopship handbook, and loopship cmdproto execjson.
       - Operators need canonical task, event, signature, and system files to identify truth when agent narration and runtime state disagree.
   root-agent:
     role: root coordinator agent
@@ -47,7 +47,7 @@ stakeholders:
       - Child quests created from execute-child tasks are leaf workers by default and must not recursively create child quests unless explicitly planned.
 constraints:
   - The root semantic file contains objects, assertions, resources, and optional memories; relation semantics live in relation-keyed typed links rather than a relations block.
-  - After init, loopship quest next --wtree <name> --json <json|@file|@-> is the only state-mutating quest command in the public contract.
+  - After init, loopship resume --wtree <name> --json <json|@file|@-> is the only state-mutating quest command in the public contract.
   - Implementation work happens inside dedicated task worktrees while root sessions remain coordinator-only during child execution.
   - Agents must never edit .loopship/** directly; root and child state changes go through schema-valid quest payloads for the current step.
   - Shipped schemas use stable loopship://schemas/... identifiers for cross-schema refs while runtime may resolve them from local repository paths.
@@ -92,7 +92,7 @@ structure:
       and durable knowledge update boundary for worktree-based quest flows.
   containers:
     cli: |-
-      The CLI exposes init, quest next, hook, sim, doctor, and cmdproto execjson surfaces for
+      The CLI exposes init, resume, hook, sim, doctor, and cmdproto execjson surfaces for
       humans, agents, tests, and verification scripts.
     flow-and-schema-library: |-
       Workflow definition YAML, reusable step workflow YAML, and the schema library define
@@ -109,7 +109,7 @@ structure:
       continuation decisions.
   components:
     cli-routing: |-
-      Init and quest-next routing rank quest candidates, propose worktree names, emit
+      Init and resume routing rank quest candidates, propose worktree names, emit
       create-quest input, validate step payloads, mutate canonical quest state, and return the
       next compact JSON command.
     workflow-runner: |-
@@ -130,7 +130,7 @@ structure:
       surface coherence, hook behavior, simulations, and durable system-model semantics.
   code_units:
     loopship-ts: |-
-      scripts/loopship.ts owns command parsing, init route output, quest next execution, hook
+      scripts/loopship.ts owns command parsing, init route output, resume execution, hook
       handling, simulation entrypoints, doctor behavior, and CLI JSON writing.
     loopship-core: |-
       scripts/loopship_core.ts owns quest state IO, task normalization, system scaffold
@@ -207,7 +207,7 @@ interfaces:
   quest-commands:
     kind: cli
     text: |-
-      loopship init starts a quest and returns route output, while loopship quest next --wtree
+      loopship init starts a quest and returns route output, while loopship resume --wtree
       <name> --json <json|@file|@-> is the only state-mutating quest command after init.
       Public quest identity is wtree, the base worktree name.
   hook-command:
@@ -220,7 +220,7 @@ interfaces:
     text: |-
       loopship doctor --fix repairs scaffolding, hooks, shims, signatures, and drift. loopship
       handbook renders canonical YAML into Markdown and reports or fixes schema-safe duplicate
-      prose references. loopship sim init, loopship sim quest next, and loopship sim hook provide
+      prose references. loopship sim init, loopship sim step, and loopship sim hook provide
       deterministic selected-flow stepping and hook passthrough behavior.
   cmdproto-api:
     kind: api
@@ -472,11 +472,11 @@ examples:
       links:
         supported_by:
           - resource:software-architecture#/constraints
-  quest-next-command:
+  resume-command:
     language: bash
     text: |-
       The public state-mutating continuation command after init uses wtree identity and
       schema-backed JSON input.
     source: |-
-      loopship quest next --wtree build-the-app --json @request.json
+      loopship resume --wtree build-the-app --json @request.json
       # request.json conforms to the current step input schema.

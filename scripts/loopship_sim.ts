@@ -8,7 +8,7 @@ import {
   DEFAULT_FLOW_ID,
   flowStep,
   loadFlowDefinition,
-} from "./loopship_workflow_runner.ts";
+} from "./loopship_flow.ts";
 import {
   readHookDecision as readSupervisorHookDecision,
 } from "./runtime_supervisor.ts";
@@ -29,7 +29,7 @@ const SETUP_RUNTIME_HOOKS_SCRIPT = resolve(
 );
 
 type Runtime = "codex" | "gemini" | "copilot";
-type SimCommand = "init" | "quest_next" | "hook";
+type SimCommand = "init" | "step" | "hook";
 
 type SimArgs = {
   command: SimCommand;
@@ -62,7 +62,7 @@ function usage(exitCode = 1): number {
   const text = [
     "Usage:",
     '  loopship sim init "loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
-    "  loopship sim quest next --wtree <name> [--repo <path>] --json <json|@file|@->",
+    "  loopship sim step --wtree <name> [--repo <path>] --json <json|@file|@->",
     "  loopship sim hook [--repo <path>] [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]",
   ].join("\n");
   if (exitCode === 0) console.log(text);
@@ -90,14 +90,9 @@ function parseArgs(argv: string[]): SimArgs {
   if (command === "init") {
     simCommand = "init";
     body = argv.slice(1);
-  } else if (command === "quest") {
-    const subcommand = argv[1];
-    if (subcommand === "next") {
-      simCommand = "quest_next";
-      body = argv.slice(2);
-    } else {
-      throw new Error(`unknown sim quest command: ${subcommand ?? ""}`.trim());
-    }
+  } else if (command === "step") {
+    simCommand = "step";
+    body = argv.slice(1);
   } else if (command === "hook") {
     simCommand = "hook";
     body = argv.slice(1);
@@ -274,8 +269,7 @@ function simCommand(args: string[]): Record<string, unknown> {
 function simNextCommand(repoRoot: string, wtree: string): Record<string, unknown> {
   return simCommand([
     "sim",
-    "quest",
-    "next",
+    "step",
     "--wtree",
     wtree,
     "--json",
@@ -382,8 +376,7 @@ function routeSimQuestInit(input: {
   const routeProc = runLoopship(
     input.repoRoot,
     [
-      "quest",
-      "next",
+      "resume",
       "--wtree",
       wtree,
       "--json",
@@ -442,17 +435,17 @@ function runSimInit(args: SimArgs): number {
   return 0;
 }
 
-function runSimQuestNext(args: SimArgs): number {
+function runSimStep(args: SimArgs): number {
   if (!args.json) {
-    throw new Error("sim quest next requires --json <json|@file|@->");
+    throw new Error("sim step requires --json <json|@file|@->");
   }
   const wtree = String(args.wtree ?? "").trim();
   if (!wtree) {
-    throw new Error("sim quest next requires --wtree <name>");
+    throw new Error("sim step requires --wtree <name>");
   }
   const payload = readJsonArg(args.json);
   if (Object.keys(payload).length === 0) {
-    throw new Error("sim quest next requires a non-empty JSON payload");
+    throw new Error("sim step requires a non-empty JSON payload");
   }
   const repoRoot = resolveRepoRoot(args.repo, payload);
   if (!existsSync(questFiles(repoRoot, wtree).tasks)) {
@@ -460,8 +453,7 @@ function runSimQuestNext(args: SimArgs): number {
   }
   currentFlowStepId(repoRoot, wtree);
   const questArgs = [
-    "quest",
-    "next",
+    "resume",
     "--wtree",
     wtree,
     "--json",
@@ -474,7 +466,7 @@ function runSimQuestNext(args: SimArgs): number {
     payload,
   );
   if (proc.status !== 0) {
-    throw new Error(proc.stderr || proc.stdout || "loopship quest next failed");
+    throw new Error(proc.stderr || proc.stdout || "loopship resume failed");
   }
   const output = parseJsonText(proc.stdout, "guided sim output");
   const runtime = resolveRuntime(args.runtime, inferSimulationRuntime(repoRoot));
@@ -504,8 +496,7 @@ export function runSimCli(argv: string[]): number {
     if (
       error instanceof Error &&
       (error.message.startsWith("unknown sim argument:") ||
-        error.message.startsWith("unknown sim command:") ||
-        error.message.startsWith("unknown sim quest command:"))
+        error.message.startsWith("unknown sim command:"))
     ) {
       console.error(error.message);
       return usage(1);
@@ -513,7 +504,7 @@ export function runSimCli(argv: string[]): number {
     throw error;
   }
   if (args.command === "init") return runSimInit(args);
-  if (args.command === "quest_next") return runSimQuestNext(args);
+  if (args.command === "step") return runSimStep(args);
   return runHookMode(args);
 }
 

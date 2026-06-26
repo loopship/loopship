@@ -128,5 +128,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/landing-input.yaml
-      call: loopship.internal.landing
+      call: loopship.afn.service.landing.apply
       with: {}

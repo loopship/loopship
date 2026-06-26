@@ -21,7 +21,7 @@ import {
 
 const command = {
   cmd: "loopship",
-  args: ["quest", "next", "--wtree", "demo", "--json", "@-"],
+  args: ["resume", "--wtree", "demo", "--json", "@-"],
 };
 
 const schemaRef = {

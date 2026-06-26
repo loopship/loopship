@@ -1120,7 +1120,7 @@ export function applySystemUpdate(
     touched.push(fullPath);
   }
 
-  touched.push(writeSystemManifest(repoRoot, requestId, "loopship quest next"));
+  touched.push(writeSystemManifest(repoRoot, requestId, "loopship resume"));
   return touched;
 }
 
@@ -1538,7 +1538,7 @@ function questManifestPathKey(files: QuestFiles, path: string): string {
 export function writeQuestManifest(
   files: QuestFiles,
   requestId = "quest",
-  writerCommand = "loopship quest",
+  writerCommand = "loopship resume",
 ): void {
   const previous = parseYamlFile(files.manifest);
   const previousHead =
@@ -1923,7 +1923,7 @@ export function createQuest(input: {
     quest_id: input.wtree,
     stage: state.stage,
   });
-  writeQuestManifest(files, `start-${input.wtree}`, "loopship quest next");
+  writeQuestManifest(files, `start-${input.wtree}`, "loopship resume");
   return { files, state };
 }
 
@@ -1931,7 +1931,7 @@ export function updateQuestStage(
   files: QuestFiles,
   nextStage: string,
   requestId = "quest-stage",
-  writerCommand = "loopship quest next",
+  writerCommand = "loopship resume",
 ): Partial<QuestState> {
   const current = parseTasksYaml(readText(files.tasks));
   const state = {

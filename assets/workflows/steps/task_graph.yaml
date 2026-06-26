@@ -118,5 +118,5 @@ do:
           format: json
           document:
             $ref: ../../../schemas/steps/task-graph-input.yaml
-      call: loopship.internal.task_graph
+      call: fastflow.afn.core.request.input
       with: {}

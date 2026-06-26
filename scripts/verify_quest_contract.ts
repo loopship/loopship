@@ -67,8 +67,7 @@ function main(): number {
     const create = runLoopship(
       repo,
       [
-        "quest",
-        "next",
+        "resume",
         "--wtree",
         wtree,
         "--json",
@@ -134,7 +133,7 @@ function main(): number {
 
     const bad = runLoopship(
       repo,
-      ["quest", "next", "--wtree", wtree, "--json", "@-"],
+      ["resume", "--wtree", wtree, "--json", "@-"],
       { step: "child_result" },
     );
     if (bad.status === 0) fail("wrong-step input must fail");
@@ -145,7 +144,7 @@ function main(): number {
     );
     const tampered = runLoopship(
       repo,
-      ["quest", "next", "--wtree", wtree, "--json", "@-"],
+      ["resume", "--wtree", wtree, "--json", "@-"],
       {},
     );
     if (tampered.status === 0) fail("tampered YAML must block continuation");

@@ -115,6 +115,20 @@ function prepareExistingGitRepoFixture(
 }
 
 function main(): number {
+  const protoText = readFileSync(join(ROOT, "proto", "loopship", "v1", "loopship.proto"), "utf8");
+  for (const removed of [
+    "rpc QuestNext",
+    "rpc SimInit",
+    "rpc SimQuestNext",
+    "rpc SimHook",
+    'path: "quest next"',
+    'path: "sim quest next"',
+  ]) {
+    if (protoText.includes(removed)) {
+      fail(`public proto must not expose removed hard-cut command surface: ${removed}`);
+    }
+  }
+
   const help = runLoopship(
     process.cwd(),
     ["--help", "--json"],
@@ -131,10 +145,6 @@ function main(): number {
     "handbook",
     "hook",
     "init",
-    "quest next",
-    "sim hook",
-    "sim init",
-    "sim quest next",
   ];
   if (JSON.stringify(commandPaths.sort()) !== JSON.stringify(expectedPaths.sort())) {
     fail(
@@ -363,19 +373,24 @@ function main(): number {
     if (!nextPayload || typeof nextPayload !== "object") {
       fail("init route missing next input payload");
     }
+    const initCommandArgs = newQuest.command?.args;
+    if (
+      !Array.isArray(initCommandArgs) ||
+      initCommandArgs[0] !== "resume"
+    ) {
+      fail(`init route must emit hidden resume continuation command: ${init.stdout}`);
+    }
 
     const next = runLoopship(
       fixture.repo,
       [
-        "cmdproto",
-        "execjson",
-        "quest",
-        "next",
-        JSON.stringify({
-          wtree,
-          repo: fixture.repo,
-          payload: nextPayload,
-        }),
+        "resume",
+        "--repo",
+        fixture.repo,
+        "--wtree",
+        wtree,
+        "--json",
+        JSON.stringify(nextPayload),
       ],
       undefined,
       fixture.env,
@@ -386,77 +401,7 @@ function main(): number {
 
     const files = questFiles(fixture.repo, wtree);
     if (!existsSync(files.tasks)) {
-      fail("cmdproto quest next must create worktree-local canonical quest state");
-    }
-
-    const simRepo = join(fixture.root, "sim-repo");
-    prepareExistingGitRepoFixture(simRepo, fixture.env);
-    const simStart = runLoopship(
-      fixture.repo,
-      [
-        "cmdproto",
-        "execjson",
-        "sim",
-        "init",
-        JSON.stringify({
-          request: DEFAULT_RUNTIME_REQUEST,
-          repo: simRepo,
-          runtime: "codex",
-          flow: "swe",
-        }),
-      ],
-      undefined,
-      fixture.env,
-    );
-    if (simStart.status !== 0) fail(simStart.stderr || simStart.stdout);
-    const simStarted = parseJson(simStart.stdout);
-    if (stepId(simStarted.step) !== "plan") {
-      fail(`cmdproto sim start must return the guided plan step: ${simStart.stdout}`);
-    }
-    const simCommandArgs = simStarted.commands?.next?.args;
-    if (
-      JSON.stringify(simCommandArgs) !==
-      JSON.stringify([
-        "sim",
-        "quest",
-        "next",
-        "--wtree",
-        simStarted.wtree,
-        "--json",
-        "@-",
-      ])
-    ) {
-      fail(`cmdproto sim must return guided sim continuation command: ${simStart.stdout}`);
-    }
-
-    const simPlanPayload = scenarioPayloadForStep({
-      request: DEFAULT_RUNTIME_REQUEST,
-      step: "plan",
-      quest: {},
-      planRound: 0,
-      landingRound: 0,
-    });
-    const simNext = runLoopship(
-      fixture.repo,
-      [
-        "cmdproto",
-        "execjson",
-        "sim",
-        "quest",
-        "next",
-        JSON.stringify({
-          repo: simRepo,
-          wtree: simStarted.wtree,
-          payload: simPlanPayload,
-        }),
-      ],
-      undefined,
-      fixture.env,
-    );
-    if (simNext.status !== 0) fail(simNext.stderr || simNext.stdout);
-    const simAdvanced = parseJson(simNext.stdout);
-    if (stepId(simAdvanced.step) !== "task_graph") {
-      fail(`cmdproto sim payload must advance to task_graph: ${simNext.stdout}`);
+      fail("hidden resume command must create worktree-local canonical quest state");
     }
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
