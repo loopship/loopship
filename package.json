@@ -9,6 +9,7 @@
   },
   "exports": {
     ".": "./index.ts",
+    "./fastflow": "./scripts/loopship_fastflow.ts",
     "./workflow-runner": "./scripts/loopship_workflow_runner.ts",
     "./package.json": "./package.json"
   },
@@ -42,7 +43,7 @@
   "scripts": {
     "cmdproto:gen": "cmdproto build --generate-only",
     "cmdproto:schema": "bun run scripts/run_cmdproto_schema.ts",
-    "test": "bun test scripts/verify_flow_schema.test.ts scripts/verify_child_agent_integration.test.ts scripts/verify_lifecycle_matrix.test.ts scripts/verify_runtime_live.test.ts",
+    "test": "bun test scripts/verify_flow_schema.test.ts scripts/verify_child_agent_integration.test.ts scripts/verify_lifecycle_matrix.test.ts scripts/verify_runtime_live.test.ts scripts/verify_fastflow_native.test.ts",
     "verify": "bun run scripts/verify_system_model.ts && bun run scripts/verify_coherency.ts && bun run scripts/run_cmdproto_schema.ts && bun run scripts/verify_cmdproto_abi.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts && bun run scripts/report_lifecycle_matrix.ts",
     "verify:lifecycle": "bun run scripts/report_lifecycle_matrix.ts",
     "verify:live": "bun run scripts/verify_runtime_live.ts"
@@ -55,6 +56,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@cueintent/fastflow": "file:../../orgs/cueintent/fastflow",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "cmdproto": "git+https://github.com/omar391/cmdproto.git",

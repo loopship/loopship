@@ -1,0 +1,55 @@
+schemaVersion: fastflow/call-catalog-scope/v1
+calls:
+  - call: loopship.afn.service.child.prepare
+    summary: Prepare Loopship child quest/worktree launch context without running the child agent.
+    inputs:
+      required:
+        - repo
+        - wtree
+      optional:
+        - task_id
+        - task
+        - parent
+        - runtime
+        - branch
+        - base_branch
+      schema:
+        type: object
+        additionalProperties: true
+        required:
+          - repo
+          - wtree
+        properties:
+          repo:
+            type: string
+            minLength: 1
+          wtree:
+            type: string
+            minLength: 1
+          task_id:
+            type: string
+          task:
+            type: object
+          parent:
+            type: object
+          runtime:
+            type: string
+          branch:
+            type: string
+          base_branch:
+            type: string
+    tags:
+      - loopship
+      - child
+      - worktree
+      - quest
+    preferWhen:
+      - "A Loopship workflow needs to prepare child quest/worktree launch metadata."
+    avoidWhen:
+      - "The workflow only needs planning, validation, verification, or model reasoning."
+    metadata:
+      allowed_phases:
+        - action
+      effects:
+        - worktree.prepare
+        - quest.prepare
