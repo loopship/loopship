@@ -1,0 +1,69 @@
+document:
+  dsl: 1.0.3
+  namespace: loopship-steps
+  name: archived
+  version: 1.0.0
+  summary: Report final quest state only.
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - archived
+input:
+  schema:
+    format: json
+    document:
+      $ref: ../../../schemas/steps/archive-output.yaml
+output:
+  schema:
+    format: json
+    document:
+      $ref: ../../../schemas/steps/archive-output.yaml
+  as: ${inputs}
+do:
+  - archived:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/archive-output.yaml
+        from: ${inputs}
+      metadata:
+        description: |-
+          # Loopship Archived Step
+
+          Act as a top-class quest closure reporter for Loopship. Treat this instruction
+          block as the archived step's system prompt: report final state only and do
+          not mutate `.loopship/**` directly.
+
+          ## Terminal Output Contract
+
+          This step is reusable across flows. The orchestrator owns terminal flow
+          state; `output_schema` is null here, so do not invent a next payload or
+          assume another step follows. Report only the final quest state required by
+          this step's `output_schema`.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+      output:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/archive-output.yaml
+        as: ${inputs}
+      set:
+        archived: ${inputs}

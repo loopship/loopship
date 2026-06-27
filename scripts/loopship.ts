@@ -2187,6 +2187,164 @@ function handleLanding(input: {
   };
 }
 
+type LoopshipResumeHandlerResult = {
+  files: QuestFiles;
+  state: Partial<{ [key: string]: any }>;
+};
+
+type LoopshipResumeHandler = (input: {
+  repoRoot: string;
+  files: QuestFiles;
+  state: Partial<{ [key: string]: any }>;
+  payload: Record<string, any>;
+  requestId: string;
+}) => LoopshipResumeHandlerResult;
+
+function resolveResumeHandlerName(input: {
+  state: Partial<{ [key: string]: any }>;
+  expected: string;
+}): string {
+  const flow = loadStateFlow(input.state);
+  const currentStage = String(input.state.stage ?? flow.default_stage);
+  const stepDef = flowStep(flow, currentStage);
+  const expectedInputStep = stepDef.input_step ?? stepDef.id;
+  if (expectedInputStep !== input.expected) {
+    throw new Error(
+      `Loopship flow expected input step '${expectedInputStep}' for stage '${currentStage}', got '${input.expected}'`,
+    );
+  }
+  return stepDef.handler;
+}
+
+function resumePersistenceMethodName(handlerName: string): string {
+  const suffix = handlerName
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join("");
+  return suffix ? `persist${suffix}` : "";
+}
+
+class LoopshipResumePersistence {
+  private readonly input: Parameters<LoopshipResumeHandler>[0];
+
+  constructor(input: Parameters<LoopshipResumeHandler>[0]) {
+    this.input = input;
+  }
+
+  apply(handlerName: string): LoopshipResumeHandlerResult {
+    const methodName = resumePersistenceMethodName(handlerName);
+    const method = (this as unknown as Record<string, unknown>)[methodName];
+    if (typeof method !== "function") {
+      throw new Error(
+        `Loopship flow has no persistence method '${methodName}' for handler '${handlerName}'`,
+      );
+    }
+    return (method as () => LoopshipResumeHandlerResult).call(this);
+  }
+
+  persistPlan(): LoopshipResumeHandlerResult {
+    const { files, state, payload, requestId } = this.input;
+    return {
+      files,
+      state: handlePlan({ files, state, payload, requestId }),
+    };
+  }
+
+  persistQuestions(): LoopshipResumeHandlerResult {
+    const { files, payload, requestId } = this.input;
+    return {
+      files,
+      state: handleQuestions({ files, payload, requestId }),
+    };
+  }
+
+  persistTaskGraph(): LoopshipResumeHandlerResult {
+    const { files, state, payload, requestId } = this.input;
+    return {
+      files,
+      state: handleTaskGraph({ files, state, payload, requestId }),
+    };
+  }
+
+  persistChildResult(): LoopshipResumeHandlerResult {
+    const { repoRoot, files, state, payload, requestId } = this.input;
+    return {
+      files,
+      state: handleChildResult({ repoRoot, files, state, payload, requestId }),
+    };
+  }
+
+  persistValidation(): LoopshipResumeHandlerResult {
+    const { files, state, payload, requestId } = this.input;
+    return {
+      files,
+      state: handleValidation({ files, state, payload, requestId }),
+    };
+  }
+
+  persistVerification(): LoopshipResumeHandlerResult {
+    const { files, payload, requestId } = this.input;
+    return {
+      files,
+      state: handleVerification({ files, payload, requestId }),
+    };
+  }
+
+  persistSystemUpdate(): LoopshipResumeHandlerResult {
+    const { repoRoot, files, state, payload, requestId } = this.input;
+    return {
+      files,
+      state: handleSystemUpdate({ repoRoot, files, state, payload, requestId }),
+    };
+  }
+
+  persistLanding(): LoopshipResumeHandlerResult {
+    const { repoRoot, files, payload, requestId } = this.input;
+    return handleLanding({ repoRoot, files, payload, requestId });
+  }
+}
+
+function applyLoopshipResumePayload(input: Parameters<LoopshipResumeHandler>[0] & {
+  expected: string;
+}): LoopshipResumeHandlerResult {
+  const handlerName = resolveResumeHandlerName(input);
+  return new LoopshipResumePersistence(input).apply(handlerName);
+}
+
+function assertFastflowFlowTransition(input: {
+  expected: string;
+  result: Record<string, any> | null;
+}): void {
+  if (!input.result) return;
+  const output = input.result.output;
+  if (!output || typeof output !== "object" || Array.isArray(output)) return;
+  if (output.schema_version !== "loopship.flow-transition/v1") return;
+  if (String(output.step ?? "") !== input.expected) {
+    throw new Error(
+      `Fastflow flow resumed step '${String(output.step ?? "")}' but Loopship expected '${input.expected}'`,
+    );
+  }
+}
+
+function assertFastflowPersistedStage(input: {
+  result: Record<string, any> | null;
+  state: Partial<{ [key: string]: any }>;
+}): void {
+  if (!input.result) return;
+  const output = input.result.output;
+  if (!output || typeof output !== "object" || Array.isArray(output)) return;
+  if (output.schema_version !== "loopship.flow-transition/v1") return;
+  const expectedStage = String(output.stage_after ?? "").trim();
+  if (!expectedStage) return;
+  const actualStage = String(input.state.stage ?? "").trim();
+  if (actualStage !== expectedStage) {
+    throw new Error(
+      `Loopship persisted stage '${actualStage}' but Fastflow flow derived '${expectedStage}'`,
+    );
+  }
+}
+
 type HookChainState = {
   continuation_count?: number;
   handled_keys?: Record<string, string>;
@@ -2252,7 +2410,10 @@ async function startNativeFastflowStepSession(input: {
   const { startLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
   const session = await startLoopshipFastflowStepSession({
     repoRoot: input.repoRoot,
+    workspaceRoot: questWorkspaceRoot(input.files),
     stepId,
+    stageId: String(input.state.stage ?? flow.default_stage),
+    flowId: flow.id,
     inputs: input.stepDoc,
   });
   if (!session) return;
@@ -2274,8 +2435,8 @@ async function resumeNativeFastflowStepSession(input: {
   files: QuestFiles;
   stepId: string;
   payload: Record<string, unknown>;
-}): Promise<void> {
-  if (!(await isFastflowHandoffStep(input.stepId))) return;
+}): Promise<Record<string, any> | null> {
+  if (!(await isFastflowHandoffStep(input.stepId))) return null;
   const runtime = loadHookRuntimeState(input.files);
   const key = fastflowSessionKey(input.stepId);
   let session = runtime.fastflow_sessions?.[key];
@@ -2288,9 +2449,13 @@ async function resumeNativeFastflowStepSession(input: {
       full: true,
     });
     const { startLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
+    const flow = loadStateFlow(state);
     const created = await startLoopshipFastflowStepSession({
       repoRoot: input.repoRoot,
+      workspaceRoot: questWorkspaceRoot(input.files),
       stepId: input.stepId,
+      stageId: String(state.stage ?? flow.default_stage),
+      flowId: flow.id,
       inputs: stepDoc,
     });
     if (!created) {
@@ -2309,8 +2474,9 @@ async function resumeNativeFastflowStepSession(input: {
     });
   }
   const { resumeLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
-  await resumeLoopshipFastflowStepSession({
+  const resumed = await resumeLoopshipFastflowStepSession({
     repoRoot: input.repoRoot,
+    workspaceRoot: questWorkspaceRoot(input.files),
     session: session as any,
     decision: input.payload,
   });
@@ -2323,6 +2489,7 @@ async function resumeNativeFastflowStepSession(input: {
     workflow_ref: String(session.workflow_ref ?? ""),
   });
   writeQuestManifest(input.files, `fastflow-resume-${input.stepId}`, "loopship fastflow resume");
+  return resumed;
 }
 
 function hookChainKey(
@@ -2723,73 +2890,32 @@ export async function runFastflowResume(argv: string[]): Promise<number> {
         );
         return 1;
       }
-      await resumeNativeFastflowStepSession({
+      const fastflowTransition = await resumeNativeFastflowStepSession({
         repoRoot: context.repoRoot,
         files: existing.files,
         stepId: expected,
         payload,
       });
+      assertFastflowFlowTransition({
+        expected,
+        result: fastflowTransition,
+      });
       const requestId = `next-${wtree}-${Date.now().toString(36)}`;
       try {
-        if (expected === "plan") {
-          state = handlePlan({
-            files: existing.files,
-            state,
-            payload,
-            requestId,
-          });
-        } else if (expected === "questions") {
-          state = handleQuestions({
-            files: existing.files,
-            payload,
-            requestId,
-          });
-        } else if (expected === "task_graph") {
-          state = handleTaskGraph({
-            files: existing.files,
-            state,
-            payload,
-            requestId,
-          });
-        } else if (expected === "child_result") {
-          state = handleChildResult({
-            repoRoot: context.repoRoot,
-            files: existing.files,
-            state,
-            payload,
-            requestId,
-          });
-        } else if (expected === "validation") {
-          state = handleValidation({
-            files: existing.files,
-            state,
-            payload,
-            requestId,
-          });
-        } else if (expected === "verification") {
-          state = handleVerification({
-            files: existing.files,
-            payload,
-            requestId,
-          });
-        } else if (expected === "system_update") {
-          state = handleSystemUpdate({
-            repoRoot: context.repoRoot,
-            files: existing.files,
-            state,
-            payload,
-            requestId,
-          });
-        } else if (expected === "landing") {
-          const landing = handleLanding({
-            repoRoot: context.repoRoot,
-            files: existing.files,
-            payload,
-            requestId,
-          });
-          state = landing.state;
-          responseFiles = landing.files;
-        }
+        const applied = applyLoopshipResumePayload({
+          repoRoot: context.repoRoot,
+          files: existing.files,
+          state,
+          payload,
+          requestId,
+          expected,
+        });
+        state = applied.state;
+        responseFiles = applied.files;
+        assertFastflowPersistedStage({
+          result: fastflowTransition,
+          state,
+        });
       } catch (error) {
         questResponse(
           v3Error(error instanceof Error ? error.message : String(error), {
@@ -2808,12 +2934,14 @@ export async function runFastflowResume(argv: string[]): Promise<number> {
       state: refreshed,
       full: args.full,
     });
-    await startNativeFastflowStepSession({
-      repoRoot: context.repoRoot,
-      files: responseFiles,
-      state: refreshed,
-      stepDoc: output,
-    });
+    if (hasInput) {
+      await startNativeFastflowStepSession({
+        repoRoot: context.repoRoot,
+        files: responseFiles,
+        state: refreshed,
+        stepDoc: output,
+      });
+    }
     questResponse(output);
     return 0;
   } finally {

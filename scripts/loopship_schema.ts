@@ -21,7 +21,6 @@ type JsonObject = { [key: string]: JsonValue };
 type SchemaObject = Record<string, unknown>;
 export type LoopshipSchemaSource = string | SchemaObject | null;
 
-export const FLOW_SCHEMA_PATH = "schemas/loopship-flow.schema.yaml";
 export const V3_STEP_SCHEMAS = [
   "init-output",
   "next-input",

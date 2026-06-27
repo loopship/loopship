@@ -1,0 +1,127 @@
+document:
+  dsl: 1.0.3
+  namespace: loopship-steps
+  name: verification
+  version: 1.0.0
+  summary: Submit acceptance trace, PR-style risk review, and residual risks.
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - verification
+input:
+  schema:
+    format: json
+    document:
+      $ref: ../../../schemas/steps/step-output.yaml
+output:
+  schema:
+    format: json
+    document:
+      type: object
+      additionalProperties: true
+  as: ${state.steps.verification.action}
+do:
+  - verification:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/step-output.yaml
+        from: ${inputs}
+      metadata:
+        description: |-
+          # Loopship Verification Step
+
+          Act as a top-class acceptance and risk reviewer for Loopship. Treat this
+          instruction block as the verification step's system prompt: trace acceptance,
+          review residual risk, and return only the schema-valid `verification`
+          callback.
+
+          ## Step-Local Callback Contract
+
+          This step is reusable across flows. The orchestrator owns flow transitions
+          and decides which step, if any, follows this callback. Produce only the JSON
+          payload that matches this step's current `output_schema`, then submit it
+          through `commands.next`; do not shape output for a guessed successor.
+
+          Perform acceptance trace, risk review, behavior coverage, and evidence review.
+        inference: handoff
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+      output:
+        schema:
+          format: json
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+      call: fastflow.afn.core.request.input
+      with:
+        body:
+          instruction: |-
+            # Loopship Verification Step
+
+            Act as a top-class acceptance and risk reviewer for Loopship. Treat this
+            instruction block as the verification step's system prompt: trace acceptance,
+            review residual risk, and return only the schema-valid `verification`
+            callback.
+
+            ## Step-Local Callback Contract
+
+            This step is reusable across flows. The orchestrator owns flow transitions
+            and decides which step, if any, follows this callback. Produce only the JSON
+            payload that matches this step's current `output_schema`, then submit it
+            through `commands.next`; do not shape output for a guessed successor.
+
+            Perform acceptance trace, risk review, behavior coverage, and evidence review.
+          request:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                step:
+                  type: object
+                  additionalProperties: true
+                inputs:
+                  $ref: ../../../schemas/steps/step-output.yaml
+                state:
+                  type: object
+                  additionalProperties: true
+                args:
+                  type: object
+                  additionalProperties: true
+              required:
+                - step
+                - inputs
+            build:
+              kind: js
+              using:
+                - inputs
+                - state
+                - args
+              code: >-
+                return {
+                  step: {"id":"verification","handler":"verification","summary":"Submit acceptance trace, PR-style risk review, and residual risks.","input_step":"verification","result_schema":"schemas/steps/step-output.yaml"},
+                  inputs,
+                  state,
+                  args
+                };
+          answer:
+            schema:
+              $ref: ../../../schemas/steps/verification-input.yaml

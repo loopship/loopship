@@ -147,7 +147,7 @@ function assertCanonicalSchemas(): void {
 }
 
 function assertPlanPrompt(): void {
-  const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "plan.yaml"));
+  const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "plan.stable.yaml"));
   const scope = "plan step prompt";
   for (const needle of [
     "# Loopship Plan Step",
@@ -193,7 +193,7 @@ function assertPlanPrompt(): void {
 }
 
 function assertSystemUpdatePrompt(): void {
-  const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "system_update.yaml"));
+  const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "system_update.stable.yaml"));
   const scope = "system_update step prompt";
   for (const needle of [
     "# Loopship System Update Step",
@@ -416,7 +416,7 @@ function assertNoStaleProjectLanguage(): void {
 }
 
 function assertWorkflowValidation(): void {
-  const flowRecord = loadWorkflowRecord(resolve(PACKAGE_ROOT, "assets", "flows", "swe.yaml"));
+  const flowRecord = loadWorkflowRecord(resolve(PACKAGE_ROOT, "assets", "flows", "swe.stable.yaml"));
   validateWorkflowRecord(flowRecord, {
     schemaPath: WORKFLOW_VALIDATION_ENTRYPOINT,
     workflowLabel: "swe flow",
@@ -426,8 +426,8 @@ function assertWorkflowValidation(): void {
     throw new Error(`swe flow default stage must stay planning, got ${flow.default_stage}`);
   }
   for (const relativePath of [
-    "assets/workflows/steps/plan.yaml",
-    "assets/workflows/steps/system_update.yaml",
+    "assets/workflows/steps/plan.stable.yaml",
+    "assets/workflows/steps/system_update.stable.yaml",
   ]) {
     validateWorkflowRecord(loadWorkflowRecord(resolve(PACKAGE_ROOT, relativePath)), {
       schemaPath: WORKFLOW_SCHEMA_FILE,

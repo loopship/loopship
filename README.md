@@ -50,7 +50,7 @@ canonical YAML sources with owner recommendations. `loopship handbook
 --fix-duplicates` applies only schema-safe reference rewrites and reports any
 remaining manual cases. The handbook is generated output, not canonical truth.
 
-Loopship lifecycle guidance lives in `assets/workflows/steps/*.yaml`; do not add
+Loopship lifecycle guidance lives in `assets/workflows/steps/*.stable.yaml`; do not add
 separate stage spec files for the same instructions.
 
 For mocked runtime lifecycle stepping, `loopship sim` supports:

@@ -1,0 +1,130 @@
+document:
+  dsl: 1.0.3
+  namespace: loopship-steps
+  name: validation
+  version: 1.0.0
+  summary: Submit deterministic validation results only, including schemas, DAG, tests, build,
+    lint/typecheck, manifest, and behavior refs.
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - validation
+input:
+  schema:
+    format: json
+    document:
+      $ref: ../../../schemas/steps/step-output.yaml
+output:
+  schema:
+    format: json
+    document:
+      type: object
+      additionalProperties: true
+  as: ${state.steps.validation.action}
+do:
+  - validation:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/step-output.yaml
+        from: ${inputs}
+      metadata:
+        description: |-
+          # Loopship Validation Step
+
+          Act as a top-class deterministic validation engineer for Loopship. Treat this
+          instruction block as the validation step's system prompt: run objective
+          checks, report their evidence, and return only the schema-valid `validation`
+          callback.
+
+          ## Step-Local Callback Contract
+
+          This step is reusable across flows. The orchestrator owns flow transitions
+          and decides which step, if any, follows this callback. Produce only the JSON
+          payload that matches this step's current `output_schema`, then submit it
+          through `commands.next`; do not shape output for a guessed successor.
+
+          Run deterministic checks only: schemas, DAG, tests, build, lint/typecheck,
+          manifest checks, and live behavior refs when applicable.
+        inference: handoff
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+      output:
+        schema:
+          format: json
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+      call: fastflow.afn.core.request.input
+      with:
+        body:
+          instruction: |-
+            # Loopship Validation Step
+
+            Act as a top-class deterministic validation engineer for Loopship. Treat this
+            instruction block as the validation step's system prompt: run objective
+            checks, report their evidence, and return only the schema-valid `validation`
+            callback.
+
+            ## Step-Local Callback Contract
+
+            This step is reusable across flows. The orchestrator owns flow transitions
+            and decides which step, if any, follows this callback. Produce only the JSON
+            payload that matches this step's current `output_schema`, then submit it
+            through `commands.next`; do not shape output for a guessed successor.
+
+            Run deterministic checks only: schemas, DAG, tests, build, lint/typecheck,
+            manifest checks, and live behavior refs when applicable.
+          request:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                step:
+                  type: object
+                  additionalProperties: true
+                inputs:
+                  $ref: ../../../schemas/steps/step-output.yaml
+                state:
+                  type: object
+                  additionalProperties: true
+                args:
+                  type: object
+                  additionalProperties: true
+              required:
+                - step
+                - inputs
+            build:
+              kind: js
+              using:
+                - inputs
+                - state
+                - args
+              code: >-
+                return {
+                  step: {"id":"validation","handler":"validation","summary":"Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs.","input_step":"validation","result_schema":"schemas/steps/step-output.yaml"},
+                  inputs,
+                  state,
+                  args
+                };
+          answer:
+            schema:
+              $ref: ../../../schemas/steps/validation-input.yaml
