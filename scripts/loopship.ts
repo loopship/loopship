@@ -1490,12 +1490,7 @@ function handlePlan(input: {
       input.requestId,
       { question_count: questions.length },
     );
-    return updateQuestStage(
-      input.files,
-      "awaiting_user_answers",
-      input.requestId,
-      "loopship resume",
-    );
+    return parseTasksYaml(readText(input.files.tasks));
   }
   const plan = {
     classification: String(input.payload.classification ?? ""),
@@ -1513,7 +1508,7 @@ function handlePlan(input: {
     constraints: asArray(input.payload.constraints),
     tasks: asArray(input.payload.task_graph?.tasks),
   };
-  const planned = applyQuestPlanToTasks(input.files, input.state, plan);
+  const planned = applyQuestPlanToTasks(input.files, current, plan);
   appendAuditEvent(
     input.files,
     "plan_submitted",
@@ -1525,12 +1520,7 @@ function handlePlan(input: {
       verification_target_count: plan.verification_targets.length,
     },
   );
-  return updateQuestStage(
-    input.files,
-    "plan_review",
-    input.requestId,
-    "loopship resume",
-  );
+  return parseTasksYaml(readText(input.files.tasks));
 }
 
 function handleQuestions(input: {
@@ -1555,12 +1545,7 @@ function handleQuestions(input: {
     input.requestId,
     { answer_count: answers.length },
   );
-  return updateQuestStage(
-    input.files,
-    "planning",
-    input.requestId,
-    "loopship resume",
-  );
+  return parseTasksYaml(readText(input.files.tasks));
 }
 
 function taskById(
@@ -1808,30 +1793,12 @@ function handleTaskGraph(input: {
   }
   if (!input.payload.approved) {
     appendV3Event(input.files, "task_graph_rejected", input.payload);
-    return updateQuestStage(
-      input.files,
-      "planning",
-      input.requestId,
-      "loopship resume",
-    );
+    return parseTasksYaml(readText(input.files.tasks));
   }
   const tasks = Array.isArray(input.state.tasks) ? input.state.tasks : [];
   if (!tasks.length) throw new Error("cannot execute an empty task graph");
   appendV3Event(input.files, "task_graph_approved", input.payload);
-  if (isChildExecutionQuestPrompt(input.state.prompt)) {
-    return updateQuestStage(
-      input.files,
-      "validating",
-      input.requestId,
-      "loopship resume",
-    );
-  }
-  return updateQuestStage(
-    input.files,
-    "task_graph_ready",
-    input.requestId,
-    "loopship resume",
-  );
+  return parseTasksYaml(readText(input.files.tasks));
 }
 
 function allTasksDone(state: Partial<{ tasks: QuestTask[] }>): boolean {
@@ -1923,10 +1890,11 @@ function handleChildResult(input: {
     ),
     merge_commit: String(input.payload.merge_commit ?? ""),
   };
+  const current = parseTasksYaml(readText(input.files.tasks));
   const next =
     status === "passed"
-      ? applyChildSummaryToTasks(input.files, input.state, taskUpdate)
-      : applyChildStatusToTasks(input.files, input.state, {
+      ? applyChildSummaryToTasks(input.files, current, taskUpdate)
+      : applyChildStatusToTasks(input.files, current, {
           ...taskUpdate,
           status: status === "blocked" ? "blocked" : "failed",
         });
@@ -1942,15 +1910,6 @@ function handleChildResult(input: {
       merge_commit: String(input.payload.merge_commit ?? ""),
     },
   );
-  if (allTasksDone(next)) {
-    return updateQuestStage(
-      input.files,
-      "validating",
-      input.requestId,
-      "loopship resume",
-    );
-  }
-  writeV3Manifest(input.files, input.requestId);
   return parseTasksYaml(readText(input.files.tasks));
 }
 
@@ -1986,16 +1945,7 @@ function handleValidation(input: {
         : 0,
     },
   );
-  return updateQuestStage(
-    input.files,
-    input.payload.status === "passed"
-      ? "verification_pending"
-      : isChildExecutionQuestPrompt(input.state.prompt)
-        ? "validating"
-        : "task_graph_ready",
-    input.requestId,
-    "loopship resume",
-  );
+  return parseTasksYaml(readText(input.files.tasks));
 }
 
 function handleVerification(input: {
@@ -2035,12 +1985,7 @@ function handleVerification(input: {
         : 0,
     },
   );
-  return updateQuestStage(
-    input.files,
-    input.payload.status === "passed" ? "system_update_pending" : "validating",
-    input.requestId,
-    "loopship resume",
-  );
+  return parseTasksYaml(readText(input.files.tasks));
 }
 
 function handleSystemUpdate(input: {
@@ -2072,12 +2017,7 @@ function handleSystemUpdate(input: {
       input.requestId,
     );
   }
-  return updateQuestStage(
-    input.files,
-    "landing_ready",
-    input.requestId,
-    "loopship resume",
-  );
+  return parseTasksYaml(readText(input.files.tasks));
 }
 
 function handleLanding(input: {
@@ -2161,13 +2101,7 @@ function handleLanding(input: {
         strategy: landingReceipt.strategy,
       },
     );
-    const archived = updateQuestStage(
-      input.files,
-      "archived",
-      input.requestId,
-      "loopship resume",
-    );
-    return { files: input.files, state: archived };
+    return { files: input.files, state: parseTasksYaml(readText(input.files.tasks)) };
   }
   appendAuditEvent(
     input.files,
@@ -2178,12 +2112,7 @@ function handleLanding(input: {
   );
   return {
     files: input.files,
-    state: updateQuestStage(
-      input.files,
-      "landing_ready",
-      input.requestId,
-      "loopship resume",
-    ),
+    state: parseTasksYaml(readText(input.files.tasks)),
   };
 }
 
@@ -2223,6 +2152,70 @@ function resumePersistenceMethodName(handlerName: string): string {
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join("");
   return suffix ? `persist${suffix}` : "";
+}
+
+function evaluateLoopshipTransitionKey(input: {
+  stageId: string;
+  transitionKey: ReturnType<typeof flowStage>["transition_key"];
+  payload: Record<string, any>;
+  tasks: Partial<{ [key: string]: any }>;
+}): string {
+  const rule = input.transitionKey;
+  if (!rule) return "continue";
+  if (rule.kind === "static") return rule.value;
+  const fn = new Function(
+    "payload",
+    "tasks",
+    "resolved",
+    "args",
+    rule.code,
+  ) as (
+    payload: Record<string, any>,
+    tasks: Partial<{ [key: string]: any }>,
+    resolved: Record<string, any>,
+    args: Record<string, any>,
+  ) => unknown;
+  return String(fn(input.payload, input.tasks, {}, { stage: input.stageId }) ?? "continue");
+}
+
+function persistLocalFlowTransition(input: {
+  files: QuestFiles;
+  before: Partial<{ [key: string]: any }>;
+  after: Partial<{ [key: string]: any }>;
+  payload: Record<string, any>;
+  expected: string;
+  requestId: string;
+}): Record<string, any> {
+  const flow = loadStateFlow(input.before);
+  const currentStage = String(input.before.stage ?? flow.default_stage);
+  const stage = flowStage(flow, currentStage);
+  const stepDef = flowStep(flow, currentStage);
+  const expectedInputStep = stepDef.input_step ?? stepDef.id;
+  if (expectedInputStep !== input.expected) {
+    throw new Error(
+      `Loopship flow expected input step '${expectedInputStep}' for stage '${currentStage}', got '${input.expected}'`,
+    );
+  }
+  const key = evaluateLoopshipTransitionKey({
+    stageId: stage.id,
+    transitionKey: stage.transition_key,
+    payload: input.payload,
+    tasks: input.after,
+  });
+  const targetStage = stage.transitions[key] || stage.id;
+  let state = input.after;
+  if (String(state.stage ?? "").trim() !== targetStage) {
+    state = updateQuestStage(input.files, targetStage, input.requestId, "loopship resume");
+  }
+  return {
+    schema_version: "loopship.flow-transition/v1",
+    flow_id: flow.id,
+    stage_before: stage.id,
+    stage_after: targetStage,
+    transition: key,
+    step: input.expected,
+    state,
+  };
 }
 
 class LoopshipResumePersistence {
@@ -2307,24 +2300,71 @@ class LoopshipResumePersistence {
 
 function applyLoopshipResumePayload(input: Parameters<LoopshipResumeHandler>[0] & {
   expected: string;
+  fastflowTransition: Record<string, any> | null;
 }): LoopshipResumeHandlerResult {
+  const nativeTransition = input.fastflowTransition
+    ? requireFastflowFlowTransition({
+        expected: input.expected,
+        result: input.fastflowTransition,
+      })
+    : null;
   const handlerName = resolveResumeHandlerName(input);
-  return new LoopshipResumePersistence(input).apply(handlerName);
+  const result = new LoopshipResumePersistence(input).apply(handlerName);
+  let refreshed = parseTasksYaml(readText(result.files.tasks));
+  const transition =
+    nativeTransition ??
+    persistLocalFlowTransition({
+      files: result.files,
+      before: input.state,
+      after: refreshed,
+      payload: input.payload,
+      expected: input.expected,
+      requestId: input.requestId,
+    });
+  refreshed = parseTasksYaml(readText(result.files.tasks));
+  const actualStage = String(refreshed.stage ?? "").trim();
+  const expectedStage = String(transition.stage_after ?? "").trim();
+  if (actualStage !== expectedStage) {
+    throw new Error(
+      `Loopship persistence wrote stage '${actualStage}' but Fastflow flow derived '${expectedStage}'`,
+    );
+  }
+  writeV3Manifest(result.files, input.requestId);
+  return { files: result.files, state: refreshed };
 }
 
-function assertFastflowFlowTransition(input: {
+function requireFastflowFlowTransition(input: {
   expected: string;
   result: Record<string, any> | null;
-}): void {
-  if (!input.result) return;
+}): Record<string, any> {
+  if (!input.result) {
+    throw new Error(
+      `missing Fastflow transition for Loopship step '${input.expected}'`,
+    );
+  }
   const output = input.result.output;
-  if (!output || typeof output !== "object" || Array.isArray(output)) return;
-  if (output.schema_version !== "loopship.flow-transition/v1") return;
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    throw new Error(
+      `Fastflow transition for Loopship step '${input.expected}' did not return an object output`,
+    );
+  }
+  if (output.schema_version !== "loopship.flow-transition/v1") {
+    throw new Error(
+      `Fastflow transition for Loopship step '${input.expected}' returned unsupported schema_version '${String(output.schema_version ?? "")}'`,
+    );
+  }
   if (String(output.step ?? "") !== input.expected) {
     throw new Error(
       `Fastflow flow resumed step '${String(output.step ?? "")}' but Loopship expected '${input.expected}'`,
     );
   }
+  const expectedStage = String(output.stage_after ?? "").trim();
+  if (!expectedStage) {
+    throw new Error(
+      `Fastflow transition for Loopship step '${input.expected}' did not return stage_after`,
+    );
+  }
+  return output as Record<string, any>;
 }
 
 function assertFastflowPersistedStage(input: {
@@ -2896,10 +2936,6 @@ export async function runFastflowResume(argv: string[]): Promise<number> {
         stepId: expected,
         payload,
       });
-      assertFastflowFlowTransition({
-        expected,
-        result: fastflowTransition,
-      });
       const requestId = `next-${wtree}-${Date.now().toString(36)}`;
       try {
         const applied = applyLoopshipResumePayload({
@@ -2909,6 +2945,7 @@ export async function runFastflowResume(argv: string[]): Promise<number> {
           payload,
           requestId,
           expected,
+          fastflowTransition,
         });
         state = applied.state;
         responseFiles = applied.files;

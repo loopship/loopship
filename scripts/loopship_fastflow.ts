@@ -277,6 +277,7 @@ const DESCRIPTOR_BY_CALL = new Map(
 );
 
 type FastflowRecord = Record<string, unknown>;
+type FastflowCatalogModule = typeof import("@cueintent/fastflow/catalog");
 
 export type LoopshipFastflowSession = {
   schema_version: "loopship.fastflow.session/v1";
@@ -1059,6 +1060,29 @@ function decisionPayload(value) {
   if (Object.prototype.hasOwnProperty.call(out, "decision")) return out.decision;
   return out;
 }
+function tasksAfterPayload(tasks, payload, stepId) {
+  if (stepId !== "child_result") return tasks;
+  const taskId = String(payload.task_id || payload.id || "");
+  const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];
+  if (!taskId || !items.length) return tasks;
+  return {
+    ...tasks,
+    tasks: items.map((task) => {
+      if (String(task.id || "") !== taskId) return task;
+      const status = String(payload.status || "");
+      return {
+        ...task,
+        status: status === "passed" ? "child_archived" : status === "blocked" ? "blocked" : "failed",
+        child_wtree: String(payload.child_wtree || task.child_wtree || ""),
+        branch_ref: String(payload.branch_ref || task.branch_ref || ""),
+        worktree_path: String(payload.worktree_path || task.worktree_path || ""),
+        merge_target: String(payload.merge_target || task.merge_target || ""),
+        merge_lease_id: String(payload.merge_lease_id || task.merge_lease_id || ""),
+        merge_commit: String(payload.merge_commit || task.merge_commit || "")
+      };
+    })
+  };
+}
 ${buildTransitionKeyFunction(flow)}
 const resolved = object(state.steps.resolve_stage?.action);
 const currentStage = String(resolved.current_stage || args.stage || flow.default_stage);
@@ -1070,7 +1094,8 @@ const workflowOutput = object(stageAction.result?.output || stageAction.workflow
 const payload = decisionPayload(workflowOutput);
 const tasks = object(state.steps.read_tasks?.action);
 const stepId = inputStepByStage[stage.id] || stage.step;
-const key = transitionKey(stage.id, payload, tasks, resolved, args);
+const transitionTasks = tasksAfterPayload(tasks, payload, stepId);
+const key = transitionKey(stage.id, payload, transitionTasks, resolved, args);
 const transitions = object(stage.transitions);
 const targetStage = transitions[key] || stage.id;
 return {
@@ -1083,6 +1108,17 @@ return {
   step_workflow_task: taskName,
   step_payload: payload,
   step_action: stageAction,
+  state_patch: {
+    stage: targetStage
+  },
+  event_payload: {
+    event: "stage_changed",
+    stage: targetStage,
+    transition: key,
+    step: stepId,
+    stage_before: stage.id,
+    stage_after: targetStage
+  },
   runtime: resolved.runtime || {
     tasks,
     manifest: null,
@@ -1198,6 +1234,56 @@ export function buildLoopshipFastflowFlowWorkflow(
           },
         },
       },
+      {
+        persist_stage: {
+          metadata: commonTaskMetadata("Persist the Fastflow-derived Loopship stage through workflow data."),
+          call: LOOPSHIP_DATA_CALLS.documentPatch,
+          with: {
+            body: dataBody({
+              adapter: "yaml",
+              document: "tasks",
+              patch: "${state.steps.derive_transition.action.state_patch}",
+            }),
+          },
+          output: {
+            schema: {
+              document: { type: "object", additionalProperties: true },
+            },
+            as: "${action}",
+          },
+        },
+      },
+      {
+        append_stage_event: {
+          metadata: commonTaskMetadata("Append the Fastflow-derived stage transition event through workflow data."),
+          call: LOOPSHIP_DATA_CALLS.eventLogAppend,
+          with: {
+            body: dataBody({
+              adapter: "jsonl",
+              log: "events",
+              events: [
+                {
+                  schema_version: "1.0.0",
+                  payload: {
+                    event: "${state.steps.derive_transition.action.event_payload.event}",
+                    stage: "${state.steps.derive_transition.action.event_payload.stage}",
+                    transition: "${state.steps.derive_transition.action.event_payload.transition}",
+                    step: "${state.steps.derive_transition.action.event_payload.step}",
+                    stage_before: "${state.steps.derive_transition.action.event_payload.stage_before}",
+                    stage_after: "${state.steps.derive_transition.action.event_payload.stage_after}",
+                  },
+                },
+              ],
+            }),
+          },
+          output: {
+            schema: {
+              document: { type: "object", additionalProperties: true },
+            },
+            as: "${action}",
+          },
+        },
+      },
     ],
     output: {
       schema: {
@@ -1236,6 +1322,16 @@ function resolveFastflowRoot(): string {
   throw new Error("could not resolve @cueintent/fastflow runtime");
 }
 
+async function importFastflowCatalogModule(): Promise<FastflowCatalogModule> {
+  try {
+    return await import("@cueintent/fastflow/catalog");
+  } catch (error) {
+    const sourceModule = resolve(resolveFastflowRoot(), "src", "catalog.mjs");
+    if (!existsSync(sourceModule)) throw error;
+    return (await import(pathToFileURL(sourceModule).href)) as FastflowCatalogModule;
+  }
+}
+
 function loopshipCatalogRoot(repoRoot: string): string {
   return resolve(repoRoot, "call-catalog");
 }
@@ -1254,7 +1350,7 @@ function generatedCatalogSourceDigest(): string {
   };
   hash.update(WORKFLOW_CATALOG_GENERATOR_VERSION);
   addFile(fileURLToPath(import.meta.url));
-  addFile(resolve(LOOPSHIP_ROOT, "assets", "flows", `${DEFAULT_FLOW_ID}.stable.yaml`));
+  addFile(resolve(LOOPSHIP_ROOT, "assets", "flows", `${DEFAULT_FLOW_ID}.flow.yaml`));
   const stepDir = resolve(LOOPSHIP_ROOT, "assets", "workflows", "steps");
   for (const name of readdirSync(stepDir).filter((entry) => entry.endsWith(".stable.yaml")).sort()) {
     addFile(resolve(stepDir, name));
@@ -1352,7 +1448,7 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
   const {
     buildWorkflowReleaseEntry,
     writeGeneratedWorkflowCatalog,
-  } = await import("@cueintent/fastflow/catalog");
+  } = await importFastflowCatalogModule();
   for (const [stepId, workflow] of Object.entries(stepWorkflows)) {
     const name = workflowNameForStep(stepId);
     const call = workflowRefFor(LOOPSHIP_STEP_SCOPE, name);
@@ -1493,7 +1589,7 @@ export async function startLoopshipFastflowStepSession(input: {
   flowId?: string;
   inputs: Record<string, unknown>;
 }): Promise<LoopshipFastflowSession | null> {
-  const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(input.repoRoot);
+  const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
   const workflowRef = loopshipFlowWorkflowRef(input.flowId || DEFAULT_FLOW_ID);
   const result = runFastflowNodeSession({
     repoRoot: input.repoRoot,
@@ -1529,7 +1625,7 @@ export async function resumeLoopshipFastflowStepSession(input: {
   session: LoopshipFastflowSession;
   decision: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
-  const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(input.repoRoot);
+  const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
   return runFastflowNodeSession({
     repoRoot: input.repoRoot,
     workspaceRoot: input.workspaceRoot,
@@ -2083,10 +2179,10 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
 }
 
 export async function configureFastflowForLoopship(
-  repoRoot: string = LOOPSHIP_ROOT,
+  _repoRoot: string = LOOPSHIP_ROOT,
 ): Promise<Record<string, unknown>> {
   const { configureFastflowApp } = await import("@cueintent/fastflow");
-  const workflowCatalogRoot = await ensureLoopshipFastflowWorkflowCatalog(repoRoot);
+  const workflowCatalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
   return configureFastflowApp({
     appName: "loopship",
     systemWorkflowsDir: workflowCatalogRoot,

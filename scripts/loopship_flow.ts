@@ -14,6 +14,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const DEFAULT_FLOW_ID = "swe";
 export const DEFAULT_FLOW_VERSION = 1;
+const FLOW_SOURCE_EXTENSION = ".flow.yaml";
 
 export type LoopshipStepDefinition = {
   schema_version: 1;
@@ -207,8 +208,8 @@ function assertKnownFlowRef(
   currentFlowPath: string,
 ): void {
   if (flowId === currentFlowId) return;
-  const siblingFlow = resolve(dirname(currentFlowPath), `${flowId}.stable.yaml`);
-  const bundledFlow = resolve(ROOT, "assets", "flows", `${flowId}.stable.yaml`);
+  const siblingFlow = resolve(dirname(currentFlowPath), `${flowId}${FLOW_SOURCE_EXTENSION}`);
+  const bundledFlow = resolve(ROOT, "assets", "flows", `${flowId}${FLOW_SOURCE_EXTENSION}`);
   if (!existsSync(siblingFlow) && !existsSync(bundledFlow)) {
     fail(`${owner}.flow_id references missing flow: ${flowId}`);
   }
@@ -277,7 +278,7 @@ export function loadStepDefinitions(
 }
 
 export function loadFlowDefinition(flowId = DEFAULT_FLOW_ID): LoadedLoopshipFlow {
-  const path = resolve(ROOT, "assets", "flows", `${flowId}.stable.yaml`);
+  const path = resolve(ROOT, "assets", "flows", `${flowId}${FLOW_SOURCE_EXTENSION}`);
   if (!existsSync(path)) fail(`unknown flow: ${flowId}`);
   return loadFlowDefinitionFromPath(path, flowId);
 }
@@ -287,27 +288,14 @@ export function loadFlowDefinitionFromPath(
   expectedFlowId?: string,
   stepsById = loadStepDefinitions(),
 ): LoadedLoopshipFlow {
-  const raw = readYamlObject(path);
-  const flowId = String(raw.document?.name ?? "");
+  const loopshipFlow = readYamlObject(path);
+  const flowId = stringValue(loopshipFlow.id, `${path}.id`);
   if (expectedFlowId && flowId !== expectedFlowId) {
-    fail(`${path} workflow name must match requested flow ${expectedFlowId}`);
-  }
-  const rawTasks = Array.isArray(raw.do) ? raw.do : [];
-  const flowSpecEntry = rawTasks
-    .map((item: Record<string, any>) => Object.entries(item || {})[0])
-    .find((entry) => entry?.[0] === "flow_spec");
-  const loopshipFlow =
-    flowSpecEntry?.[1]?.set &&
-    typeof flowSpecEntry[1].set === "object" &&
-    !Array.isArray(flowSpecEntry[1].set)
-      ? (flowSpecEntry[1].set as Record<string, any>)
-      : null;
-  if (!loopshipFlow) {
-    fail(`${path} workflow must declare a flow_spec set task`);
+    fail(`${path} flow id must match requested flow ${expectedFlowId}`);
   }
   const defaultStage = stringValue(
-    loopshipFlow.defaultStage,
-    `${path}.do.flow_spec.set.defaultStage`,
+    loopshipFlow.default_stage ?? loopshipFlow.defaultStage,
+    `${path}.default_stage`,
   );
   const stageRecords =
     loopshipFlow.stages &&
@@ -316,34 +304,13 @@ export function loadFlowDefinitionFromPath(
       ? (loopshipFlow.stages as Record<string, any>)
       : null;
   if (!stageRecords || !Object.keys(stageRecords).length) {
-    fail(`${path} workflow must declare do.flow_spec.set.stages`);
-  }
-
-  const taskMap = new Map<string, Record<string, any>>();
-  for (const item of rawTasks as Array<Record<string, any>>) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      fail(`${path}.do entries must be named task objects`);
-    }
-    const entries = Object.entries(item);
-    if (entries.length !== 1) {
-      fail(`${path}.do entries must contain exactly one named task`);
-    }
-    const [taskName, taskDef] = entries[0] as [string, Record<string, any>];
-    if (taskName === "flow_spec") continue;
-    taskMap.set(taskName, taskDef);
+    fail(`${path} flow source must declare stages`);
   }
 
   const stages: LoopshipFlowStage[] = Object.entries(stageRecords).map(
     ([stageId, stageDef]) => {
       if (!stageDef || typeof stageDef !== "object" || Array.isArray(stageDef)) {
-        fail(`${path}.do.flow_spec.set.stages.${stageId} must be an object`);
-      }
-      const taskName = String(
-        stageDef.task ?? stageDef.taskName ?? stageDef.stageTask ?? stageId,
-      );
-      const taskDef = taskMap.get(taskName);
-      if (!taskDef) {
-        fail(`${path} stage ${stageId} references missing task ${taskName}`);
+        fail(`${path}.stages.${stageId} must be an object`);
       }
       const stepId = String(
         stageDef.step ?? stageDef.stepId ?? "",
@@ -363,7 +330,7 @@ export function loadFlowDefinitionFromPath(
         transitions,
         transition_key: transitionKeyFromStage(
           stageDef.transitionKey ?? stageDef.transition_key,
-          `${path}.do.flow_spec.set.stages.${stageId}.transitionKey`,
+          `${path}.stages.${stageId}.transitionKey`,
         ),
       };
     },
@@ -375,7 +342,7 @@ export function loadFlowDefinitionFromPath(
     stagesById[stage.id] = stage;
   }
   if (!stagesById[defaultStage]) {
-    fail(`${path} default stage is not in do.flow_spec.set.stages: ${defaultStage}`);
+    fail(`${path} default stage is not in stages: ${defaultStage}`);
   }
   for (const stage of stages) {
     for (const [name, target] of Object.entries(stage.transitions)) {
@@ -389,7 +356,7 @@ export function loadFlowDefinitionFromPath(
   const subflowsRaw = Array.isArray(loopshipFlow.subflows) ? loopshipFlow.subflows : [];
   const subflows: LoopshipSubflowDefinition[] = subflowsRaw.map(
     (subflow: Record<string, any>, index: number) => {
-      const prefix = `${path}.do.flow_spec.set.subflows[${index}]`;
+      const prefix = `${path}.subflows[${index}]`;
       if (!subflow || typeof subflow !== "object" || Array.isArray(subflow)) {
         fail(`${prefix} must be an object`);
       }
@@ -440,7 +407,7 @@ export function loadFlowDefinitionFromPath(
   return {
     schema_version: 1,
     id: flowId,
-    version: Number(loopshipFlow.version ?? 1),
+    version: Number(loopshipFlow.version ?? DEFAULT_FLOW_VERSION),
     default_stage: defaultStage,
     stages,
     subflows,
@@ -475,8 +442,8 @@ export function listBundledFlows(): Array<{
   const dir = resolve(ROOT, "assets", "flows");
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((name) => name.endsWith(".stable.yaml"))
-    .map((name) => loadFlowDefinition(name.replace(/\.stable\.yaml$/, "")))
+    .filter((name) => name.endsWith(FLOW_SOURCE_EXTENSION))
+    .map((name) => loadFlowDefinition(name.slice(0, -FLOW_SOURCE_EXTENSION.length)))
     .map((flow) => ({
       id: flow.id,
       version: flow.version,

@@ -76,14 +76,23 @@ function detectWorkflowKind(
   rawWorkflow: Record<string, unknown>,
 ): LoopshipWorkflowRecord["workflowKind"] {
   const tasks = Array.isArray(rawWorkflow.do) ? rawWorkflow.do : [];
-  const hasFlowSpec = tasks.some(
-    (item) =>
-      item &&
-      typeof item === "object" &&
-      !Array.isArray(item) &&
-      Object.prototype.hasOwnProperty.call(item, "flow_spec"),
-  );
-  if (hasFlowSpec) return "flow";
+  const document =
+    rawWorkflow.document &&
+    typeof rawWorkflow.document === "object" &&
+    !Array.isArray(rawWorkflow.document)
+      ? (rawWorkflow.document as Record<string, unknown>)
+      : {};
+  const namespace = String(document.namespace ?? "");
+  const tags = Array.isArray((document.metadata as Record<string, any> | undefined)?.catalog?.tags)
+    ? ((document.metadata as Record<string, any>).catalog.tags as unknown[])
+    : [];
+  if (
+    namespace === "loopship-flows" ||
+    namespace === "service-flows" ||
+    tags.some((tag) => String(tag) === "flow")
+  ) {
+    return "flow";
+  }
   return tasks.length === 1 ? "step-workflow" : null;
 }
 
@@ -113,7 +122,7 @@ export function loadWorkflowRecord(filePath: string): LoopshipWorkflowRecord {
     workflowKind,
     flow:
       workflowKind === "flow"
-        ? loadFlowDefinitionFromPath(filePath, String(document.name ?? ""))
+        ? loadFlowDefinition(String(document.name ?? ""))
         : null,
     step:
       workflowKind === "step-workflow" ? loadSingleStepWorkflow(filePath) : null,
@@ -126,7 +135,7 @@ function validateLoopshipSemantics(
 ): void {
   if (record.workflowKind === "flow") {
     try {
-      loadFlowDefinitionFromPath(record.filePath, record.workflowId || undefined);
+      loadFlowDefinition(record.workflowId || undefined);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
@@ -141,7 +150,7 @@ function validateLoopshipSemantics(
     return;
   }
   errors.push(
-    `${record.filePath} must be a Loopship Fastflow flow with flow_spec or a single-step workflow`,
+    `${record.filePath} must be a Loopship Fastflow flow or a single-step workflow`,
   );
 }
 

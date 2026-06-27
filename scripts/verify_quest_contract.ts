@@ -13,7 +13,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "./loopship_utils.ts";
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
+const LOOPSHIP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const SCRIPT = resolve(LOOPSHIP_ROOT, "scripts", "loopship.ts");
 
 function fail(message: string): never {
   throw new Error(message);
@@ -138,8 +139,7 @@ function main(): number {
     if (
       !existsSync(
         join(
-          repo,
-          ".loopship",
+          LOOPSHIP_ROOT,
           "call-catalog",
           "loopship",
           "workflow",
@@ -154,8 +154,7 @@ function main(): number {
     if (
       !existsSync(
         join(
-          repo,
-          ".loopship",
+          LOOPSHIP_ROOT,
           "call-catalog",
           "loopship",
           "workflow",
@@ -170,8 +169,7 @@ function main(): number {
     if (
       !existsSync(
         join(
-          repo,
-          ".loopship",
+          LOOPSHIP_ROOT,
           "call-catalog",
           "loopship",
           "workflow",
@@ -184,10 +182,10 @@ function main(): number {
       fail("missing generated Loopship-owned Fastflow flow catalog");
     }
     if (
+      existsSync(join(repo, ".loopship", "call-catalog")) ||
       existsSync(
         join(
-          repo,
-          ".loopship",
+          LOOPSHIP_ROOT,
           "call-catalog",
           "loopship",
           "workflow",
@@ -198,8 +196,7 @@ function main(): number {
       ) ||
       existsSync(
         join(
-          repo,
-          ".loopship",
+          LOOPSHIP_ROOT,
           "call-catalog",
           "loopship",
           "workflow",
@@ -214,8 +211,7 @@ function main(): number {
     if (
       existsSync(
         join(
-          repo,
-          ".loopship",
+          LOOPSHIP_ROOT,
           "call-catalog",
           "loopship",
           "workflow",

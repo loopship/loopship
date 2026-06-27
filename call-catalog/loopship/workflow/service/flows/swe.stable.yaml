@@ -2007,6 +2007,29 @@ do:
               if (Object.prototype.hasOwnProperty.call(out, "decision")) return out.decision;
               return out;
             }
+            function tasksAfterPayload(tasks, payload, stepId) {
+              if (stepId !== "child_result") return tasks;
+              const taskId = String(payload.task_id || payload.id || "");
+              const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];
+              if (!taskId || !items.length) return tasks;
+              return {
+                ...tasks,
+                tasks: items.map((task) => {
+                  if (String(task.id || "") !== taskId) return task;
+                  const status = String(payload.status || "");
+                  return {
+                    ...task,
+                    status: status === "passed" ? "child_archived" : status === "blocked" ? "blocked" : "failed",
+                    child_wtree: String(payload.child_wtree || task.child_wtree || ""),
+                    branch_ref: String(payload.branch_ref || task.branch_ref || ""),
+                    worktree_path: String(payload.worktree_path || task.worktree_path || ""),
+                    merge_target: String(payload.merge_target || task.merge_target || ""),
+                    merge_lease_id: String(payload.merge_lease_id || task.merge_lease_id || ""),
+                    merge_commit: String(payload.merge_commit || task.merge_commit || "")
+                  };
+                })
+              };
+            }
             function transitionKey(stageId, payload, tasks, resolved, args) {
               switch (stageId) {
                 case "planning": {
@@ -2085,7 +2108,8 @@ do:
             const payload = decisionPayload(workflowOutput);
             const tasks = object(state.steps.read_tasks?.action);
             const stepId = inputStepByStage[stage.id] || stage.step;
-            const key = transitionKey(stage.id, payload, tasks, resolved, args);
+            const transitionTasks = tasksAfterPayload(tasks, payload, stepId);
+            const key = transitionKey(stage.id, payload, transitionTasks, resolved, args);
             const transitions = object(stage.transitions);
             const targetStage = transitions[key] || stage.id;
             return {
@@ -2098,6 +2122,17 @@ do:
               step_workflow_task: taskName,
               step_payload: payload,
               step_action: stageAction,
+              state_patch: {
+                stage: targetStage
+              },
+              event_payload: {
+                event: "stage_changed",
+                stage: targetStage,
+                transition: key,
+                step: stepId,
+                stage_before: stage.id,
+                stage_after: targetStage
+              },
               runtime: resolved.runtime || {
                 tasks,
                 manifest: null,
@@ -2110,6 +2145,84 @@ do:
             type: object
             additionalProperties: true
         as: "${action.value}"
+  - persist_stage:
+      metadata:
+        description: "Persist the Fastflow-derived Loopship stage through workflow data."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: fastflow.afn.data.document.patch
+      with:
+        body:
+          namespace: .loopship/runtime
+          adapter_config:
+            rootDir: .
+          adapter: yaml
+          document: tasks
+          patch: "${state.steps.derive_transition.action.state_patch}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+  - append_stage_event:
+      metadata:
+        description: "Append the Fastflow-derived stage transition event through workflow data."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: fastflow.afn.data.event-log.append
+      with:
+        body:
+          namespace: .loopship/runtime
+          adapter_config:
+            rootDir: .
+          adapter: jsonl
+          log: events
+          events:
+            - schema_version: 1.0.0
+              payload:
+                event: "${state.steps.derive_transition.action.event_payload.event}"
+                stage: "${state.steps.derive_transition.action.event_payload.stage}"
+                transition: "${state.steps.derive_transition.action.event_payload.transition}"
+                step: "${state.steps.derive_transition.action.event_payload.step}"
+                stage_before: "${state.steps.derive_transition.action.event_payload.stage_before}"
+                stage_after: "${state.steps.derive_transition.action.event_payload.stage_after}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
 output:
   schema:
     document:

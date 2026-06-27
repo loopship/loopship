@@ -400,7 +400,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("source flow and step workflow YAML files are Fastflow-valid", () => {
     const flowFiles = readdirSync(join(process.cwd(), "assets", "flows"));
     const stepFiles = readdirSync(join(process.cwd(), "assets", "workflows", "steps"));
-    expect(flowFiles.every((name) => !name.endsWith(".yaml") || name.endsWith(".stable.yaml"))).toBe(true);
+    expect(flowFiles.every((name) => !name.endsWith(".yaml") || name.endsWith(".stable.yaml") || name.endsWith(".flow.yaml"))).toBe(true);
     expect(stepFiles.every((name) => !name.endsWith(".yaml") || name.endsWith(".stable.yaml"))).toBe(true);
     const workflows: Record<string, unknown> = {
       "flows/swe": loadYamlWorkflow(join(process.cwd(), "assets", "flows", "swe.stable.yaml")),
