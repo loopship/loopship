@@ -1214,11 +1214,13 @@ export function buildLoopshipFastflowFlowWorkflow(
 export function buildLoopshipFastflowSuperviseStepRunRequest(input: {
   workflowRef: string;
   inputs?: Record<string, unknown>;
+  progressMode?: string;
 }): Record<string, unknown> {
   return {
     workflowRef: input.workflowRef,
     inputs: input.inputs || {},
     superviseStep: true,
+    ...(input.progressMode ? { progressMode: input.progressMode } : {}),
   };
 }
 
@@ -1278,17 +1280,6 @@ function generatedCatalogIsComplete(root: string): boolean {
   );
 }
 
-function readGeneratedCatalogCache(repoRoot: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(readFileSync(generatedCatalogCachePath(repoRoot), "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function workflowRefFor(scope: string, name: string): string {
   return [
     LOOPSHIP_WORKFLOW_REGISTRY,
@@ -1346,15 +1337,10 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
   repoRoot: string,
 ): Promise<string> {
   const root = loopshipCatalogRoot(repoRoot);
-  const sourceDigest = generatedCatalogSourceDigest();
-  const cache = readGeneratedCatalogCache(repoRoot);
-  if (
-    cache?.version === WORKFLOW_CATALOG_GENERATOR_VERSION &&
-    cache?.source_digest === sourceDigest &&
-    generatedCatalogIsComplete(root)
-  ) {
+  if (generatedCatalogIsComplete(root)) {
     return root;
   }
+  const sourceDigest = generatedCatalogSourceDigest();
   const stepWorkflows = buildLoopshipFastflowStepWorkflows();
   const stepPins: StepWorkflowPins = {};
   const generatedWorkflows: Array<{
@@ -1514,7 +1500,7 @@ export async function startLoopshipFastflowStepSession(input: {
     workspaceRoot: input.workspaceRoot,
     catalogRoot,
     operation: "run",
-    request: {
+    request: buildLoopshipFastflowSuperviseStepRunRequest({
       workflowRef,
       inputs: {
         ...input.inputs,
@@ -1523,7 +1509,7 @@ export async function startLoopshipFastflowStepSession(input: {
         step_id: input.stepId,
       },
       progressMode: "compact",
-    },
+    }),
   });
   if (result?.status !== "paused" || !result.pause?.sessionId || !result.pause?.nonce) {
     return null;
