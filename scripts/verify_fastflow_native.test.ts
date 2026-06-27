@@ -64,6 +64,20 @@ function runNodeCheck(source: string, args: string[] = []): string {
   }
 }
 
+function collectRelativeFiles(root: string, prefix = ""): string[] {
+  const entries = readdirSync(join(root, prefix), { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const relative = prefix ? join(prefix, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...collectRelativeFiles(root, relative));
+    } else if (entry.isFile()) {
+      files.push(relative);
+    }
+  }
+  return files.sort();
+}
+
 function fastflowImport(subpath: "root" | "workflow"): string {
   const fastflowRoot = resolveFastflowRoot();
   const sourcePath =
@@ -445,6 +459,18 @@ describe("Loopship Fastflow-native bridge", () => {
       inputs: { request: "loopship: test" },
       superviseStep: true,
     });
+    expect(
+      buildLoopshipFastflowSuperviseStepRunRequest({
+        workflowRef: "loopship.workflow.service.flows.swe",
+        inputs: { mode: "step", step_id: "plan" },
+        progressMode: "compact",
+      }),
+    ).toEqual({
+      workflowRef: "loopship.workflow.service.flows.swe",
+      inputs: { mode: "step", step_id: "plan" },
+      superviseStep: true,
+      progressMode: "compact",
+    });
   });
 
   test("writes generated workflow catalog to canonical Loopship call-id paths", async () => {
@@ -461,6 +487,12 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "index.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "step"))).toBe(false);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "flows"))).toBe(false);
+      const generatedWorkflowRoot = join(catalogRoot, "loopship", "workflow");
+      for (const relative of collectRelativeFiles(generatedWorkflowRoot)) {
+        expect(readFileSync(join(generatedWorkflowRoot, relative), "utf8")).toBe(
+          readFileSync(join(LOOPSHIP_CALL_CATALOG_ROOT, "loopship", "workflow", relative), "utf8"),
+        );
+      }
       const manifest = parseYaml(readFileSync(join(catalogRoot, "index.yaml"), "utf8")) as any;
       expect(manifest.schemaVersion).toBe("fastflow/call-catalog-manifest/v3");
       expect(manifest.pathTemplate).toBe("{registry}/{kind}/{target}/{scope}/index.yaml");
@@ -472,7 +504,7 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("ships the root Fastflow call catalog", () => {
+  test("ships the root Fastflow call catalog", async () => {
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as {
       files?: unknown[];
     };
@@ -480,6 +512,10 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(existsSync(join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step", "plan.stable.yaml"))).toBe(true);
     expect(existsSync(join(process.cwd(), "call-catalog", ".loopship-generator.json"))).toBe(false);
     expect(existsSync(join(process.cwd(), ".loopship", "call-catalog"))).toBe(false);
+    const packageCache = join(process.cwd(), "tmp", "loopship-fastflow-workflow-catalog.json");
+    rmSync(packageCache, { force: true });
+    expect(await ensureLoopshipFastflowWorkflowCatalog(process.cwd())).toBe(LOOPSHIP_CALL_CATALOG_ROOT);
+    expect(existsSync(packageCache)).toBe(false);
   });
 
   test("rejects missing required Loopship AFN fields at validation time", () => {
