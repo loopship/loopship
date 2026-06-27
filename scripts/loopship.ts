@@ -2476,7 +2476,27 @@ async function resumeNativeFastflowStepSession(input: {
   stepId: string;
   payload: Record<string, unknown>;
 }): Promise<Record<string, any> | null> {
-  if (!(await isFastflowHandoffStep(input.stepId))) return null;
+  if (!(await isFastflowHandoffStep(input.stepId))) {
+    const {
+      isLoopshipFastflowGeneratedStep,
+      runLoopshipFastflowStepOnce,
+    } = await import("./loopship_fastflow.ts");
+    if (!isLoopshipFastflowGeneratedStep(input.stepId)) return null;
+    const state = parseTasksYaml(readText(input.files.tasks));
+    const flow = loadStateFlow(state);
+    return (await runLoopshipFastflowStepOnce({
+      repoRoot: input.repoRoot,
+      workspaceRoot: questWorkspaceRoot(input.files),
+      stepId: input.stepId,
+      stageId: String(state.stage ?? flow.default_stage),
+      flowId: flow.id,
+      inputs: {
+        ...input.payload,
+        repo: input.repoRoot,
+        wtree: input.files.wtree,
+      },
+    })) as Record<string, any>;
+  }
   const runtime = loadHookRuntimeState(input.files);
   const key = fastflowSessionKey(input.stepId);
   let session = runtime.fastflow_sessions?.[key];

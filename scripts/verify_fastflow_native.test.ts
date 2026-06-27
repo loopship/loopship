@@ -23,6 +23,7 @@ import {
   buildLoopshipWorkflowDataTasks,
   createLoopshipFastflowAdapters,
   ensureLoopshipFastflowWorkflowCatalog,
+  isLoopshipFastflowGeneratedStep,
   loopshipFlowWorkflowRef,
   loopshipStepWorkflowRef,
 } from "./loopship_fastflow.ts";
@@ -471,6 +472,9 @@ describe("Loopship Fastflow-native bridge", () => {
       superviseStep: true,
       progressMode: "compact",
     });
+    expect(isLoopshipFastflowGeneratedStep("landing")).toBe(true);
+    expect(isLoopshipFastflowGeneratedStep("system_update")).toBe(true);
+    expect(isLoopshipFastflowGeneratedStep("child_result")).toBe(false);
   });
 
   test("writes generated workflow catalog to canonical Loopship call-id paths", async () => {
