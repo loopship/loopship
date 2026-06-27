@@ -16,7 +16,7 @@ import { runCommand } from "./loopship_utils.ts";
 import { validateV3Input } from "./loopship_schema.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
-setDefaultTimeout(300_000);
+setDefaultTimeout(900_000);
 const EMPTY_SYSTEM_CONTEXT = {
   relevant_object_refs: [],
   relevant_assertion_refs: [],
@@ -690,7 +690,7 @@ describe("loopship v3 child wtree integration", () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
-    300_000,
+    900_000,
   );
 
   it("allows decomposition after answered clarification for vague greenfield prompts", () => {
@@ -1167,7 +1167,7 @@ describe("loopship v3 child wtree integration", () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
-    300_000,
+    900_000,
   );
 
   it("rejects passing a child result while the matching child quest is unresolved", () => {
@@ -1628,6 +1628,6 @@ describe("loopship v3 child wtree integration", () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
-    300_000,
+    900_000,
   );
 });

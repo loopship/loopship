@@ -1,0 +1,175 @@
+document:
+  dsl: 1.0.3
+  namespace: loopship-steps
+  name: task-graph
+  version: 1.0.0
+  summary: Approve or reject the generated task graph, including a replan reason when rejected.
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - task_graph
+input:
+  schema:
+    format: json
+    document:
+      $ref: ../../../schemas/steps/step-output.yaml
+output:
+  schema:
+    format: json
+    document:
+      type: object
+      additionalProperties: true
+  as: ${state.steps.task_graph.action}
+do:
+  - task_graph:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/step-output.yaml
+        from: ${inputs}
+      metadata:
+        description: |-
+          # Loopship Task Graph Step
+
+          Act as a top-class task graph reviewer for Loopship. Treat this instruction
+          block as the task graph step's system prompt: approve only deterministic,
+          independent, acceptance-ready task graphs and return only the schema-valid
+          `task_graph` callback.
+
+          ## Step-Local Callback Contract
+
+          This step is reusable across flows. The orchestrator owns flow transitions
+          and decides which step, if any, follows this callback. Produce only the JSON
+          payload that matches this step's current `output_schema`, then submit it
+          through `commands.next`; do not shape output for a guessed successor.
+
+          Review the plan and task graph for completeness, independence, acceptance,
+          scope references, and missing system doc implications.
+
+          Approve only when dependencies, scope files, concurrency groups, and child
+          CLI-agent assignment fields are deterministic.
+          Prefer maximal useful independence so multiple ready tasks can run in
+          parallel. Dependent tasks should wait instead of being emitted as partially
+          blocked child work.
+
+          Reject graphs that are empty while the scoped request still requires
+          implementation work. Small scope should shrink the graph, not remove it.
+
+          Reject graphs that invent product scope or stack choices that were never
+          answered in the clarification round or recorded as explicit defaults.
+
+          Reject graphs that over-split tiny work. Setup-only tasks, trivial test-only
+          tasks, and micro-refactors should be folded into the nearest implementation
+          task unless they need separate ownership or materially different acceptance.
+
+          Reject graphs that would cause a child task to split again. Child quests are
+          leaf workers and should receive one independently completable assignment.
+
+          Reject small-prototype graphs that split scaffolding, implementation, and
+          verification into separate tasks when one or two concrete implementation
+          tasks would cover the same acceptance.
+        inference: handoff
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+      output:
+        schema:
+          format: json
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+      call: fastflow.afn.core.request.input
+      with:
+        body:
+          instruction: |-
+            # Loopship Task Graph Step
+
+            Act as a top-class task graph reviewer for Loopship. Treat this instruction
+            block as the task graph step's system prompt: approve only deterministic,
+            independent, acceptance-ready task graphs and return only the schema-valid
+            `task_graph` callback.
+
+            ## Step-Local Callback Contract
+
+            This step is reusable across flows. The orchestrator owns flow transitions
+            and decides which step, if any, follows this callback. Produce only the JSON
+            payload that matches this step's current `output_schema`, then submit it
+            through `commands.next`; do not shape output for a guessed successor.
+
+            Review the plan and task graph for completeness, independence, acceptance,
+            scope references, and missing system doc implications.
+
+            Approve only when dependencies, scope files, concurrency groups, and child
+            CLI-agent assignment fields are deterministic.
+            Prefer maximal useful independence so multiple ready tasks can run in
+            parallel. Dependent tasks should wait instead of being emitted as partially
+            blocked child work.
+
+            Reject graphs that are empty while the scoped request still requires
+            implementation work. Small scope should shrink the graph, not remove it.
+
+            Reject graphs that invent product scope or stack choices that were never
+            answered in the clarification round or recorded as explicit defaults.
+
+            Reject graphs that over-split tiny work. Setup-only tasks, trivial test-only
+            tasks, and micro-refactors should be folded into the nearest implementation
+            task unless they need separate ownership or materially different acceptance.
+
+            Reject graphs that would cause a child task to split again. Child quests are
+            leaf workers and should receive one independently completable assignment.
+
+            Reject small-prototype graphs that split scaffolding, implementation, and
+            verification into separate tasks when one or two concrete implementation
+            tasks would cover the same acceptance.
+          request:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                step:
+                  type: object
+                  additionalProperties: true
+                inputs:
+                  $ref: ../../../schemas/steps/step-output.yaml
+                state:
+                  type: object
+                  additionalProperties: true
+                args:
+                  type: object
+                  additionalProperties: true
+              required:
+                - step
+                - inputs
+            build:
+              kind: js
+              using:
+                - inputs
+                - state
+                - args
+              code: >-
+                return {
+                  step: {"id":"task_graph","handler":"task_graph","summary":"Approve or reject the generated task graph, including a replan reason when rejected.","input_step":"task_graph","result_schema":"schemas/steps/step-output.yaml"},
+                  inputs,
+                  state,
+                  args
+                };
+          answer:
+            schema:
+              $ref: ../../../schemas/steps/task-graph-input.yaml

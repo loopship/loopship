@@ -6,10 +6,8 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { readText } from "./loopship_utils.ts";
 import {
-  FLOW_SCHEMA_PATH,
   type LoopshipSchemaSource,
   v3SchemaFilePath,
-  validateSchemaPath,
 } from "./loopship_schema.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,6 +19,7 @@ export type LoopshipStepDefinition = {
   schema_version: 1;
   id: string;
   handler: string;
+  call: string;
   input_step: string | null;
   input_schema: LoopshipSchemaSource;
   output_schema: LoopshipSchemaSource;
@@ -29,10 +28,15 @@ export type LoopshipStepDefinition = {
   instructions: string;
 };
 
+export type LoopshipTransitionKey =
+  | { kind: "static"; value: string }
+  | { kind: "js"; code: string };
+
 export type LoopshipFlowStage = {
   id: string;
   step: string;
   transitions: Record<string, string>;
+  transition_key: LoopshipTransitionKey | null;
 };
 
 export type LoopshipSubflowDefinition = {
@@ -82,6 +86,25 @@ function stringValue(value: unknown, path: string): string {
   return value;
 }
 
+function transitionKeyFromStage(
+  value: unknown,
+  path: string,
+): LoopshipTransitionKey | null {
+  if (value == null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${path} must be an object`);
+  }
+  const record = value as Record<string, unknown>;
+  const kind = stringValue(record.kind, `${path}.kind`);
+  if (kind === "static") {
+    return { kind, value: stringValue(record.value, `${path}.value`) };
+  }
+  if (kind === "js") {
+    return { kind, code: stringValue(record.code, `${path}.code`) };
+  }
+  fail(`${path}.kind must be static or js`);
+}
+
 function schemaSourceFromSwfSchema(
   workflowPath: string,
   schema: unknown,
@@ -104,6 +127,43 @@ function schemaSourceFromSwfSchema(
   return documentObject;
 }
 
+function schemaSourceFromDocumentSchema(
+  workflowPath: string,
+  schema: unknown,
+): LoopshipSchemaSource {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return null;
+  const documentObject = schema as Record<string, unknown>;
+  const ref =
+    typeof documentObject.$ref === "string" &&
+    Object.keys(documentObject).length === 1
+      ? documentObject.$ref
+      : null;
+  if (ref) {
+    const resolved = resolve(dirname(workflowPath), ref);
+    return repoRelativePath(resolved);
+  }
+  return documentObject;
+}
+
+function stepConstFromSchema(schema: LoopshipSchemaSource): string | null {
+  const document =
+    typeof schema === "string" ? readSchemaObject(schema) : schema;
+  if (!document || typeof document !== "object" || Array.isArray(document)) return null;
+  const stepProperty = (document as Record<string, any>).properties?.step;
+  return typeof stepProperty?.const === "string" && stepProperty.const.trim()
+    ? stepProperty.const
+    : null;
+}
+
+function readSchemaObject(schemaPath: string): Record<string, any> | null {
+  const path =
+    schemaPath.endsWith(".yaml") || schemaPath.endsWith(".json")
+      ? resolve(ROOT, schemaPath)
+      : v3SchemaFilePath(schemaPath);
+  if (!existsSync(path)) return null;
+  return readYamlObject(path);
+}
+
 function assertKnownStepSchema(name: string | null, owner: string): void {
   if (name === null) return;
   if (typeof name !== "string" || !name.trim()) {
@@ -116,18 +176,6 @@ function assertKnownStepSchema(name: string | null, owner: string): void {
       : v3SchemaFilePath(ref);
   if (!existsSync(schemaPath)) {
     fail(`${owner} references missing step schema: ${name}`);
-  }
-}
-
-function assertSchemaValid(
-  raw: Record<string, any>,
-  path: string,
-  schemaPath: string,
-  label: string,
-): void {
-  const errors = validateSchemaPath(raw, schemaPath);
-  if (errors.length) {
-    fail(`${path} ${label} schema validation failed: ${errors.join("; ")}`);
   }
 }
 
@@ -159,8 +207,8 @@ function assertKnownFlowRef(
   currentFlowPath: string,
 ): void {
   if (flowId === currentFlowId) return;
-  const siblingFlow = resolve(dirname(currentFlowPath), `${flowId}.yaml`);
-  const bundledFlow = resolve(ROOT, "assets", "flows", `${flowId}.yaml`);
+  const siblingFlow = resolve(dirname(currentFlowPath), `${flowId}.stable.yaml`);
+  const bundledFlow = resolve(ROOT, "assets", "flows", `${flowId}.stable.yaml`);
   if (!existsSync(siblingFlow) && !existsSync(bundledFlow)) {
     fail(`${owner}.flow_id references missing flow: ${flowId}`);
   }
@@ -172,20 +220,10 @@ export function loadStepDefinitions(
   if (!existsSync(dir)) fail(`missing steps directory: ${dir}`);
   const steps: Record<string, LoopshipStepDefinition> = {};
   for (const name of readdirSync(dir).filter((entry) =>
-    entry.endsWith(".yaml"),
+    entry.endsWith(".stable.yaml"),
   )) {
     const path = resolve(dir, name);
     const raw = readYamlObject(path);
-    assertSchemaValid(raw, path, FLOW_SCHEMA_PATH, "workflow");
-    const loopshipMeta =
-      raw.document?.metadata?.loopship &&
-      typeof raw.document.metadata.loopship === "object" &&
-      !Array.isArray(raw.document.metadata.loopship)
-        ? (raw.document.metadata.loopship as Record<string, any>)
-        : null;
-    if (!loopshipMeta || String(loopshipMeta.kind ?? "") !== "step-workflow") {
-      fail(`${path} step workflow must set document.metadata.loopship.kind`);
-    }
     if (!Array.isArray(raw.do) || raw.do.length !== 1) {
       fail(`${path} step workflow must contain exactly one task`);
     }
@@ -202,41 +240,44 @@ export function loadStepDefinitions(
       string,
       Record<string, any>,
     ];
-    const taskLoopship =
-      taskDef?.metadata?.loopship &&
-      typeof taskDef.metadata.loopship === "object" &&
-      !Array.isArray(taskDef.metadata.loopship)
-        ? (taskDef.metadata.loopship as Record<string, any>)
-        : null;
-    const id = String(taskLoopship?.stepId ?? loopshipMeta.stepId ?? taskName);
+    const id = taskName;
     if (steps[id]) fail(`duplicate step definition id: ${id}`);
     const inputSchema = schemaSourceFromSwfSchema(path, taskDef?.input?.schema);
-    const outputSchema = schemaSourceFromSwfSchema(path, taskDef?.output?.schema);
+    const outputSchema =
+      !taskDef?.call
+        ? null
+        : taskDef?.call === "fastflow.afn.core.request.input"
+          ? schemaSourceFromDocumentSchema(path, taskDef?.with?.body?.answer?.schema)
+          : schemaSourceFromSwfSchema(path, taskDef?.output?.schema);
     if (typeof inputSchema === "string") assertKnownStepSchema(inputSchema, path);
     if (typeof outputSchema === "string") assertKnownStepSchema(outputSchema, path);
-    const resultSchema = String(
-      taskLoopship?.resultSchemaPath ?? "schemas/steps/step-output.yaml",
-    );
+    const resultSchema = typeof inputSchema === "string" ? inputSchema : "schemas/steps/step-output.yaml";
+    const handler = stepConstFromSchema(outputSchema) ?? id;
     steps[id] = {
       schema_version: 1,
       id,
-      handler: String(taskLoopship?.handler ?? id),
+      handler,
+      call: taskDef?.call ? stringValue(taskDef.call, `${path}.${taskName}.call`) : "set",
       input_step:
-        taskLoopship?.inputStep == null ? null : String(taskLoopship.inputStep),
+        outputSchema === null ? null : handler,
       input_schema: inputSchema,
       output_schema: outputSchema,
       result_schema: resultSchema,
       summary: String(
-        taskLoopship?.summary ?? raw.document?.summary ?? loopshipMeta.summary ?? "",
+        raw.document?.summary ?? taskDef?.metadata?.description ?? "",
       ),
-      instructions: String(taskLoopship?.instructions ?? ""),
+      instructions: String(
+        taskDef?.with?.body?.instruction ??
+          taskDef?.metadata?.description ??
+          "",
+      ),
     };
   }
   return steps;
 }
 
 export function loadFlowDefinition(flowId = DEFAULT_FLOW_ID): LoadedLoopshipFlow {
-  const path = resolve(ROOT, "assets", "flows", `${flowId}.yaml`);
+  const path = resolve(ROOT, "assets", "flows", `${flowId}.stable.yaml`);
   if (!existsSync(path)) fail(`unknown flow: ${flowId}`);
   return loadFlowDefinitionFromPath(path, flowId);
 }
@@ -247,36 +288,39 @@ export function loadFlowDefinitionFromPath(
   stepsById = loadStepDefinitions(),
 ): LoadedLoopshipFlow {
   const raw = readYamlObject(path);
-  assertSchemaValid(raw, path, FLOW_SCHEMA_PATH, "workflow");
-  const loopshipMeta =
-    raw.document?.metadata?.loopship &&
-    typeof raw.document.metadata.loopship === "object" &&
-    !Array.isArray(raw.document.metadata.loopship)
-      ? (raw.document.metadata.loopship as Record<string, any>)
-      : null;
-  if (!loopshipMeta || String(loopshipMeta.kind ?? "") !== "flow") {
-    fail(`${path} workflow must set document.metadata.loopship.kind to "flow"`);
-  }
   const flowId = String(raw.document?.name ?? "");
   if (expectedFlowId && flowId !== expectedFlowId) {
     fail(`${path} workflow name must match requested flow ${expectedFlowId}`);
   }
+  const rawTasks = Array.isArray(raw.do) ? raw.do : [];
+  const flowSpecEntry = rawTasks
+    .map((item: Record<string, any>) => Object.entries(item || {})[0])
+    .find((entry) => entry?.[0] === "flow_spec");
+  const loopshipFlow =
+    flowSpecEntry?.[1]?.set &&
+    typeof flowSpecEntry[1].set === "object" &&
+    !Array.isArray(flowSpecEntry[1].set)
+      ? (flowSpecEntry[1].set as Record<string, any>)
+      : null;
+  if (!loopshipFlow) {
+    fail(`${path} workflow must declare a flow_spec set task`);
+  }
   const defaultStage = stringValue(
-    loopshipMeta.defaultStage,
-    `${path}.document.metadata.loopship.defaultStage`,
+    loopshipFlow.defaultStage,
+    `${path}.do.flow_spec.set.defaultStage`,
   );
   const stageRecords =
-    loopshipMeta.stages &&
-    typeof loopshipMeta.stages === "object" &&
-    !Array.isArray(loopshipMeta.stages)
-      ? (loopshipMeta.stages as Record<string, any>)
+    loopshipFlow.stages &&
+    typeof loopshipFlow.stages === "object" &&
+    !Array.isArray(loopshipFlow.stages)
+      ? (loopshipFlow.stages as Record<string, any>)
       : null;
   if (!stageRecords || !Object.keys(stageRecords).length) {
-    fail(`${path} workflow must declare metadata.loopship.stages`);
+    fail(`${path} workflow must declare do.flow_spec.set.stages`);
   }
 
   const taskMap = new Map<string, Record<string, any>>();
-  for (const item of raw.do as Array<Record<string, any>>) {
+  for (const item of rawTasks as Array<Record<string, any>>) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       fail(`${path}.do entries must be named task objects`);
     }
@@ -285,13 +329,14 @@ export function loadFlowDefinitionFromPath(
       fail(`${path}.do entries must contain exactly one named task`);
     }
     const [taskName, taskDef] = entries[0] as [string, Record<string, any>];
+    if (taskName === "flow_spec") continue;
     taskMap.set(taskName, taskDef);
   }
 
   const stages: LoopshipFlowStage[] = Object.entries(stageRecords).map(
     ([stageId, stageDef]) => {
       if (!stageDef || typeof stageDef !== "object" || Array.isArray(stageDef)) {
-        fail(`${path}.document.metadata.loopship.stages.${stageId} must be an object`);
+        fail(`${path}.do.flow_spec.set.stages.${stageId} must be an object`);
       }
       const taskName = String(
         stageDef.task ?? stageDef.taskName ?? stageDef.stageTask ?? stageId,
@@ -301,7 +346,7 @@ export function loadFlowDefinitionFromPath(
         fail(`${path} stage ${stageId} references missing task ${taskName}`);
       }
       const stepId = String(
-        stageDef.step ?? stageDef.stepId ?? taskDef?.metadata?.loopship?.stepId ?? "",
+        stageDef.step ?? stageDef.stepId ?? "",
       );
       if (!stepsById[stepId]) {
         fail(`${path} stage ${stageId} references missing step workflow ${stepId}`);
@@ -316,6 +361,10 @@ export function loadFlowDefinitionFromPath(
         id: stageId,
         step: stepId,
         transitions,
+        transition_key: transitionKeyFromStage(
+          stageDef.transitionKey ?? stageDef.transition_key,
+          `${path}.do.flow_spec.set.stages.${stageId}.transitionKey`,
+        ),
       };
     },
   );
@@ -326,7 +375,7 @@ export function loadFlowDefinitionFromPath(
     stagesById[stage.id] = stage;
   }
   if (!stagesById[defaultStage]) {
-    fail(`${path} default stage is not in metadata.loopship.stages: ${defaultStage}`);
+    fail(`${path} default stage is not in do.flow_spec.set.stages: ${defaultStage}`);
   }
   for (const stage of stages) {
     for (const [name, target] of Object.entries(stage.transitions)) {
@@ -337,10 +386,10 @@ export function loadFlowDefinitionFromPath(
   }
 
   const subflowIds = new Set<string>();
-  const subflowsRaw = Array.isArray(loopshipMeta.subflows) ? loopshipMeta.subflows : [];
+  const subflowsRaw = Array.isArray(loopshipFlow.subflows) ? loopshipFlow.subflows : [];
   const subflows: LoopshipSubflowDefinition[] = subflowsRaw.map(
     (subflow: Record<string, any>, index: number) => {
-      const prefix = `${path}.document.metadata.loopship.subflows[${index}]`;
+      const prefix = `${path}.do.flow_spec.set.subflows[${index}]`;
       if (!subflow || typeof subflow !== "object" || Array.isArray(subflow)) {
         fail(`${prefix} must be an object`);
       }
@@ -391,7 +440,7 @@ export function loadFlowDefinitionFromPath(
   return {
     schema_version: 1,
     id: flowId,
-    version: Number(loopshipMeta.version ?? 1),
+    version: Number(loopshipFlow.version ?? 1),
     default_stage: defaultStage,
     stages,
     subflows,
@@ -426,8 +475,8 @@ export function listBundledFlows(): Array<{
   const dir = resolve(ROOT, "assets", "flows");
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((name) => name.endsWith(".yaml"))
-    .map((name) => loadFlowDefinition(name.replace(/\.yaml$/, "")))
+    .filter((name) => name.endsWith(".stable.yaml"))
+    .map((name) => loadFlowDefinition(name.replace(/\.stable\.yaml$/, "")))
     .map((flow) => ({
       id: flow.id,
       version: flow.version,

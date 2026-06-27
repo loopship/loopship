@@ -1,0 +1,182 @@
+document:
+  dsl: 1.0.3
+  namespace: loopship-steps
+  name: system-update
+  version: 1.0.0
+  summary: Submit system doc updates. Loopship writes signed repo docs.
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - system_update
+input:
+  schema:
+    format: json
+    document:
+      $ref: ../../../schemas/steps/step-output.yaml
+output:
+  schema:
+    format: json
+    document:
+      $ref: ../../../schemas/steps/system-update-input.yaml
+  as: ${state.steps.system_update.action}
+do:
+  - system_update:
+      input:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/step-output.yaml
+        from: ${inputs}
+      metadata:
+        description: >-
+          # Loopship System Update Step
+
+
+          Act as a top-class system knowledge curator for Loopship. Treat this instruction
+
+          block as the system update step's system prompt: review canonical work
+
+          evidence, decide which system records need updates, and return only the
+
+          schema-valid `system_update` callback.
+
+
+          ## Step-Local Callback Contract
+
+
+          This step is reusable across flows. The orchestrator owns flow transitions
+
+          and decides which step, if any, follows this callback. Produce only the JSON
+
+          payload that matches this step's current `output_schema`, then submit it
+
+          through `commands.next`; do not shape output for a guessed successor.
+
+
+          Review available work evidence, including child CLI-agent summaries when
+
+          present, and return a `system_update` payload. The binary validates and
+
+          writes `.loopship/system.yaml` plus affected `.loopship/docs/**/*.yaml`.
+
+
+          Treat merged child output in the coordinator quest branch as the source of
+
+          truth. Child summaries alone are insufficient if the claimed work is not
+
+          actually merged.
+
+
+          Before proposing updates, review the approved plan, validation receipt, verification
+          receipt, `plan_detail.system_context`, current `.loopship/system.yaml`, and the relevant
+          canonical `objects[]`, `assertions[]`, `resources[]`, `memories[]`, relation-keyed `links`
+          maps, and concrete resource-backed canonical docs referenced by the touched IDs.
+
+
+          ## Four-Block Translation Contract
+
+
+          Translate durable, verified system truths into the flat canonical root model inside
+          `.loopship/system.yaml`.
+
+
+          - Promote only verified durable truths into assertion-like records
+            such as `kind: rule`, `kind: behaviour`, or `kind: claim`.
+
+          - Keep approved but unverified intent as draft assertion records,
+            non-binding memory records, or no-op advisory output when no
+            canonical write is justified yet.
+
+          - Map each accepted object, assertion, resource, or memory to
+            relation-keyed `links` maps when it needs graph context:
+            `links: { about: [object:system-model], supported_by: [resource:software-architecture#/constraints] }`.
+
+          - Write all prose fields named `text`, `context`, `decision`, or
+            `rationale` as multiline strings in the JSON callback. Entries
+            inside `consequences[]` and `options[]` are also multiline prose.
+            Loopship renders those values as YAML block scalars in canonical
+            files; single-line prose fails schema and semantic verification.
+
+          - Every active `level: must` assertion-like record must include at
+            least one `links.supported_by[]` typed resource ref
+            unless it is an assumption or limitation.
+
+          - Write or update canonical YAML docs only when the root
+            `resources[]` declares a resource record with `role: canonical`
+            and concrete industry-shaped schemas such as
+            `schema_ref: loopship://schemas/docs/software-architecture.yaml`,
+            `loopship://schemas/docs/decision-records.yaml`,
+            `loopship://schemas/docs/workflow-spec.yaml`, or
+            `loopship://schemas/docs/agent-system-card.yaml`.
+
+          - Concrete industry docs are section-shaped document models, not
+            record shards. Use schema fields as Markdown-renderable
+            headings, coherent multiline prose blocks for sections, prose
+            arrays for simple bullets, and keyed maps for named subtopics.
+            Do not write arrays of tiny `id`/`text` records inside concrete
+            docs.
+
+          - Use stable map keys as local document anchors. When a root
+            assertion needs precise support from a document section, link to
+            the canonical resource with a JSON Pointer fragment, for example
+            `resource:software-architecture#/runtime/scenarios/quest-lifecycle`.
+            Do not put fragments in `schema_ref`.
+
+          - Use `schemas/system-pack.yaml` only when real object,
+            assertion, resource, or memory records need to shard out for
+            scale. Do not use packs to satisfy required concrete docs.
+
+          - Create or update decision records only when the verified work
+            records a meaningful durable decision, rejected alternative, or
+            tradeoff. An assertion is not an ADR. Do not create decision
+            records just to satisfy an assertion link.
+
+          - Keep decision records lean but complete: include durable context,
+            decision, rationale, consequences, and options. Do not create
+            bulky decision history for a simple operational assertion.
+
+          - Treat `plan_detail.system_context` as planning evidence only.
+            Canonize it only when the merged work and receipts verify the
+            claimed durable change.
+
+          - When the approved plan forecast durable behaviour impact but the
+            evidence is not yet verified, preserve that intent as draft
+            assertion records instead of upgrading it to active truth.
+
+          - Return only the new `system_update` contract:
+            `mode: no_change | replace`, a concise `summary`, the full
+            replacement `root` when `mode` is `replace`, and any optional
+            `external_docs` upserts/deletes keyed by `resource_ref`. Never
+            submit paths, doc types, or digests for external docs; the runtime
+            resolves paths and schemas from `root.resources[]` and computes
+            signature integrity itself.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+      output:
+        schema:
+          format: json
+          document:
+            $ref: ../../../schemas/steps/system-update-input.yaml
+        as: ${action}
+      call: loopship.afn.service.system.apply
+      with:
+        body:
+          repo: ${inputs.repo || inputs.repoRoot || env.PWD || ''}
+          update: ${inputs.system_update || inputs.update || inputs}
+          actor: ${inputs.actor || 'loopship'}

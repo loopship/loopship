@@ -3,9 +3,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -29,6 +31,8 @@ import {
   DEFAULT_FLOW_ID,
   loadFlowDefinition,
   loadStepDefinitions,
+  type LoadedLoopshipFlow,
+  type LoopshipFlowStage,
   type LoopshipStepDefinition,
 } from "./loopship_flow.ts";
 import { dereferencedSchemaSource } from "./loopship_schema.ts";
@@ -45,6 +49,7 @@ const LOOPSHIP_WORKFLOW_REGISTRY = "loopship";
 const LOOPSHIP_WORKFLOW_TARGET = "service";
 const LOOPSHIP_STEP_SCOPE = "step";
 const LOOPSHIP_FLOW_SCOPE = "flows";
+const WORKFLOW_CATALOG_GENERATOR_VERSION = "loopship-fastflow-flow-orchestrator/v1";
 
 const TASK_PAYLOAD_SCHEMA = {
   type: "object",
@@ -143,6 +148,7 @@ export const LOOPSHIP_AFN_CALLS = Object.freeze({
   systemApply: "loopship.afn.service.system.apply",
   landingApply: "loopship.afn.service.landing.apply",
 });
+const LOOPSHIP_AFN_CALL_SET = new Set<string>(Object.values(LOOPSHIP_AFN_CALLS));
 
 export const LOOPSHIP_DATA_CALLS = Object.freeze({
   documentRead: "fastflow.afn.data.document.read",
@@ -280,6 +286,10 @@ export type LoopshipFastflowSession = {
   session_id: string;
   nonce: string;
 };
+
+type StepWorkflowPins = Record<string, { digest: string; version: string }>;
+
+const PLACEHOLDER_DIGEST = `sha256:${"0".repeat(64)}`;
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -609,7 +619,7 @@ function requestInputTask(step: LoopshipStepDefinition): Record<string, unknown>
 }
 
 function sideEffectTask(step: LoopshipStepDefinition): Record<string, unknown> {
-  if (step.id === "executing") {
+  if (step.call === LOOPSHIP_AFN_CALLS.childPrepare) {
     return {
       metadata: commonTaskMetadata(step.summary),
       call: LOOPSHIP_AFN_CALLS.childPrepare,
@@ -617,13 +627,13 @@ function sideEffectTask(step: LoopshipStepDefinition): Record<string, unknown> {
         body: {
           repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}",
           wtree: "${inputs.wtree || inputs.quest?.wtree || ''}",
-          task: "${inputs.task || inputs}",
+          task: "${inputs.task || (Array.isArray(inputs.children) ? inputs.children[0] : null) || inputs}",
           runtime: "${inputs.runtime || ''}",
         },
       },
     };
   }
-  if (step.id === "system_update") {
+  if (step.call === LOOPSHIP_AFN_CALLS.systemApply) {
     return {
       metadata: commonTaskMetadata(step.summary),
       call: LOOPSHIP_AFN_CALLS.systemApply,
@@ -636,7 +646,7 @@ function sideEffectTask(step: LoopshipStepDefinition): Record<string, unknown> {
       },
     };
   }
-  if (step.id === "landing") {
+  if (step.call === LOOPSHIP_AFN_CALLS.landingApply) {
     return {
       metadata: commonTaskMetadata(step.summary),
       call: LOOPSHIP_AFN_CALLS.landingApply,
@@ -657,7 +667,7 @@ function sideEffectTask(step: LoopshipStepDefinition): Record<string, unknown> {
 }
 
 function sideEffectOutputSchema(step: LoopshipStepDefinition): Record<string, unknown> | null {
-  if (!["executing", "system_update", "landing"].includes(step.id)) return null;
+  if (!LOOPSHIP_AFN_CALL_SET.has(step.call)) return null;
   return {
     type: "object",
     additionalProperties: true,
@@ -668,7 +678,9 @@ function sideEffectOutputSchema(step: LoopshipStepDefinition): Record<string, un
 }
 
 function sideEffectInputSchemaSource(step: LoopshipStepDefinition): unknown {
-  if (["system_update", "landing"].includes(step.id)) return step.output_schema;
+  if (step.call === LOOPSHIP_AFN_CALLS.systemApply || step.call === LOOPSHIP_AFN_CALLS.landingApply) {
+    return step.output_schema;
+  }
   return step.input_schema;
 }
 
@@ -676,7 +688,7 @@ function stepActionOutputSchema(
   step: LoopshipStepDefinition,
   outputSchema: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (["executing", "system_update", "landing"].includes(step.id)) return outputSchema;
+  if (LOOPSHIP_AFN_CALL_SET.has(step.call)) return outputSchema;
   return {
     type: "object",
     additionalProperties: true,
@@ -687,7 +699,7 @@ function augmentSideEffectInputSchema(
   step: LoopshipStepDefinition,
   schema: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!["executing", "system_update", "landing"].includes(step.id)) return schema;
+  if (!LOOPSHIP_AFN_CALL_SET.has(step.call)) return schema;
   const properties = isPlainObject(schema.properties)
     ? { ...(schema.properties as Record<string, unknown>) }
     : {};
@@ -712,13 +724,185 @@ function augmentSideEffectInputSchema(
   };
 }
 
-export function buildLoopshipFastflowStepWorkflow(
-  step: LoopshipStepDefinition,
-): FastflowRecord {
-  const inputSchema = augmentSideEffectInputSchema(
+function stepWorkflowInputSchema(step: LoopshipStepDefinition): Record<string, unknown> {
+  return augmentSideEffectInputSchema(
     step,
     asObjectSchema(dereferencedSchemaSource(sideEffectInputSchemaSource(step))),
   );
+}
+
+function inputAccessExpression(key: string): string {
+  const access = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
+    ? `inputs.${key}`
+    : `inputs[${JSON.stringify(key)}]`;
+  return `\${${access}}`;
+}
+
+function workflowInputFromSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const properties = isPlainObject(schema.properties)
+    ? (schema.properties as Record<string, unknown>)
+    : {};
+  return Object.fromEntries(
+    Object.keys(properties).map((key) => [key, inputAccessExpression(key)]),
+  );
+}
+
+function schemaRefOrEmbedded(source: unknown): unknown {
+  if (source == null) return null;
+  if (typeof source === "string") return { schema_path: source };
+  return source;
+}
+
+function stepContextForWorkflowInput(step: LoopshipStepDefinition): Record<string, unknown> {
+  return {
+    schema_version: step.schema_version,
+    id: step.id,
+    handler: step.handler,
+    input_step: step.input_step,
+    input_schema: schemaRefOrEmbedded(step.input_schema),
+    output_schema: schemaRefOrEmbedded(step.output_schema),
+    result_schema_path: step.result_schema,
+    summary: step.summary,
+    instructions: step.instructions,
+  };
+}
+
+function childDispatchExpression(flow: LoadedLoopshipFlow): string {
+  return `\${(() => {
+  const root = state.steps.read_tasks?.action || {};
+  const tasks = Array.isArray(root.tasks) ? root.tasks : [];
+  const doneStatuses = new Set(["child_merged", "child_archived", "done", "merged"]);
+  const done = new Set(tasks.filter((task) => doneStatuses.has(String(task.status || ""))).map((task) => String(task.id || task.task_id || "")));
+  const selected = [];
+  const usedGroups = new Set();
+  const usedScopes = new Set();
+  for (const task of tasks) {
+    const status = String(task.status || "child_received");
+    if (!["child_received", "pending", "ready"].includes(status)) continue;
+    const dependencies = Array.isArray(task.dependencies) ? task.dependencies : [];
+    if (!dependencies.every((id) => done.has(String(id)))) continue;
+    const group = String(task.concurrency_group || "").trim();
+    if (group && usedGroups.has(group)) continue;
+    const scopes = (Array.isArray(task.scope_files) ? task.scope_files : []).map((scope) => String(scope).trim()).filter(Boolean);
+    if (scopes.some((scope) => usedScopes.has(scope))) continue;
+    selected.push(task);
+    if (group) usedGroups.add(group);
+    for (const scope of scopes) usedScopes.add(scope);
+  }
+  const wtree = String(root.wtree || inputs.wtree || "");
+  const repo = String(inputs.repo || inputs.repoRoot || env.PWD || "");
+  const runtime = String(inputs.runtime || "codex");
+  const flowId = ${JSON.stringify(flow.id)};
+  return selected.map((task) => {
+    const taskId = String(task.id || task.task_id || "task");
+    const title = String(task.title || taskId);
+    const childWtree = String(task.child_wtree || [wtree, taskId].filter(Boolean).join("-"));
+    const branchRef = String(task.branch_ref || ["loopship", wtree, taskId].filter(Boolean).join("/"));
+    const worktreePath = String(task.worktree_path || (repo && wtree ? repo + "/worktrees/" + childWtree : ""));
+    const mergeTarget = String(task.merge_target || wtree);
+    const parentContextRef = repo && wtree ? repo + "/worktrees/" + wtree + "/.loopship/runtime/tasks.yaml" : "";
+    const request = "loopship: execute child task " + taskId + ": " + title + ". Read parent context at " + parentContextRef + ". Implement only this assigned task. Do not split into child worktrees. Land into " + mergeTarget + " and return the merge_commit.";
+    return {
+      task_id: taskId,
+      title,
+      child_wtree: childWtree,
+      parent_wtree: wtree,
+      parent_task_id: taskId,
+      parent_context_ref: parentContextRef,
+      branch_ref: branchRef,
+      worktree_path: worktreePath,
+      merge_target: mergeTarget,
+      merge_target_worktree: repo && wtree ? repo + "/worktrees/" + wtree : "",
+      acceptance: Array.isArray(task.acceptance) ? task.acceptance.join("\\n") : String(task.acceptance || ""),
+      commands: {
+        init: { cmd: "loopship", args: ["init", request, "--wtree", childWtree, "--runtime", runtime, "--flow", flowId] },
+        next: { cmd: "loopship", args: ["resume", "--wtree", childWtree, "--json", "@-"] }
+      },
+      result_schema: { schema_path: "schemas/steps/child-result-input.yaml" }
+    };
+  });
+})()}`;
+}
+
+function workflowInputForStage(
+  flow: LoadedLoopshipFlow,
+  stage: LoopshipFlowStage,
+  step: LoopshipStepDefinition,
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const properties = isPlainObject(schema.properties)
+    ? (schema.properties as Record<string, unknown>)
+    : {};
+  if (!("step" in properties) || !("output_schema" in properties) || !("commands" in properties)) {
+    return workflowInputFromSchema(schema);
+  }
+  const required = new Set(
+    Array.isArray(schema.required)
+      ? schema.required.filter((item): item is string => typeof item === "string")
+      : [],
+  );
+  const wtreeExpression = "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}";
+  const envelope: Record<string, unknown> = {
+    schema_version: 3,
+    kind: "quest_step",
+    schema_path:
+      typeof step.input_schema === "string"
+        ? step.input_schema
+        : "schemas/steps/step-output.yaml",
+    wtree: wtreeExpression,
+    quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}",
+    flow_id: flow.id,
+    flow_version: flow.version,
+    step: step.input_step ?? step.id,
+    state: stage.id,
+    summary: step.summary,
+    output_schema: schemaRefOrEmbedded(step.output_schema),
+    allowed_transitions: stage.transitions,
+    context: {
+      step: stepContextForWorkflowInput(step),
+    },
+    commands: {
+      next: {
+        cmd: "loopship",
+        args: ["resume", "--wtree", wtreeExpression, "--json", "@-"],
+      },
+    },
+    docs: {
+      state_yaml: ".loopship/runtime/tasks.yaml",
+      events_jsonl: ".loopship/runtime/events.jsonl",
+      manifest: ".loopship/runtime/manifest.yaml",
+    },
+  };
+  if ("children" in properties) {
+    envelope.children = childDispatchExpression(flow);
+  }
+
+  const alwaysUseful = new Set([
+    "schema_version",
+    "kind",
+    "schema_path",
+    "wtree",
+    "quest_id",
+    "flow_id",
+    "flow_version",
+    "state",
+    "summary",
+    "allowed_transitions",
+    "context",
+    "docs",
+  ]);
+  return Object.fromEntries(
+    Object.entries(envelope).filter(([key]) => {
+      if (!(key in properties)) return false;
+      return required.has(key) || alwaysUseful.has(key);
+    }),
+  );
+}
+
+export function buildLoopshipFastflowStepWorkflow(
+  step: LoopshipStepDefinition,
+): FastflowRecord {
+  const inputSchema = stepWorkflowInputSchema(step);
   const outputSchema =
     sideEffectOutputSchema(step) || asObjectSchema(dereferencedSchemaSource(step.output_schema));
   const actionOutputSchema = stepActionOutputSchema(step, outputSchema);
@@ -777,18 +961,178 @@ export function buildLoopshipFastflowStepWorkflows(): Record<string, FastflowRec
   );
 }
 
+function flowStageTaskName(stageId: string): string {
+  return `stage_${stageId.replace(/[^A-Za-z0-9_]+/g, "_")}`;
+}
+
+function buildResolveStageScript(flow: LoadedLoopshipFlow): string {
+  return `const flow = ${JSON.stringify({
+    id: flow.id,
+    default_stage: flow.default_stage,
+    stages: flow.stages,
+    subflows: flow.subflows,
+  })};
+const tasks = state.steps.read_tasks?.action || {};
+const requestedStage = String(args.stage || args.state || tasks.stage || flow.default_stage || "").trim();
+const stage = flow.stages.find((item) => item.id === requestedStage) ||
+  flow.stages.find((item) => item.id === flow.default_stage);
+const inputStepByStage = ${JSON.stringify(
+    Object.fromEntries(
+      flow.stages.map((stage) => {
+        const step = flow.steps_by_id[stage.step];
+        return [stage.id, step.input_step ?? step.id];
+      }),
+    ),
+  )};
+return {
+  schema_version: "loopship.flow-stage/v1",
+  flow_id: flow.id,
+  default_stage: flow.default_stage,
+  current_stage: stage.id,
+  current_step: stage.step,
+  expected_input_step: inputStepByStage[stage.id] || stage.step,
+  transitions: stage.transitions || {},
+  runtime: {
+    tasks,
+    manifest: null,
+    events: state.steps.query_events?.action || []
+  }
+};`;
+}
+
+function indentGeneratedCode(code: string, spaces: string): string {
+  return code
+    .split(/\r?\n/)
+    .map((line) => (line.trim() ? `${spaces}${line}` : ""))
+    .join("\n");
+}
+
+function buildTransitionKeyFunction(flow: LoadedLoopshipFlow): string {
+  const cases = flow.stages.map((stage) => {
+    const rule = stage.transition_key;
+    if (!rule) {
+      return `    case ${JSON.stringify(stage.id)}:
+      return "continue";`;
+    }
+    if (rule.kind === "static") {
+      return `    case ${JSON.stringify(stage.id)}:
+      return ${JSON.stringify(rule.value)};`;
+    }
+    return `    case ${JSON.stringify(stage.id)}: {
+${indentGeneratedCode(rule.code, "      ")}
+    }`;
+  });
+  return `function transitionKey(stageId, payload, tasks, resolved, args) {
+  switch (stageId) {
+${cases.join("\n")}
+    default:
+      return "continue";
+  }
+}`;
+}
+
+function buildTransitionScript(flow: LoadedLoopshipFlow): string {
+  return `const flow = ${JSON.stringify({
+    id: flow.id,
+    default_stage: flow.default_stage,
+    stages: flow.stages,
+    subflows: flow.subflows,
+  })};
+const stageTaskNames = ${JSON.stringify(
+    Object.fromEntries(flow.stages.map((stage) => [stage.id, flowStageTaskName(stage.id)])),
+  )};
+const inputStepByStage = ${JSON.stringify(
+    Object.fromEntries(
+      flow.stages.map((stage) => {
+        const step = flow.steps_by_id[stage.step];
+        return [stage.id, step.input_step ?? step.id];
+      }),
+    ),
+  )};
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function decisionPayload(value) {
+  const out = object(value);
+  const decision = object(out.decision);
+  if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision;
+  if (Object.keys(decision).length) return decision;
+  if (Object.prototype.hasOwnProperty.call(out, "decision")) return out.decision;
+  return out;
+}
+${buildTransitionKeyFunction(flow)}
+const resolved = object(state.steps.resolve_stage?.action);
+const currentStage = String(resolved.current_stage || args.stage || flow.default_stage);
+const stage = flow.stages.find((item) => item.id === currentStage) ||
+  flow.stages.find((item) => item.id === flow.default_stage);
+const taskName = stageTaskNames[stage.id];
+const stageAction = object(state.steps[taskName]?.action);
+const workflowOutput = object(stageAction.result?.output || stageAction.workflow?.output);
+const payload = decisionPayload(workflowOutput);
+const tasks = object(state.steps.read_tasks?.action);
+const stepId = inputStepByStage[stage.id] || stage.step;
+const key = transitionKey(stage.id, payload, tasks, resolved, args);
+const transitions = object(stage.transitions);
+const targetStage = transitions[key] || stage.id;
+return {
+  schema_version: "loopship.flow-transition/v1",
+  flow_id: flow.id,
+  stage_before: stage.id,
+  stage_after: targetStage,
+  transition: key,
+  step: stepId,
+  step_workflow_task: taskName,
+  step_payload: payload,
+  step_action: stageAction,
+  runtime: resolved.runtime || {
+    tasks,
+    manifest: null,
+    events: state.steps.query_events?.action || []
+  }
+};`;
+}
+
 export function buildLoopshipFastflowFlowWorkflow(
   flowId = DEFAULT_FLOW_ID,
+  options: { stepPins?: StepWorkflowPins } = {},
 ): FastflowRecord {
   const flow = loadFlowDefinition(flowId);
   const dataTasks = buildLoopshipWorkflowDataTasks();
+  const pins = options.stepPins || {};
+  const stageCalls = flow.stages.map((stage) => {
+    const taskName = flowStageTaskName(stage.id);
+    const step = flow.steps_by_id[stage.step];
+    const inputSchema = stepWorkflowInputSchema(step);
+    const pin = pins[step.id] || { digest: PLACEHOLDER_DIGEST, version: "0.1.0" };
+    return {
+      [taskName]: {
+        if: `\${state.steps.resolve_stage.action.current_stage === ${JSON.stringify(stage.id)}}`,
+        then: "derive_transition",
+        metadata: {
+          ...commonTaskMetadata(`Run Loopship ${stage.id} via the pinned ${step.id} step workflow.`),
+          ref: { digest: pin.digest },
+        },
+        call: loopshipStepWorkflowRef(step.id),
+        with: {
+          version: pin.version,
+          input: workflowInputForStage(flow, stage, step, inputSchema),
+        },
+        output: {
+          schema: {
+            document: { type: "object", additionalProperties: true },
+          },
+          as: "${action}",
+        },
+      },
+    };
+  });
   return {
     document: {
       dsl: "1.0.3",
       namespace: "loopship-flows",
       name: flow.id.replace(/_/g, "-"),
       version: "0.1.0",
-      summary: `Loopship ${flow.id} flow runtime snapshot for Fastflow-native supervision.`,
+      summary: `Loopship ${flow.id} flow orchestration for Fastflow-native supervision.`,
       metadata: {
         catalog: {
           tags: ["loopship", "flow", flow.id],
@@ -808,28 +1152,50 @@ export function buildLoopshipFastflowFlowWorkflow(
     },
     do: [
       { read_tasks: dataTasks.read_tasks },
-      { read_manifest: dataTasks.read_manifest },
       { query_events: dataTasks.query_events },
       {
-        describe_flow: {
-          metadata: commonTaskMetadata("Expose the Loopship flow graph and runtime data as Fastflow-native data."),
-          set: {
-            schema_version: "loopship.flow-runtime-snapshot/v1",
-            flow_id: flow.id,
-            default_stage: flow.default_stage,
-            stages: flow.stages,
-            subflows: flow.subflows,
-            runtime: {
-              tasks: "${state.steps.read_tasks.action.document}",
-              manifest: "${state.steps.read_manifest.action.document}",
-              events: "${state.steps.query_events.action.events}",
+        resolve_stage: {
+          metadata: commonTaskMetadata("Resolve the active Loopship flow stage from Fastflow workflow-data state."),
+          run: {
+            script: {
+              language: "js",
+              code: buildResolveStageScript(flow),
             },
           },
           output: {
             schema: {
               document: { type: "object", additionalProperties: true },
             },
-            as: "${state.steps.describe_flow.set}",
+            as: "${action.value}",
+          },
+        },
+      },
+      {
+        route_stage: {
+          metadata: commonTaskMetadata("Route directly to the active Loopship flow stage."),
+          switch: flow.stages.map((stage) => ({
+            [stage.id]: {
+              when: `\${state.steps.resolve_stage.action.current_stage === ${JSON.stringify(stage.id)}}`,
+              then: flowStageTaskName(stage.id),
+            },
+          })),
+        },
+      },
+      ...stageCalls,
+      {
+        derive_transition: {
+          metadata: commonTaskMetadata("Derive the Loopship flow transition from the nested step workflow output."),
+          run: {
+            script: {
+              language: "js",
+              code: buildTransitionScript(flow),
+            },
+          },
+          output: {
+            schema: {
+              document: { type: "object", additionalProperties: true },
+            },
+            as: "${action.value}",
           },
         },
       },
@@ -841,7 +1207,7 @@ export function buildLoopshipFastflowFlowWorkflow(
           additionalProperties: true,
         },
       },
-      as: "${state.steps.describe_flow.set}",
+      as: "${state.steps.derive_transition.action}",
     },
   };
 }
@@ -878,6 +1244,57 @@ async function hashFastflowWorkflow(workflow: FastflowRecord): Promise<string> {
 
 function loopshipCatalogRoot(repoRoot: string): string {
   return resolve(repoRoot, ".loopship", "call-catalog");
+}
+
+function generatedCatalogMarkerPath(root: string): string {
+  return resolve(root, ".loopship-generator.json");
+}
+
+function generatedCatalogSourceDigest(): string {
+  const hash = createHash("sha256");
+  const addFile = (path: string): void => {
+    hash.update(path);
+    hash.update("\0");
+    hash.update(readFileSync(path));
+    hash.update("\0");
+  };
+  hash.update(WORKFLOW_CATALOG_GENERATOR_VERSION);
+  addFile(fileURLToPath(import.meta.url));
+  addFile(resolve(LOOPSHIP_ROOT, "assets", "flows", `${DEFAULT_FLOW_ID}.stable.yaml`));
+  const stepDir = resolve(LOOPSHIP_ROOT, "assets", "workflows", "steps");
+  for (const name of readdirSync(stepDir).filter((entry) => entry.endsWith(".stable.yaml")).sort()) {
+    addFile(resolve(stepDir, name));
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
+function generatedCatalogIsComplete(root: string): boolean {
+  return (
+    existsSync(resolve(root, "index.yaml")) &&
+    existsSync(
+      resolve(root, LOOPSHIP_WORKFLOW_REGISTRY, "workflow", LOOPSHIP_WORKFLOW_TARGET, LOOPSHIP_STEP_SCOPE, "index.yaml"),
+    ) &&
+    existsSync(
+      resolve(root, LOOPSHIP_WORKFLOW_REGISTRY, "workflow", LOOPSHIP_WORKFLOW_TARGET, LOOPSHIP_STEP_SCOPE, "plan.stable.yaml"),
+    ) &&
+    existsSync(
+      resolve(root, LOOPSHIP_WORKFLOW_REGISTRY, "workflow", LOOPSHIP_WORKFLOW_TARGET, LOOPSHIP_FLOW_SCOPE, "index.yaml"),
+    ) &&
+    existsSync(
+      resolve(root, LOOPSHIP_WORKFLOW_REGISTRY, "workflow", LOOPSHIP_WORKFLOW_TARGET, LOOPSHIP_FLOW_SCOPE, "swe.stable.yaml"),
+    )
+  );
+}
+
+function readGeneratedCatalogMarker(root: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(readFileSync(generatedCatalogMarkerPath(root), "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function workflowRefFor(scope: string, name: string): string {
@@ -926,12 +1343,13 @@ async function writeStableWorkflow(
   scope: string,
   name: string,
   workflow: FastflowRecord,
-): Promise<void> {
+): Promise<string> {
   const materialized = structuredClone(workflow) as FastflowRecord;
   materialized.document = {
     ...((materialized.document as Record<string, unknown> | undefined) || {}),
     namespace: `${LOOPSHIP_WORKFLOW_TARGET}-${scope}`,
   };
+  const digest = await hashFastflowWorkflow(materialized);
   const dir = resolve(
     root,
     LOOPSHIP_WORKFLOW_REGISTRY,
@@ -956,7 +1374,7 @@ async function writeStableWorkflow(
   workflows[name] = {
     stable: {
       release: 1,
-      digest: await hashFastflowWorkflow(materialized),
+      digest,
       summary: String(
         (materialized.document as Record<string, unknown> | undefined)?.summary ||
           `${name} workflow`,
@@ -974,6 +1392,7 @@ async function writeStableWorkflow(
     }),
     "utf8",
   );
+  return digest;
 }
 
 export async function ensureLoopshipFastflowWorkflowCatalog(
@@ -981,11 +1400,25 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
 ): Promise<string> {
   const root = loopshipCatalogRoot(repoRoot);
   mkdirSync(root, { recursive: true });
-  const stepWorkflows = buildLoopshipFastflowStepWorkflows();
-  for (const [stepId, workflow] of Object.entries(stepWorkflows)) {
-    await writeStableWorkflow(root, LOOPSHIP_STEP_SCOPE, workflowNameForStep(stepId), workflow);
+  const sourceDigest = generatedCatalogSourceDigest();
+  const marker = readGeneratedCatalogMarker(root);
+  if (
+    marker?.version === WORKFLOW_CATALOG_GENERATOR_VERSION &&
+    marker?.source_digest === sourceDigest &&
+    generatedCatalogIsComplete(root)
+  ) {
+    return root;
   }
-  const flow = buildLoopshipFastflowFlowWorkflow(DEFAULT_FLOW_ID);
+  const stepWorkflows = buildLoopshipFastflowStepWorkflows();
+  const stepPins: StepWorkflowPins = {};
+  for (const [stepId, workflow] of Object.entries(stepWorkflows)) {
+    const digest = await writeStableWorkflow(root, LOOPSHIP_STEP_SCOPE, workflowNameForStep(stepId), workflow);
+    stepPins[stepId] = {
+      digest,
+      version: String((workflow.document as Record<string, unknown> | undefined)?.version || "0.1.0"),
+    };
+  }
+  const flow = buildLoopshipFastflowFlowWorkflow(DEFAULT_FLOW_ID, { stepPins });
   await writeStableWorkflow(
     root,
     LOOPSHIP_FLOW_SCOPE,
@@ -1016,6 +1449,15 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
     }),
     "utf8",
   );
+  writeFileSync(
+    generatedCatalogMarkerPath(root),
+    `${JSON.stringify({
+      version: WORKFLOW_CATALOG_GENERATOR_VERSION,
+      source_digest: sourceDigest,
+      generated_at: new Date().toISOString(),
+    }, null, 2)}\n`,
+    "utf8",
+  );
   return root;
 }
 
@@ -1035,6 +1477,7 @@ async function withLoopshipWorkspaceEnv<T>(
 
 function runFastflowNodeSession(input: {
   repoRoot: string;
+  workspaceRoot?: string;
   catalogRoot: string;
   operation: "run" | "resume";
   request: Record<string, unknown>;
@@ -1043,6 +1486,7 @@ function runFastflowNodeSession(input: {
   const requestPath = join(tempDir, "request.json");
   const scriptPath = join(tempDir, "run.mjs");
   const fastflowRoot = resolveFastflowRoot();
+  const workspaceRoot = resolve(input.workspaceRoot || input.repoRoot);
   writeFileSync(requestPath, JSON.stringify(input.request), "utf8");
   writeFileSync(
     scriptPath,
@@ -1061,7 +1505,7 @@ function runFastflowNodeSession(input: {
       } from ${JSON.stringify(pathToFileURL(fileURLToPath(import.meta.url)).href)};
 
       const request = JSON.parse(readFileSync(process.argv[2], "utf8"));
-      process.env.LOOPSHIP_WORKSPACE_ROOT = ${JSON.stringify(resolve(input.repoRoot))};
+      process.env.LOOPSHIP_WORKSPACE_ROOT = ${JSON.stringify(workspaceRoot)};
       configureFastflowApp({
         appName: "loopship",
         systemWorkflowsDir: ${JSON.stringify(input.catalogRoot)},
@@ -1071,7 +1515,8 @@ function runFastflowNodeSession(input: {
       const result = ${JSON.stringify(input.operation)} === "run"
         ? await executeFastflowWorkflowRunRequest(request)
         : await executeFastflowWorkflowResumeRequest(request);
-      console.log(JSON.stringify(result));
+      await new Promise((resolve) => process.stdout.write(JSON.stringify(result) + "\\n", resolve));
+      process.exit(0);
     `,
     "utf8",
   );
@@ -1096,18 +1541,27 @@ function runFastflowNodeSession(input: {
 
 export async function startLoopshipFastflowStepSession(input: {
   repoRoot: string;
+  workspaceRoot?: string;
   stepId: string;
+  stageId?: string;
+  flowId?: string;
   inputs: Record<string, unknown>;
 }): Promise<LoopshipFastflowSession | null> {
   const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(input.repoRoot);
-  const workflowRef = loopshipStepWorkflowRef(input.stepId);
+  const workflowRef = loopshipFlowWorkflowRef(input.flowId || DEFAULT_FLOW_ID);
   const result = runFastflowNodeSession({
     repoRoot: input.repoRoot,
+    workspaceRoot: input.workspaceRoot,
     catalogRoot,
     operation: "run",
     request: {
       workflowRef,
-      inputs: input.inputs,
+      inputs: {
+        ...input.inputs,
+        mode: "step",
+        stage: input.stageId || (input.inputs.state as string | undefined) || "",
+        step_id: input.stepId,
+      },
       progressMode: "compact",
     },
   });
@@ -1125,12 +1579,14 @@ export async function startLoopshipFastflowStepSession(input: {
 
 export async function resumeLoopshipFastflowStepSession(input: {
   repoRoot: string;
+  workspaceRoot?: string;
   session: LoopshipFastflowSession;
   decision: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(input.repoRoot);
   return runFastflowNodeSession({
     repoRoot: input.repoRoot,
+    workspaceRoot: input.workspaceRoot,
     catalogRoot,
     operation: "resume",
     request: {

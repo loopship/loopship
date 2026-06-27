@@ -231,7 +231,7 @@ bun scripts/verify_quest_contract.ts
 bun scripts/verify_runtime_hooks.ts
 bun scripts/verify_runtime_simulation.ts
 bun scripts/verify_runtime_stepper.ts
-bun test scripts/verify_child_agent_integration.test.ts
+bun run test:integration
 bun run scripts/report_lifecycle_matrix.ts
 ```
 

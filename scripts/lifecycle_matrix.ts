@@ -486,15 +486,19 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   },
 ];
 
+export function runLifecycleScenario(
+  scenario: MatrixScenario,
+): MatrixScenarioResult {
+  const fixture = createFixture(`loopship-matrix-${scenario.id}-`);
+  try {
+    return driveScenario(fixture, scenario);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
 export function runLifecycleMatrix(): MatrixScenarioResult[] {
-  return LIFECYCLE_MATRIX.map((scenario) => {
-    const fixture = createFixture(`loopship-matrix-${scenario.id}-`);
-    try {
-      return driveScenario(fixture, scenario);
-    } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
-    }
-  });
+  return LIFECYCLE_MATRIX.map((scenario) => runLifecycleScenario(scenario));
 }
 
 export function summarizeLifecycleMatrix(results: MatrixScenarioResult[]): {

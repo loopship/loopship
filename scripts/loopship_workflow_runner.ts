@@ -15,16 +15,14 @@ import {
   type LoadedLoopshipFlow,
   type LoopshipStepDefinition,
 } from "./loopship_flow.ts";
-import { FLOW_SCHEMA_PATH, validateSchemaPath } from "./loopship_schema.ts";
 import { readText } from "./loopship_utils.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-export const WORKFLOW_SCHEMA_FILE = resolve(ROOT, FLOW_SCHEMA_PATH);
+export const WORKFLOW_SCHEMA_FILE = "fastflow.workflow.yaml";
 
 type ValidationPhase =
-  | "loopship_schema"
-  | "official_swf_schema"
+  | "fastflow_schema"
   | "loopship_semantics";
 
 export type LoopshipWorkflowValidationPolicy = {
@@ -58,54 +56,13 @@ function readYamlObject(path: string): Record<string, unknown> {
 
 export function loadWorkflowValidationPolicy(): LoopshipWorkflowValidationPolicy {
   if (cachedValidationPolicy) return cachedValidationPolicy;
-  const rawSchema = readYamlObject(WORKFLOW_SCHEMA_FILE);
-  const rawPolicy =
-    rawSchema["x-loopship-validation"] &&
-    typeof rawSchema["x-loopship-validation"] === "object" &&
-    !Array.isArray(rawSchema["x-loopship-validation"])
-      ? (rawSchema["x-loopship-validation"] as Record<string, unknown>)
-      : {};
-  const rawFacade =
-    rawPolicy.facade &&
-    typeof rawPolicy.facade === "object" &&
-    !Array.isArray(rawPolicy.facade)
-      ? (rawPolicy.facade as Record<string, unknown>)
-      : {};
-  const phases = Array.isArray(rawPolicy.phases)
-    ? rawPolicy.phases.filter(
-        (phase): phase is ValidationPhase =>
-          phase === "loopship_schema" ||
-          phase === "official_swf_schema" ||
-          phase === "loopship_semantics",
-      )
-    : [];
-  const allowedDslVersions = Array.isArray(rawPolicy.allowedDslVersions)
-    ? rawPolicy.allowedDslVersions
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.trim())
-        .filter(Boolean)
-    : [];
-  const allowedFeatures = Array.isArray(rawPolicy.allowedFeatures)
-    ? rawPolicy.allowedFeatures
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.trim())
-        .filter(Boolean)
-    : [];
-
   cachedValidationPolicy = {
     facade: {
-      entrypoint:
-        typeof rawFacade.entrypoint === "string" && rawFacade.entrypoint.trim()
-          ? rawFacade.entrypoint.trim()
-          : "validateWorkflowRecord",
+      entrypoint: "validateWorkflowRecord",
     },
-    phases: phases.length
-      ? phases
-      : ["loopship_schema", "official_swf_schema", "loopship_semantics"],
-    allowedDslVersions: allowedDslVersions.length
-      ? allowedDslVersions
-      : ["1.0.3"],
-    allowedFeatures,
+    phases: ["fastflow_schema", "loopship_semantics"],
+    allowedDslVersions: ["1.0.3"],
+    allowedFeatures: ["set", "call", "run.script", "workflow-data"],
   };
   return cachedValidationPolicy;
 }
@@ -118,25 +75,16 @@ export const WORKFLOW_VALIDATION_ENTRYPOINT =
 function detectWorkflowKind(
   rawWorkflow: Record<string, unknown>,
 ): LoopshipWorkflowRecord["workflowKind"] {
-  const document =
-    rawWorkflow.document &&
-    typeof rawWorkflow.document === "object" &&
-    !Array.isArray(rawWorkflow.document)
-      ? (rawWorkflow.document as Record<string, unknown>)
-      : null;
-  const metadata =
-    document?.metadata &&
-    typeof document.metadata === "object" &&
-    !Array.isArray(document.metadata)
-      ? (document.metadata as Record<string, unknown>)
-      : null;
-  const loopshipMeta =
-    metadata?.loopship && typeof metadata.loopship === "object" && !Array.isArray(metadata.loopship)
-      ? (metadata.loopship as Record<string, unknown>)
-      : null;
-  const kind =
-    loopshipMeta && typeof loopshipMeta.kind === "string" ? loopshipMeta.kind : null;
-  return kind === "flow" || kind === "step-workflow" ? kind : null;
+  const tasks = Array.isArray(rawWorkflow.do) ? rawWorkflow.do : [];
+  const hasFlowSpec = tasks.some(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      Object.prototype.hasOwnProperty.call(item, "flow_spec"),
+  );
+  if (hasFlowSpec) return "flow";
+  return tasks.length === 1 ? "step-workflow" : null;
 }
 
 function loadSingleStepWorkflow(filePath: string): LoopshipStepDefinition {
@@ -193,27 +141,23 @@ function validateLoopshipSemantics(
     return;
   }
   errors.push(
-    `${record.filePath} must set document.metadata.loopship.kind to flow or step-workflow`,
+    `${record.filePath} must be a Loopship Fastflow flow with flow_spec or a single-step workflow`,
   );
 }
 
-export function validateWorkflowRecord(record: LoopshipWorkflowRecord): void {
+export function validateWorkflowRecord(
+  record: LoopshipWorkflowRecord,
+  _options: Record<string, unknown> = {},
+): void {
   const policy = loadWorkflowValidationPolicy();
   const errors: string[] = [];
   for (const phase of policy.phases) {
     if (errors.length) break;
     switch (phase) {
-      case "loopship_schema": {
-        errors.push(...validateSchemaPath(record.rawWorkflow, FLOW_SCHEMA_PATH));
-        break;
-      }
-      case "official_swf_schema": {
-        errors.push(
-          ...validateSchemaPath(
-            record.rawWorkflow,
-            "vendor/serverlessworkflow/1.0.3/workflow.yaml",
-          ),
-        );
+      case "fastflow_schema": {
+        if (record.rawWorkflow?.document == null || record.rawWorkflow?.input == null || record.rawWorkflow?.output == null) {
+          errors.push(`${record.filePath} must be a Fastflow workflow with document, input, output, and do`);
+        }
         break;
       }
       case "loopship_semantics": {
@@ -232,7 +176,7 @@ export function validateWorkflowRecord(record: LoopshipWorkflowRecord): void {
 export function loadBundledFlowRecord(
   flowId = DEFAULT_FLOW_ID,
 ): LoopshipWorkflowRecord {
-  const filePath = resolve(ROOT, "assets", "flows", `${flowId}.yaml`);
+  const filePath = resolve(ROOT, "assets", "flows", `${flowId}.stable.yaml`);
   return loadWorkflowRecord(filePath);
 }
 

@@ -1,0 +1,546 @@
+document:
+  dsl: 1.0.3
+  namespace: loopship-flows
+  name: swe
+  version: 1.0.0
+  summary: Loopship SWE lifecycle workflow composed from reusable single-step workflows.
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - flow
+        - swe
+input:
+  schema:
+    document:
+      type: object
+      additionalProperties: true
+output:
+  schema:
+    document:
+      type: object
+      additionalProperties: true
+  as: ${state}
+do:
+  - flow_spec:
+      metadata:
+        description: Declare the Loopship flow stage graph used by this Fastflow workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+      set:
+        schema_version: 1
+        version: 1
+        defaultStage: planning
+        stages:
+          planning:
+            step: plan
+            task: planning
+            transitionKey:
+              kind: js
+              code: >
+                return Array.isArray(payload.questions) && payload.questions.length ? "questions" :
+                "planned";
+            transitions:
+              questions: awaiting_user_answers
+              planned: plan_review
+          awaiting_user_answers:
+            step: questions
+            task: awaiting_user_answers
+            transitionKey:
+              kind: static
+              value: answered
+            transitions:
+              answered: planning
+          plan_review:
+            step: task_graph
+            task: plan_review
+            transitionKey:
+              kind: js
+              code: |
+                if (payload.approved === false) return "rejected";
+                return String(tasks.prompt || "").trim().toLowerCase().startsWith("loopship: execute child task ")
+                  ? "child_approved"
+                  : "approved";
+            transitions:
+              approved: task_graph_ready
+              child_approved: validating
+              rejected: planning
+          task_graph_ready:
+            step: executing
+            task: task_graph_ready
+            transitionKey:
+              kind: js
+              code: |
+                const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];
+                const done = new Set(["child_merged", "child_archived", "done", "merged"]);
+                const terminal = items.length > 0 && items.every((task) => {
+                  if (!done.has(String(task.status || ""))) return false;
+                  if (["child_archived", "child_merged"].includes(String(task.status || ""))) {
+                    return Boolean(String(task.merge_commit || "").trim());
+                  }
+                  return true;
+                });
+                return terminal ? "complete" : "partial";
+            transitions:
+              complete: validating
+              partial: task_graph_ready
+          executing:
+            step: executing
+            task: executing
+            transitionKey:
+              kind: js
+              code: |
+                const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];
+                const done = new Set(["child_merged", "child_archived", "done", "merged"]);
+                const terminal = items.length > 0 && items.every((task) => {
+                  if (!done.has(String(task.status || ""))) return false;
+                  if (["child_archived", "child_merged"].includes(String(task.status || ""))) {
+                    return Boolean(String(task.merge_commit || "").trim());
+                  }
+                  return true;
+                });
+                return terminal ? "complete" : "partial";
+            transitions:
+              complete: validating
+              partial: executing
+          validating:
+            step: validation
+            task: validating
+            transitionKey:
+              kind: js
+              code: >
+                if (payload.status === "passed") return "passed";
+
+                return String(tasks.prompt || "").trim().toLowerCase().startsWith("loopship: execute
+                child task ")
+                  ? "failed_child"
+                  : "failed";
+            transitions:
+              passed: verification_pending
+              failed: task_graph_ready
+              failed_child: validating
+          verification_pending:
+            step: verification
+            task: verification_pending
+            transitionKey:
+              kind: js
+              code: |
+                return payload.status === "passed" ? "passed" : "failed";
+            transitions:
+              passed: system_update_pending
+              failed: validating
+          system_update_pending:
+            step: system_update
+            task: system_update_pending
+            transitionKey:
+              kind: static
+              value: updated
+            transitions:
+              updated: landing_ready
+          landing_ready:
+            step: landing
+            task: landing_ready
+            transitionKey:
+              kind: js
+              code: |
+                return payload.status === "blocked" ? "blocked" : "landed";
+            transitions:
+              landed: archived
+              blocked: landing_ready
+          replanning:
+            step: plan
+            task: replanning
+            transitionKey:
+              kind: js
+              code: >
+                return Array.isArray(payload.questions) && payload.questions.length ? "questions" :
+                "planned";
+            transitions:
+              planned: plan_review
+              questions: awaiting_user_answers
+          archived:
+            step: archived
+            task: archived
+            transitionKey:
+              kind: static
+              value: continue
+            transitions: {}
+        subflows:
+          - id: replanning
+            type: in_flow_detour
+            starts_at: replanning
+            returns_to: plan_review
+            trigger: replan
+          - id: add_task
+            type: in_flow_detour
+            starts_at: replanning
+            returns_to: task_graph_ready
+            trigger: add_task
+          - id: child_task
+            type: spawned_quest
+            starts_at: task_graph_ready
+            returns_to: task_graph_ready
+            trigger: children[].commands.init
+            result_step: child_result
+            flow_id: swe
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - planning:
+      metadata:
+        description: Run Loopship planning via the pinned plan step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.plan
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - awaiting_user_answers:
+      metadata:
+        description: Run Loopship awaiting_user_answers via the pinned questions step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.questions
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - plan_review:
+      metadata:
+        description: Run Loopship plan_review via the pinned task_graph step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.task-graph
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - task_graph_ready:
+      metadata:
+        description: Run Loopship task_graph_ready via the pinned executing step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.executing
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - executing:
+      metadata:
+        description: Run Loopship executing via the pinned executing step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.executing
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - validating:
+      metadata:
+        description: Run Loopship validating via the pinned validation step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.validation
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - verification_pending:
+      metadata:
+        description: Run Loopship verification_pending via the pinned verification step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.verification
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - system_update_pending:
+      metadata:
+        description: Run Loopship system_update_pending via the pinned system_update step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.system-update
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - landing_ready:
+      metadata:
+        description: Run Loopship landing_ready via the pinned landing step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.landing
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - replanning:
+      metadata:
+        description: Run Loopship replanning via the pinned plan step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.plan
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - archived:
+      metadata:
+        description: Run Loopship archived via the pinned archived step workflow.
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              source: loopship.workflow.yaml
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: The Loopship Fastflow-native workflow step is structurally valid.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: true, evidence: { source: 'loopship.workflow.yaml' } };
+        ref:
+          digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      call: loopship.workflow.service.step.archived
+      with:
+        version: 0.1.0
+        input: {}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}

@@ -12,12 +12,7 @@ import {
   WORKFLOW_DSL_VERSION,
   WORKFLOW_VALIDATION_ENTRYPOINT,
 } from "./loopship_workflow_runner.ts";
-import {
-  FLOW_SCHEMA_PATH,
-  V3_STEP_SCHEMAS,
-  validateV3Input,
-  validateSchemaPath,
-} from "./loopship_schema.ts";
+import { V3_STEP_SCHEMAS, validateV3Input } from "./loopship_schema.ts";
 
 const command = {
   cmd: "loopship",
@@ -65,63 +60,42 @@ const emptySystemContext = {
   durable_implications: [],
 };
 
-const validFlow = {
-  document: {
-    dsl: "1.0.3",
-    namespace: "loopship",
-    name: "demo",
-    version: "1.0.0",
-    metadata: {
-      loopship: {
-        kind: "flow",
-        version: 1,
-        defaultStage: "planning",
-        stages: {
-          planning: {
-            step: "plan",
-            task: "planning",
-            transitions: { planned: "plan_review" },
-          },
-          plan_review: {
-            step: "task_graph",
-            task: "plan_review",
-            transitions: { approved: "task_graph_ready" },
-          },
-          task_graph_ready: {
-            step: "executing",
-            task: "task_graph_ready",
-            transitions: { complete: "archived" },
-          },
-          archived: {
-            step: "archived",
-            task: "archived",
-            transitions: {},
-          },
-        },
-        subflows: [
-          {
-            id: "child_task",
-            type: "spawned_quest",
-            starts_at: "task_graph_ready",
-            returns_to: "task_graph_ready",
-            trigger: "children[].commands.init",
-            result_step: "child_result",
-            flow_id: "demo",
-          },
-        ],
-      },
-    },
-  },
-  do: [
-    { planning: { call: "workflow.loopship.steps.plan" } },
-    { plan_review: { call: "workflow.loopship.steps.task_graph" } },
-    { task_graph_ready: { call: "workflow.loopship.steps.executing" } },
-    { archived: { call: "workflow.loopship.steps.archived" } },
-  ],
-};
-
 function writeYamlFixture(path: string, value: Record<string, unknown>): void {
   writeFileSync(path, stringifyYaml(value), "utf8");
+}
+
+const zeroDigest = `sha256:${"0".repeat(64)}`;
+
+function taskMetadata(description: string): Record<string, unknown> {
+  return {
+    description,
+    validation: {
+      post: {
+        kind: "static",
+        ok: true,
+        evidence: { source: "test-fixture" },
+      },
+    },
+    verification: {
+      assertions: [
+        {
+          id: "fixture_contract",
+          kind: "behaviour",
+          statement: "The test fixture is structurally valid.",
+          check: {
+            script: {
+              kind: "js",
+              code: "return { ok: true, evidence: { source: 'test-fixture' } };",
+            },
+          },
+        },
+      ],
+    },
+  };
+}
+
+function stepCallName(stepId: string): string {
+  return stepId.replace(/_/g, "-");
 }
 
 function makeStepWorkflow(options: {
@@ -138,14 +112,25 @@ function makeStepWorkflow(options: {
   const {
     taskName,
     stepId = taskName,
-    handler = taskName,
-    inputStep = taskName,
     inputSchemaRef,
     outputSchemaRef,
     summary = `${taskName} summary`,
     instructions = `# Loopship ${taskName} Step`,
-    resultSchemaPath = "schemas/steps/step-output.yaml",
   } = options;
+  const description = instructions;
+  const inputSchema = {
+    format: "json",
+    document: {
+      $ref: inputSchemaRef,
+    },
+  };
+  const baseTask = {
+    input: {
+      schema: inputSchema,
+      from: "${inputs}",
+    },
+    metadata: taskMetadata(description),
+  };
   return {
     document: {
       dsl: "1.0.3",
@@ -154,47 +139,76 @@ function makeStepWorkflow(options: {
       version: "1.0.0",
       summary,
       metadata: {
-        loopship: {
-          kind: "step-workflow",
-          stepId,
+        catalog: {
+          tags: ["loopship", "step", stepId],
         },
       },
     },
+    input: {
+      schema: inputSchema,
+    },
+    output: {
+      schema: {
+        format: "json",
+        document: outputSchemaRef
+          ? {
+              type: "object",
+              additionalProperties: true,
+            }
+          : {
+              $ref: inputSchemaRef,
+            },
+      },
+      as: outputSchemaRef ? `\${state.steps.${taskName}.action}` : "${inputs}",
+    },
     do: [
       {
-        [taskName]: {
-          input: {
-            schema: {
-              format: "json",
-              document: {
-                $ref: inputSchemaRef,
-              },
-            },
-          },
-          metadata: {
-            loopship: {
-              stepId,
-              handler,
-              inputStep,
-              summary,
-              instructions,
-              resultSchemaPath,
-            },
-          },
-          ...(outputSchemaRef
-            ? {
-                output: {
-                  schema: {
-                    format: "json",
-                    document: {
+        [taskName]: outputSchemaRef
+          ? {
+              ...baseTask,
+              call: "fastflow.afn.core.request.input",
+              with: {
+                body: {
+                  instruction: description,
+                  request: {
+                    schema: {
+                      type: "object",
+                      additionalProperties: true,
+                    },
+                    build: {
+                      kind: "js",
+                      using: ["inputs"],
+                      code: "return inputs;",
+                    },
+                  },
+                  answer: {
+                    schema: {
                       $ref: outputSchemaRef,
                     },
                   },
                 },
-              }
-            : {}),
-          call: `workflow.loopship.steps.${taskName}`,
-        },
+              },
+              output: {
+                schema: {
+                  format: "json",
+                  document: {
+                    type: "object",
+                    additionalProperties: true,
+                  },
+                },
+                as: "${action}",
+              },
+            }
+          : {
+              ...baseTask,
+              set: {
+                archived: "${inputs}",
+              },
+              output: {
+                schema: inputSchema,
+                as: "${inputs}",
+              },
+            },
       },
     ],
   };
@@ -224,33 +238,67 @@ function makeFlowWorkflow(options: {
   return {
     document: {
       dsl: "1.0.3",
-      namespace: "loopship",
+      namespace: "loopship-flows",
       name,
       version: "1.0.0",
+      summary: `${name} flow`,
       metadata: {
-        loopship: {
-          kind: "flow",
-          version: 1,
-          defaultStage: defaultStage,
-          stages,
-          subflows,
+        catalog: {
+          tags: ["loopship", "flow", name],
         },
       },
     },
-    do: Object.entries(stages).map(([stageId, stageDef]) => ({
-      [stageDef.task]: {
-        call: `workflow.loopship.steps.${stageDef.step}`,
-        then: "continue",
-        metadata: {
-          loopship: {
-            stageId,
-            stepId: stageDef.step,
-            stepWorkflow: `assets/workflows/steps/${stageDef.step}.yaml`,
+    input: {
+      schema: {
+        document: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+    },
+    output: {
+      schema: {
+        document: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+      as: "${state}",
+    },
+    do: [
+      {
+        flow_spec: {
+          metadata: taskMetadata("Declare the Loopship flow stage graph."),
+          set: {
+            schema_version: 1,
+            version: 1,
+            defaultStage,
+            stages,
+            subflows,
           },
         },
-        ...(tasks[stageDef.task] ?? {}),
       },
-    })),
+      ...Object.entries(stages).map(([stageId, stageDef]) => ({
+        [stageDef.task]: {
+          metadata: {
+            ...taskMetadata(`Run Loopship stage ${stageId}.`),
+            ref: {
+              digest: zeroDigest,
+            },
+          },
+          call: `loopship.workflow.service.step.${stepCallName(stageDef.step)}`,
+          with: {
+            version: "1.0.0",
+            input: {
+              stage_id: stageId,
+              flow_id: name,
+            },
+          },
+          then: "continue",
+          ...(tasks[stageDef.task] ?? {}),
+        },
+      })),
+    ],
   };
 }
 
@@ -679,14 +727,59 @@ describe("loopship strict v3 step schemas", () => {
     expect(warnings.join("\n")).not.toContain("unknown format");
   });
 
-  it("accepts and rejects the SWF flow YAML schema", () => {
-    expect(validateSchemaPath(validFlow, FLOW_SCHEMA_PATH)).toEqual([]);
-    expect(
-      validateSchemaPath({ ...validFlow, extra: true }, FLOW_SCHEMA_PATH).length,
-    ).toBeGreaterThan(0);
-    expect(
-      validateSchemaPath({ ...validFlow, do: [] }, FLOW_SCHEMA_PATH).length,
-    ).toBeGreaterThan(0);
+  it("loads Fastflow-native flow YAML and rejects the removed Loopship profile", () => {
+    const root = mkdtempSync(join(tmpdir(), "loopship-fastflow-flow-"));
+    try {
+      const flowPath = join(root, "flow.stable.yaml");
+      writeYamlFixture(
+        flowPath,
+        makeFlowWorkflow({
+          name: "demo",
+          stages: {
+            planning: {
+              step: "plan",
+              task: "planning",
+              transitions: { planned: "archived" },
+            },
+            archived: {
+              step: "archived",
+              task: "archived",
+              transitions: {},
+            },
+          },
+        }),
+      );
+      const flow = loadFlowDefinitionFromPath(
+        flowPath,
+        "demo",
+        loadStepDefinitions(),
+      );
+      expect(flow.default_stage).toBe("planning");
+      expect(flow.stages.map((stage) => stage.id)).toEqual([
+        "planning",
+        "archived",
+      ]);
+
+      writeYamlFixture(flowPath, {
+        document: {
+          dsl: "1.0.3",
+          namespace: "loopship",
+          name: "demo",
+          version: "1.0.0",
+          metadata: {
+            loopship: {
+              kind: "flow",
+            },
+          },
+        },
+        do: [],
+      });
+      expect(() =>
+        loadFlowDefinitionFromPath(flowPath, "demo", loadStepDefinitions()),
+      ).toThrow("workflow must declare a flow_spec set task");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   for (const schemaName of V3_STEP_SCHEMAS) {
@@ -991,10 +1084,10 @@ describe("loopship bundled flow definitions", () => {
     const root = mkdtempSync(join(tmpdir(), "loopship-flow-schema-"));
     try {
       const stepsDir = join(root, "steps");
-      const flowPath = join(root, "flow.yaml");
+      const flowPath = join(root, "flow.stable.yaml");
       mkdirSync(stepsDir, { recursive: true });
       writeFileSync(
-        join(stepsDir, "bad.yaml"),
+        join(stepsDir, "bad.stable.yaml"),
         stringifyYaml(
             makeStepWorkflow({
               taskName: "bad",
@@ -1029,40 +1122,28 @@ describe("loopship bundled flow definitions", () => {
         loadFlowDefinitionFromPath(flowPath, "broken", steps),
       ).toThrow("missing step");
 
-      writeYamlFixture(
-        flowPath,
-        {
-          document: {
-            dsl: "1.0.3",
-            namespace: "loopship",
-            name: "broken",
-            version: "1.0.0",
-            metadata: {
-              loopship: {
-                kind: "flow",
-                version: 1,
-                defaultStage: "planning",
-                stages: {
-                  planning: {
-                    step: "plan",
-                    task: "planning",
-                    transitions: {},
-                  },
-                },
-                subflows: [],
-              },
-            },
+      const missingTaskBinding = makeFlowWorkflow({
+        name: "broken",
+        stages: {
+          planning: {
+            step: "plan",
+            task: "planning",
+            transitions: {},
           },
-          do: [
-            {
-              other_task: {
-                call: "workflow.loopship.steps.plan",
-                then: "continue",
-              },
-            },
-          ],
         },
-      );
+      });
+      (missingTaskBinding.do as Array<Record<string, unknown>>).splice(1, 1, {
+        other_task: {
+          metadata: taskMetadata("Intentionally wrong task binding."),
+          call: "loopship.workflow.service.step.plan",
+          with: {
+            version: "1.0.0",
+            input: {},
+          },
+          then: "continue",
+        },
+      });
+      writeYamlFixture(flowPath, missingTaskBinding);
       expect(() =>
         loadFlowDefinitionFromPath(flowPath, "broken", steps),
       ).toThrow("references missing task");
@@ -1093,7 +1174,7 @@ describe("loopship bundled flow definitions", () => {
   it("rejects incoherent subflow definitions", () => {
     const root = mkdtempSync(join(tmpdir(), "loopship-subflow-schema-"));
     try {
-      const flowPath = join(root, "flow.yaml");
+      const flowPath = join(root, "flow.stable.yaml");
       const steps = loadStepDefinitions();
       const baseStages = {
         planning: {

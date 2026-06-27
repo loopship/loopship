@@ -132,7 +132,7 @@ function main(): number {
     if (!planSession?.session_id || !planSession?.nonce) {
       fail("create must persist a native Fastflow session for the plan step");
     }
-    if (planSession.workflow_ref !== "loopship.workflow.service.step.plan") {
+    if (planSession.workflow_ref !== "loopship.workflow.service.flows.swe") {
       fail(`plan session used wrong workflow ref: ${planSession.workflow_ref}`);
     }
     if (
@@ -150,6 +150,66 @@ function main(): number {
       )
     ) {
       fail("missing generated Loopship-owned Fastflow step catalog");
+    }
+    if (
+      !existsSync(
+        join(
+          repo,
+          ".loopship",
+          "call-catalog",
+          "loopship",
+          "workflow",
+          "service",
+          "step",
+          "index.yaml",
+        ),
+      )
+    ) {
+      fail("missing generated Loopship-owned Fastflow step index");
+    }
+    if (
+      !existsSync(
+        join(
+          repo,
+          ".loopship",
+          "call-catalog",
+          "loopship",
+          "workflow",
+          "service",
+          "flows",
+          "swe.stable.yaml",
+        ),
+      )
+    ) {
+      fail("missing generated Loopship-owned Fastflow flow catalog");
+    }
+    if (
+      existsSync(
+        join(
+          repo,
+          ".loopship",
+          "call-catalog",
+          "loopship",
+          "workflow",
+          "service",
+          "step",
+          "step",
+        ),
+      ) ||
+      existsSync(
+        join(
+          repo,
+          ".loopship",
+          "call-catalog",
+          "loopship",
+          "workflow",
+          "service",
+          "flows",
+          "flows",
+        ),
+      )
+    ) {
+      fail("generated Loopship workflow catalog must not duplicate scope directories");
     }
     if (
       existsSync(
@@ -208,7 +268,7 @@ function main(): number {
     if (!questionsSession?.session_id || !questionsSession?.nonce) {
       fail("plan continuation must start a native Fastflow session for questions");
     }
-    if (questionsSession.workflow_ref !== "loopship.workflow.service.step.questions") {
+    if (questionsSession.workflow_ref !== "loopship.workflow.service.flows.swe") {
       fail(`questions session used wrong workflow ref: ${questionsSession.workflow_ref}`);
     }
 
