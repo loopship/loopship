@@ -453,6 +453,8 @@ describe("Loopship Fastflow-native bridge", () => {
       const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(repo);
       expect(catalogRoot).toBe(join(repo, "call-catalog"));
       expect(existsSync(join(repo, ".loopship", "call-catalog"))).toBe(false);
+      expect(existsSync(join(catalogRoot, ".loopship-generator.json"))).toBe(false);
+      expect(existsSync(join(repo, "tmp", "loopship-fastflow-workflow-catalog.json"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "plan.stable.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "index.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "swe.stable.yaml"))).toBe(true);
@@ -476,6 +478,7 @@ describe("Loopship Fastflow-native bridge", () => {
     };
     expect(packageJson.files).toContain("call-catalog");
     expect(existsSync(join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step", "plan.stable.yaml"))).toBe(true);
+    expect(existsSync(join(process.cwd(), "call-catalog", ".loopship-generator.json"))).toBe(false);
     expect(existsSync(join(process.cwd(), ".loopship", "call-catalog"))).toBe(false);
   });
 

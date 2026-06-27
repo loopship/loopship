@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -1237,8 +1238,8 @@ function loopshipCatalogRoot(repoRoot: string): string {
   return resolve(repoRoot, "call-catalog");
 }
 
-function generatedCatalogMarkerPath(root: string): string {
-  return resolve(root, ".loopship-generator.json");
+function generatedCatalogCachePath(repoRoot: string): string {
+  return resolve(repoRoot, "tmp", "loopship-fastflow-workflow-catalog.json");
 }
 
 function generatedCatalogSourceDigest(): string {
@@ -1277,9 +1278,9 @@ function generatedCatalogIsComplete(root: string): boolean {
   );
 }
 
-function readGeneratedCatalogMarker(root: string): Record<string, unknown> | null {
+function readGeneratedCatalogCache(repoRoot: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(readFileSync(generatedCatalogMarkerPath(root), "utf8"));
+    const parsed = JSON.parse(readFileSync(generatedCatalogCachePath(repoRoot), "utf8"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
@@ -1346,10 +1347,10 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
 ): Promise<string> {
   const root = loopshipCatalogRoot(repoRoot);
   const sourceDigest = generatedCatalogSourceDigest();
-  const marker = readGeneratedCatalogMarker(root);
+  const cache = readGeneratedCatalogCache(repoRoot);
   if (
-    marker?.version === WORKFLOW_CATALOG_GENERATOR_VERSION &&
-    marker?.source_digest === sourceDigest &&
+    cache?.version === WORKFLOW_CATALOG_GENERATOR_VERSION &&
+    cache?.source_digest === sourceDigest &&
     generatedCatalogIsComplete(root)
   ) {
     return root;
@@ -1405,11 +1406,14 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
     },
     workflows: generatedWorkflows,
   });
+  const cachePath = generatedCatalogCachePath(repoRoot);
+  mkdirSync(dirname(cachePath), { recursive: true });
   writeFileSync(
-    generatedCatalogMarkerPath(root),
+    cachePath,
     `${JSON.stringify({
       version: WORKFLOW_CATALOG_GENERATOR_VERSION,
       source_digest: sourceDigest,
+      catalog_root: root,
       generated_at: new Date().toISOString(),
     }, null, 2)}\n`,
     "utf8",
