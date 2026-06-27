@@ -50,8 +50,11 @@ canonical YAML sources with owner recommendations. `loopship handbook
 --fix-duplicates` applies only schema-safe reference rewrites and reports any
 remaining manual cases. The handbook is generated output, not canonical truth.
 
-Loopship lifecycle guidance lives in `assets/workflows/steps/*.stable.yaml`; do not add
-separate stage spec files for the same instructions.
+Loopship executable lifecycle workflows live in the root `call-catalog/`. The
+`call-catalog/loopship/workflow/service/flows/swe.stable.yaml` workflow is the
+authoritative SWE flow, and `call-catalog/loopship/workflow/service/step/*.stable.yaml`
+contains the reusable step subworkflows. Do not add a parallel executable
+workflow source tree.
 
 For mocked runtime lifecycle stepping, `loopship sim` supports:
 

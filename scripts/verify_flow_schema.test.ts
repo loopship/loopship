@@ -958,10 +958,15 @@ describe("loopship bundled flow definitions", () => {
     expect(flow.stages_by_id.planning.step).toBe("plan");
     expect(flow.stages_by_id.task_graph_ready.step).toBe("executing");
     expect(flow.stages_by_id.executing.step).toBe("child_result");
-    expect(flow.steps_by_id.executing.input_step).toBe("child_result");
+    expect(flow.steps_by_id.executing.input_step).toBe("executing");
     expect(flow.steps_by_id.child_result.input_step).toBe("child_result");
     for (const step of Object.values(flow.steps_by_id)) {
-      if (step.output_schema) {
+      if (step.instructions.includes("## Terminal Output Contract")) {
+        expect(step.instructions).toContain("`output_schema` is null");
+        expect(step.instructions).toContain(
+          "do not invent a next payload",
+        );
+      } else if (step.output_schema && step.call === "fastflow.afn.core.request.input") {
         expect(step.instructions).toContain("## Step-Local Callback Contract");
         expect(step.instructions).toContain(
           "orchestrator owns flow transitions",
@@ -970,7 +975,7 @@ describe("loopship bundled flow definitions", () => {
         expect(step.instructions).toContain(
           "do not shape output for a guessed successor",
         );
-      } else {
+      } else if (!step.output_schema) {
         expect(step.instructions).toContain("## Terminal Output Contract");
         expect(step.instructions).toContain("`output_schema` is null");
         expect(step.instructions).toContain(
@@ -1016,13 +1021,11 @@ describe("loopship bundled flow definitions", () => {
       "human-provided answers",
     );
     expect(flow.steps_by_id.executing.instructions).toContain(
-      "# Loopship Executing Step",
+      "Start the ready child wtree commands",
     );
-    expect(flow.subflows.map((subflow) => subflow.id)).toEqual([
-      "replanning",
-      "add_task",
-      "child_task",
-    ]);
+    expect(flow.subflows).toEqual([]);
+    expect(flow.stages_by_id.task_graph_ready.step).toBe("executing");
+    expect(flow.stages_by_id.executing.step).toBe("child_result");
   });
 
   it("rejects invalid flow references", () => {
@@ -1170,7 +1173,7 @@ describe("loopship bundled flow definitions", () => {
         }),
       );
       expect(() => loadFlowDefinitionFromPath(flowPath, "demo", steps)).toThrow(
-        "must match return stage input step child_result",
+        "must match return stage input step executing",
       );
 
       writeYamlFixture(
@@ -1184,7 +1187,7 @@ describe("loopship bundled flow definitions", () => {
               starts_at: "task_graph_ready",
               returns_to: "task_graph_ready",
               trigger: "children[].commands.init",
-              result_step: "child_result",
+              result_step: "executing",
               flow_id: "missing_flow",
             },
           ],

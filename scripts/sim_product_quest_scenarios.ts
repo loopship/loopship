@@ -337,6 +337,37 @@ export function scenarioPayloadForStep(input: {
         throw new Error(`scenario ${scenario.id} has no ready task to report`);
       }
       return {
+        step: "executing",
+        output_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
+        commands: {
+          next: { cmd: "loopship", args: ["sim", "step", "--json", "@-"] },
+        },
+        children: [
+          {
+            task_id: task.id,
+            title: task.title,
+            child_wtree: task.child_wtree,
+            branch_ref: task.branch_ref,
+            worktree_path: task.worktree_path,
+            acceptance: task.acceptance,
+            commands: {
+              init: {
+                cmd: "loopship",
+                args: ["init", `loopship: execute child task ${task.id}`, "--runtime", "codex"],
+              },
+              next: { cmd: "loopship", args: ["resume", "--json", "@-"] },
+            },
+            result_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
+          },
+        ],
+      };
+    }
+    case "child_result": {
+      const task = readyTask(input.quest);
+      if (!task) {
+        throw new Error(`scenario ${scenario.id} has no ready task to report`);
+      }
+      return {
         step: "child_result",
         task_id: task.id,
         child_wtree: task.child_wtree,

@@ -15,6 +15,14 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_FLOW_ID = "swe";
 export const DEFAULT_FLOW_VERSION = 1;
 const FLOW_SOURCE_EXTENSION = ".flow.yaml";
+const FLOW_WORKFLOW_EXTENSION = ".stable.yaml";
+const CATALOG_WORKFLOW_ROOT = resolve(
+  ROOT,
+  "call-catalog",
+  "loopship",
+  "workflow",
+  "service",
+);
 
 export type LoopshipStepDefinition = {
   schema_version: 1;
@@ -80,6 +88,17 @@ function repoRelativePath(path: string): string {
   return relative(ROOT, path).replace(/\\/g, "/");
 }
 
+function localSchemaIdPath(schemaId: unknown): string | null {
+  if (typeof schemaId !== "string" || !schemaId.trim()) return null;
+  const text = schemaId.trim();
+  if (!text.startsWith("schemas/")) return null;
+  const file = resolve(ROOT, text);
+  if (!existsSync(file)) return null;
+  const relativePath = relative(ROOT, file);
+  if (relativePath.startsWith("..") || relativePath === "") return null;
+  return text;
+}
+
 function stringValue(value: unknown, path: string): string {
   if (typeof value !== "string" || !value.trim()) {
     fail(`${path} must be a non-empty string`);
@@ -125,6 +144,8 @@ function schemaSourceFromSwfSchema(
     const resolved = resolve(dirname(workflowPath), ref);
     return repoRelativePath(resolved);
   }
+  const localSchemaPath = localSchemaIdPath(documentObject.$id);
+  if (localSchemaPath) return localSchemaPath;
   return documentObject;
 }
 
@@ -143,6 +164,8 @@ function schemaSourceFromDocumentSchema(
     const resolved = resolve(dirname(workflowPath), ref);
     return repoRelativePath(resolved);
   }
+  const localSchemaPath = localSchemaIdPath(documentObject.$id);
+  if (localSchemaPath) return localSchemaPath;
   return documentObject;
 }
 
@@ -209,14 +232,18 @@ function assertKnownFlowRef(
 ): void {
   if (flowId === currentFlowId) return;
   const siblingFlow = resolve(dirname(currentFlowPath), `${flowId}${FLOW_SOURCE_EXTENSION}`);
-  const bundledFlow = resolve(ROOT, "assets", "flows", `${flowId}${FLOW_SOURCE_EXTENSION}`);
+  const bundledFlow = resolve(
+    CATALOG_WORKFLOW_ROOT,
+    "flows",
+    `${flowId.replace(/_/g, "-")}${FLOW_WORKFLOW_EXTENSION}`,
+  );
   if (!existsSync(siblingFlow) && !existsSync(bundledFlow)) {
     fail(`${owner}.flow_id references missing flow: ${flowId}`);
   }
 }
 
 export function loadStepDefinitions(
-  dir = resolve(ROOT, "assets", "workflows", "steps"),
+  dir = resolve(CATALOG_WORKFLOW_ROOT, "step"),
 ): Record<string, LoopshipStepDefinition> {
   if (!existsSync(dir)) fail(`missing steps directory: ${dir}`);
   const steps: Record<string, LoopshipStepDefinition> = {};
@@ -278,7 +305,11 @@ export function loadStepDefinitions(
 }
 
 export function loadFlowDefinition(flowId = DEFAULT_FLOW_ID): LoadedLoopshipFlow {
-  const path = resolve(ROOT, "assets", "flows", `${flowId}${FLOW_SOURCE_EXTENSION}`);
+  const path = resolve(
+    CATALOG_WORKFLOW_ROOT,
+    "flows",
+    `${flowId.replace(/_/g, "-")}${FLOW_WORKFLOW_EXTENSION}`,
+  );
   if (!existsSync(path)) fail(`unknown flow: ${flowId}`);
   return loadFlowDefinitionFromPath(path, flowId);
 }
@@ -289,6 +320,9 @@ export function loadFlowDefinitionFromPath(
   stepsById = loadStepDefinitions(),
 ): LoadedLoopshipFlow {
   const loopshipFlow = readYamlObject(path);
+  if (Array.isArray(loopshipFlow.do) && loopshipFlow.document && loopshipFlow.input && loopshipFlow.output) {
+    return loadFlowDefinitionFromWorkflow(path, loopshipFlow, expectedFlowId, stepsById);
+  }
   const flowId = stringValue(loopshipFlow.id, `${path}.id`);
   if (expectedFlowId && flowId !== expectedFlowId) {
     fail(`${path} flow id must match requested flow ${expectedFlowId}`);
@@ -416,6 +450,79 @@ export function loadFlowDefinitionFromPath(
   };
 }
 
+function stepIdFromWorkflowCall(call: unknown): string {
+  const text = typeof call === "string" ? call.trim() : "";
+  const segment = text.split(".").pop() || "";
+  return segment.replace(/-/g, "_");
+}
+
+function loadFlowDefinitionFromWorkflow(
+  path: string,
+  workflow: Record<string, any>,
+  expectedFlowId: string | undefined,
+  stepsById: Record<string, LoopshipStepDefinition>,
+): LoadedLoopshipFlow {
+  const name = stringValue(workflow.document?.name, `${path}.document.name`);
+  const flowId = expectedFlowId || name.replace(/-/g, "_");
+  if (expectedFlowId && flowId !== expectedFlowId) {
+    fail(`${path} flow id must match requested flow ${expectedFlowId}`);
+  }
+  const stages: LoopshipFlowStage[] = [];
+  for (const entry of workflow.do as unknown[]) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const [taskName, taskDef] = Object.entries(entry as Record<string, any>)[0] || [];
+    if (!taskName || !taskName.startsWith("stage_")) continue;
+    if (!taskDef || typeof taskDef !== "object" || Array.isArray(taskDef)) continue;
+    const input = taskDef.with?.input;
+    if (!input || typeof input !== "object" || Array.isArray(input)) continue;
+    const stageId = stringValue(
+      input.state ?? taskName.slice("stage_".length),
+      `${path}.${taskName}.with.input.state`,
+    );
+    const rawStepId = String(input.step || "");
+    const stepId = rawStepId.includes("${")
+      ? stepIdFromWorkflowCall(taskDef.call)
+      : rawStepId || stepIdFromWorkflowCall(taskDef.call);
+    if (!stepsById[stepId]) {
+      fail(`${path} stage ${stageId} references missing step workflow ${stepId}`);
+    }
+    const transitions =
+      input.allowed_transitions &&
+      typeof input.allowed_transitions === "object" &&
+      !Array.isArray(input.allowed_transitions)
+        ? Object.fromEntries(
+            Object.entries(input.allowed_transitions as Record<string, unknown>)
+              .map(([key, value]) => [key, String(value)]),
+          )
+        : {};
+    stages.push({
+      id: stageId,
+      step: stepId,
+      transitions,
+      transition_key: null,
+    });
+  }
+  if (!stages.length) {
+    fail(`${path} Fastflow flow workflow must contain generated stage tasks`);
+  }
+  const stagesById: Record<string, LoopshipFlowStage> = {};
+  for (const stage of stages) {
+    if (stagesById[stage.id]) fail(`duplicate flow stage id: ${stage.id}`);
+    stagesById[stage.id] = stage;
+  }
+  const defaultStage = stagesById.planning ? "planning" : stages[0].id;
+  return {
+    schema_version: 1,
+    id: flowId,
+    version: DEFAULT_FLOW_VERSION,
+    default_stage: defaultStage,
+    stages,
+    subflows: [],
+    stages_by_id: stagesById,
+    steps_by_id: stepsById,
+  };
+}
+
 export function flowStage(
   flow: LoadedLoopshipFlow,
   stageId: string | null | undefined,
@@ -439,11 +546,11 @@ export function listBundledFlows(): Array<{
   stages: string[];
   subflows: string[];
 }> {
-  const dir = resolve(ROOT, "assets", "flows");
+  const dir = resolve(CATALOG_WORKFLOW_ROOT, "flows");
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((name) => name.endsWith(FLOW_SOURCE_EXTENSION))
-    .map((name) => loadFlowDefinition(name.slice(0, -FLOW_SOURCE_EXTENSION.length)))
+    .filter((name) => name.endsWith(FLOW_WORKFLOW_EXTENSION))
+    .map((name) => loadFlowDefinition(name.slice(0, -FLOW_WORKFLOW_EXTENSION.length).replace(/-/g, "_")))
     .map((flow) => ({
       id: flow.id,
       version: flow.version,

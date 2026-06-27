@@ -65,20 +65,6 @@ function runNodeCheck(source: string, args: string[] = []): string {
   }
 }
 
-function collectRelativeFiles(root: string, prefix = ""): string[] {
-  const entries = readdirSync(join(root, prefix), { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const relative = prefix ? join(prefix, entry.name) : entry.name;
-    if (entry.isDirectory()) {
-      files.push(...collectRelativeFiles(root, relative));
-    } else if (entry.isFile()) {
-      files.push(relative);
-    }
-  }
-  return files.sort();
-}
-
 function fastflowImport(subpath: "root" | "workflow"): string {
   const fastflowRoot = resolveFastflowRoot();
   const sourcePath =
@@ -357,6 +343,31 @@ describe("Loopship Fastflow-native bridge", () => {
         next: { cmd: "loopship" },
       },
     });
+    await expect(
+      (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.childPrepare,
+          with: {
+            body: {
+              repo: "/tmp/repo",
+              wtree: "demo",
+              dry_run: true,
+              children: [
+                { id: "task-a", title: "Task A", acceptance: "done" },
+                { id: "task-b", title: "Task B", acceptance: "done" },
+              ],
+            },
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      schema_version: "loopship.child.prepare/v1",
+      count: 2,
+      prepared_children: [
+        { task_id: "task-a", commands: { init: { cmd: "loopship" } } },
+        { task_id: "task-b", commands: { init: { cmd: "loopship" } } },
+      ],
+    });
   });
 
   test("validates generated native step workflows without legacy metadata or context.script", () => {
@@ -404,19 +415,21 @@ describe("Loopship Fastflow-native bridge", () => {
     validateNativeWorkflows(workflows);
   });
 
-  test("source flow and step workflow YAML files are Fastflow-valid", () => {
-    const flowFiles = readdirSync(join(process.cwd(), "assets", "flows"));
-    const stepFiles = readdirSync(join(process.cwd(), "assets", "workflows", "steps"));
-    expect(flowFiles.every((name) => !name.endsWith(".yaml") || name.endsWith(".stable.yaml") || name.endsWith(".flow.yaml"))).toBe(true);
+  test("catalog flow and step workflow YAML files are Fastflow-valid", () => {
+    const flowRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "flows");
+    const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
+    const flowFiles = readdirSync(flowRoot).filter((name) => name !== "index.yaml");
+    const stepFiles = readdirSync(stepRoot).filter((name) => name !== "index.yaml");
+    expect(flowFiles.every((name) => !name.endsWith(".yaml") || name.endsWith(".stable.yaml"))).toBe(true);
     expect(stepFiles.every((name) => !name.endsWith(".yaml") || name.endsWith(".stable.yaml"))).toBe(true);
     const workflows: Record<string, unknown> = {
-      "flows/swe": loadYamlWorkflow(join(process.cwd(), "assets", "flows", "swe.stable.yaml")),
+      "flows/swe": loadYamlWorkflow(join(flowRoot, "swe.stable.yaml")),
     };
     for (const file of stepFiles.filter((name) =>
       name.endsWith(".stable.yaml"),
     )) {
       workflows[`steps/${file}`] = loadYamlWorkflow(
-        join(process.cwd(), "assets", "workflows", "steps", file),
+        join(stepRoot, file),
       );
     }
     for (const workflow of Object.values(workflows)) {
@@ -436,6 +449,16 @@ describe("Loopship Fastflow-native bridge", () => {
           expect(object.call.startsWith("loopship.internal.")).toBe(false);
         }
       });
+    }
+    for (const [stepName, fileName] of [
+      ["executing", "executing.stable.yaml"],
+      ["system_update", "system-update.stable.yaml"],
+      ["landing", "landing.stable.yaml"],
+    ] as const) {
+      const workflow = workflows[`steps/${fileName}`] as any;
+      const task = workflow.do[0][stepName];
+      expect(workflow.output.schema.document.properties.schema_version.type).toBe("string");
+      expect(task.output.schema.document.properties.schema_version.type).toBe("string");
     }
     validateNativeWorkflows(workflows);
   });
@@ -465,7 +488,29 @@ describe("Loopship Fastflow-native bridge", () => {
       }
     });
     expect(stageCalls.executingDispatch?.with?.input?.step).toBe("executing");
+    expect(stageCalls.executingDispatch?.with?.input?.output_schema?.properties?.schema_version?.type).toBe("string");
     expect(stageCalls.childResult?.with?.input?.step).toBe("child_result");
+    const deriveTransition = (workflow.do as any[]).find((entry) =>
+      Boolean(entry.derive_transition),
+    )?.derive_transition;
+    const persistStage = (workflow.do as any[]).find((entry) =>
+      Boolean(entry.persist_stage),
+    )?.persist_stage;
+    const appendStageEvent = (workflow.do as any[]).find((entry) =>
+      Boolean(entry.append_stage_event),
+    )?.append_stage_event;
+    expect(deriveTransition?.run?.script?.code).toContain(
+      "function statePatchForPayload",
+    );
+    expect(deriveTransition?.run?.script?.code).toContain(
+      "function domainEventForPayload",
+    );
+    expect(persistStage?.with?.body?.patch).toBe(
+      "${state.steps.derive_transition.action.state_patch}",
+    );
+    expect(appendStageEvent?.with?.body?.events).toBe(
+      "${state.steps.derive_transition.action.events}",
+    );
     expect(workflow.output).toMatchObject({
       as: "${state.steps.derive_transition.action}",
     });
@@ -496,26 +541,20 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(isLoopshipFastflowGeneratedStep("child_result")).toBe(true);
   });
 
-  test("writes generated workflow catalog to canonical Loopship call-id paths", async () => {
+  test("uses the packaged workflow catalog as the canonical Loopship call-id source", async () => {
     const { root, repo } = createGitFixture("loopship-fastflow-catalog-");
     try {
       const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(repo);
-      expect(catalogRoot).toBe(join(repo, "call-catalog"));
+      expect(catalogRoot).toBe(LOOPSHIP_CALL_CATALOG_ROOT);
       expect(existsSync(join(repo, ".loopship", "call-catalog"))).toBe(false);
-      expect(existsSync(join(catalogRoot, ".loopship-generator.json"))).toBe(false);
-      expect(existsSync(join(repo, "tmp", "loopship-fastflow-workflow-catalog.json"))).toBe(true);
+      expect(existsSync(join(repo, "call-catalog"))).toBe(false);
+      expect(existsSync(join(repo, "tmp", "loopship-fastflow-workflow-catalog.json"))).toBe(false);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "plan.stable.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "index.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "swe.stable.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "index.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "step"))).toBe(false);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "flows"))).toBe(false);
-      const generatedWorkflowRoot = join(catalogRoot, "loopship", "workflow");
-      for (const relative of collectRelativeFiles(generatedWorkflowRoot)) {
-        expect(readFileSync(join(generatedWorkflowRoot, relative), "utf8")).toBe(
-          readFileSync(join(LOOPSHIP_CALL_CATALOG_ROOT, "loopship", "workflow", relative), "utf8"),
-        );
-      }
       const manifest = parseYaml(readFileSync(join(catalogRoot, "index.yaml"), "utf8")) as any;
       expect(manifest.schemaVersion).toBe("fastflow/call-catalog-manifest/v3");
       expect(manifest.pathTemplate).toBe("{registry}/{kind}/{target}/{scope}/index.yaml");

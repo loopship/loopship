@@ -185,7 +185,15 @@ export function validateWorkflowRecord(
 export function loadBundledFlowRecord(
   flowId = DEFAULT_FLOW_ID,
 ): LoopshipWorkflowRecord {
-  const filePath = resolve(ROOT, "assets", "flows", `${flowId}.stable.yaml`);
+  const filePath = resolve(
+    ROOT,
+    "call-catalog",
+    "loopship",
+    "workflow",
+    "service",
+    "flows",
+    `${flowId.replace(/_/g, "-")}.stable.yaml`,
+  );
   return loadWorkflowRecord(filePath);
 }
 

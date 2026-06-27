@@ -147,7 +147,7 @@ function assertCanonicalSchemas(): void {
 }
 
 function assertPlanPrompt(): void {
-  const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "plan.stable.yaml"));
+  const text = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "plan.stable.yaml"));
   const scope = "plan step prompt";
   for (const needle of [
     "# Loopship Plan Step",
@@ -193,30 +193,13 @@ function assertPlanPrompt(): void {
 }
 
 function assertSystemUpdatePrompt(): void {
-  const text = readText(resolve(PACKAGE_ROOT, "assets", "workflows", "steps", "system_update.stable.yaml"));
-  const scope = "system_update step prompt";
+  const text = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "system-update.stable.yaml"));
+  const scope = "system_update side-effect workflow";
   for (const needle of [
-    "# Loopship System Update Step",
-    ".loopship/system.yaml",
-    ".loopship/docs/**/*.yaml",
-    "`objects[]`",
-    "`assertions[]`",
-    "`resources[]`",
-    "`memories[]`",
-    "relation-keyed `links` maps",
-    "single-line prose fails schema and semantic verification",
-    "supported_by: [resource:software-architecture#/constraints]",
-    "section-shaped document models",
-    "JSON Pointer fragment",
-    "plan_detail.system_context",
-    "mode: no_change | replace",
-    "external_docs",
-    "resource_ref",
-    "schema_ref: loopship://schemas/docs/software-architecture.yaml",
-    "schemas/system-pack.yaml",
-    "concrete industry-shaped schemas",
-    "role: canonical",
-    "An assertion is not an ADR.",
+    "Submit system doc updates. Loopship writes signed repo docs.",
+    "loopship.afn.service.system.apply",
+    "schemas/steps/system-update-input.yaml",
+    "schema_version",
   ]) {
     assertContains(text, needle, scope);
   }
@@ -228,8 +211,6 @@ function assertSystemUpdatePrompt(): void {
     ".loopship/docs/domains/",
     ".loopship/docs/adrs/",
     "pending_proposals",
-    "test_refs",
-    "context_refs",
     "`records[]`",
     "`relations[]`",
     "subject_refs",
@@ -387,7 +368,7 @@ function assertRootSystemDocument(): void {
 function assertNoStaleProjectLanguage(): void {
   const roots = [
     resolve(PACKAGE_ROOT, ".loopship"),
-    resolve(PACKAGE_ROOT, "assets", "workflows", "steps"),
+    resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step"),
     resolve(PACKAGE_ROOT, "references", "core"),
   ];
   const files = [
@@ -416,7 +397,7 @@ function assertNoStaleProjectLanguage(): void {
 }
 
 function assertWorkflowValidation(): void {
-  const flowRecord = loadWorkflowRecord(resolve(PACKAGE_ROOT, "assets", "flows", "swe.stable.yaml"));
+  const flowRecord = loadWorkflowRecord(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "flows", "swe.stable.yaml"));
   validateWorkflowRecord(flowRecord, {
     schemaPath: WORKFLOW_VALIDATION_ENTRYPOINT,
     workflowLabel: "swe flow",
@@ -426,8 +407,8 @@ function assertWorkflowValidation(): void {
     throw new Error(`swe flow default stage must stay planning, got ${flow.default_stage}`);
   }
   for (const relativePath of [
-    "assets/workflows/steps/plan.stable.yaml",
-    "assets/workflows/steps/system_update.stable.yaml",
+    "call-catalog/loopship/workflow/service/step/plan.stable.yaml",
+    "call-catalog/loopship/workflow/service/step/system-update.stable.yaml",
   ]) {
     validateWorkflowRecord(loadWorkflowRecord(resolve(PACKAGE_ROOT, relativePath)), {
       schemaPath: WORKFLOW_SCHEMA_FILE,

@@ -29,7 +29,7 @@ if (process.env.LOOPSHIP_CMDPROTO_DEBUG === "1") {
 
 const result = runCommand(
   cmdprotoBin,
-  ["build", "--app-name", "loopship", "--out-dir", "assets/cmdproto"],
+  ["build", "--app-name", "loopship", "--out-dir", "tmp/cmdproto"],
   {
     cwd: PACKAGE_ROOT,
     env: {

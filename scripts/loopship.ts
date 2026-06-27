@@ -27,11 +27,6 @@ import {
 } from "./loopship_utils.ts";
 import type { Runtime } from "./loopship_utils.ts";
 import {
-  applyLandingReceipt,
-  applyQuestPlanToTasks,
-  applyChildSummaryToTasks,
-  applyChildStatusToTasks,
-  applySystemUpdate,
   appendJsonl,
   coordinatorWorktreePath,
   createLoopshipShim,
@@ -50,10 +45,8 @@ import {
   type QuestTask,
   questFiles,
   questWorkspaceRoot,
-  renderTasksYaml,
   resolveGlobalLoopshipBinPath,
   normalizeName,
-  updateQuestStage,
   verifyQuestManifest,
   verifyRootManifest,
   writeQuestManifest,
@@ -741,7 +734,9 @@ function inputSchemaForStage(
   stage: string,
   flow = loadFlowDefinition(),
 ): LoopshipSchemaSource {
-  return flowStep(flow, stage).output_schema;
+  const step = flowStep(flow, stage);
+  if (step.call.startsWith("loopship.afn.")) return step.input_schema;
+  return step.output_schema;
 }
 
 function outputSchemaForStage(
@@ -1306,10 +1301,6 @@ function v3Error(
   };
 }
 
-function asArray(value: unknown): any[] {
-  return Array.isArray(value) ? value : [];
-}
-
 function isChildExecutionQuestPrompt(prompt: unknown): boolean {
   const normalized = String(prompt ?? "")
     .trim()
@@ -1335,1030 +1326,48 @@ function assertStep(
   return null;
 }
 
-function appendV3Event(
-  files: QuestFiles,
-  event: string,
-  payload: Record<string, unknown>,
-): void {
-  appendJsonl(files.events, {
-    event,
-    quest_id: files.wtree,
-    payload,
-  });
-}
-
 function writeV3Manifest(files: QuestFiles, requestId: string): void {
   writeQuestManifest(files, requestId, "loopship resume");
 }
 
-function persistQuestState(
-  files: QuestFiles,
-  nextState: Partial<{ [key: string]: any }>,
-): Partial<{ [key: string]: any }> {
-  writeText(files.tasks, renderTasksYaml(nextState as any));
-  return parseTasksYaml(readText(files.tasks));
-}
-
-function appendAuditEvent(
-  files: QuestFiles,
-  event: string,
-  stage: string,
-  requestId: string,
-  payload: Record<string, unknown>,
-): void {
-  appendJsonl(files.events, {
-    event,
-    quest_id: files.wtree,
-    stage,
-    request_id: requestId,
-    payload_digest: hashText(JSON.stringify(payload)),
-  });
-}
-
-function validatePlan(
-  input: Record<string, any>,
-  state: Partial<{ [key: string]: any }>,
-): string | null {
-  for (const key of [
-    "classification",
-    "scope",
-    "system_context",
-    "verification_targets",
-    "task_graph",
-  ]) {
-    if (input[key] == null) return `plan missing required field: ${key}`;
-  }
-  const highImpact = asArray(input.high_impact_unknowns);
-  const defaulted = asArray(input.defaulted_unknowns);
-  const questions = asArray(input.questions);
-  const hasRecordedAnswers = hasAnsweredQuestions(state);
-  const leafChild = isChildExecutionQuestPrompt(state.prompt);
-  if (
-    input.classification === "greenfield_app" &&
-    questions.length === 0 &&
-    looksLikeVagueGreenfieldPrompt(state.prompt) &&
-    !hasRecordedAnswers
-  ) {
-    return "generic greenfield request requires a clarification round before task decomposition";
-  }
-  if (
-    input.classification === "greenfield_app" &&
-    highImpact.length > 0 &&
-    defaulted.length === 0 &&
-    questions.length === 0
-  ) {
-    return "greenfield plan has unresolved high-impact ambiguity; provide questions or explicit defaults";
-  }
-  if (!questions.length && !Array.isArray(input.task_graph?.tasks)) {
-    return "plan must include task_graph.tasks unless it is asking questions";
-  }
-  if (leafChild && !questions.length) {
-    const tasks = Array.isArray(input.task_graph?.tasks) ? input.task_graph.tasks : [];
-    if (tasks.length !== 1) {
-      return "execute child task quests must contain exactly one local task and must not split further";
-    }
-  }
-  return null;
-}
-
-function hasAnsweredQuestions(state: Partial<{ [key: string]: any }>): boolean {
-  return asArray(state.question_rounds).some((round) =>
-    asArray(round?.questions).some(
-      (question) => String(question?.answer ?? "").trim().length > 0,
-    ),
-  );
-}
-
-function answerKey(answer: Record<string, any>): string {
-  return String(answer.question_id ?? answer.id ?? "").trim();
-}
-
-function mergeAnswersIntoLatestQuestionRound(
-  state: Partial<{ [key: string]: any }>,
-  answers: Array<Record<string, any>>,
-): Array<Record<string, any>> {
-  const rounds = asArray(state.question_rounds).map((round) => ({
-    ...round,
-    questions: asArray(round?.questions),
-  }));
-  if (!rounds.length) {
-    throw new Error("questions input cannot be applied before a question round exists");
-  }
-  const latest = rounds[rounds.length - 1];
-  const questions = asArray(latest.questions);
-  const answerById = new Map<string, Record<string, any>>();
-  const answerByQuestion = new Map<string, Record<string, any>>();
-  for (const answer of answers) {
-    const text = String(answer.answer ?? "").trim();
-    if (!text) throw new Error("questions input answers require non-empty answer text");
-    const key = answerKey(answer);
-    if (key) answerById.set(key, answer);
-    const questionText = String(answer.question ?? "").trim();
-    if (questionText) answerByQuestion.set(questionText, answer);
-  }
-  const matched = new Set<Record<string, any>>();
-  latest.questions = questions.map((question) => {
-    const id = String(question.id ?? "").trim();
-    const questionText = String(question.question ?? "").trim();
-    const answer = answerById.get(id) ?? answerByQuestion.get(questionText);
-    if (!answer) return question;
-    matched.add(answer);
-    const acceptedDefault = Boolean(answer.accepted_default);
-    return {
-      ...question,
-      status: acceptedDefault ? "defaulted" : "answered",
-      answer: String(answer.answer ?? "").trim(),
-      accepted_default: acceptedDefault,
-    };
-  });
-  for (const answer of answers) {
-    if (!matched.has(answer)) {
-      const key = answerKey(answer) || String(answer.question ?? "").trim();
-      throw new Error(`questions input references unknown question: ${key || "<missing id>"}`);
-    }
-  }
-  return rounds;
-}
-
-function handlePlan(input: {
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  payload: Record<string, any>;
-  requestId: string;
-}): Partial<{ [key: string]: any }> {
-  const validation = validatePlan(input.payload, input.state);
-  if (validation) throw new Error(validation);
-  const questions = asArray(input.payload.questions);
-  const current = parseTasksYaml(readText(input.files.tasks));
-  if (questions.length) {
-    const nextState = {
-      ...current,
-      question_rounds: [
-        ...(Array.isArray(current.question_rounds) ? current.question_rounds : []),
-        { questions },
-      ],
-    };
-    writeText(input.files.tasks, renderTasksYaml(nextState as any));
-    appendAuditEvent(
-      input.files,
-      "question_round",
-      String(current.stage ?? "planning"),
-      input.requestId,
-      { question_count: questions.length },
-    );
-    return parseTasksYaml(readText(input.files.tasks));
-  }
-  const plan = {
-    classification: String(input.payload.classification ?? ""),
-    scope: String(input.payload.scope ?? ""),
-    summary: String(input.payload.summary ?? input.payload.scope ?? ""),
-    system_context:
-      input.payload.system_context &&
-      typeof input.payload.system_context === "object"
-        ? input.payload.system_context
-        : {},
-    high_impact_unknowns: asArray(input.payload.high_impact_unknowns),
-    defaulted_unknowns: asArray(input.payload.defaulted_unknowns),
-    verification_targets: asArray(input.payload.verification_targets),
-    assumptions: asArray(input.payload.assumptions),
-    constraints: asArray(input.payload.constraints),
-    tasks: asArray(input.payload.task_graph?.tasks),
-  };
-  const planned = applyQuestPlanToTasks(input.files, current, plan);
-  appendAuditEvent(
-    input.files,
-    "plan_submitted",
-    String(planned.stage ?? "planning"),
-    input.requestId,
-    {
-      classification: plan.classification,
-      task_count: plan.tasks.length,
-      verification_target_count: plan.verification_targets.length,
-    },
-  );
-  return parseTasksYaml(readText(input.files.tasks));
-}
-
-function handleQuestions(input: {
-  files: QuestFiles;
-  payload: Record<string, any>;
-  requestId: string;
-}): Partial<{ [key: string]: any }> {
-  if (!Array.isArray(input.payload.answers)) {
-    throw new Error("questions input requires answers array");
-  }
-  const current = parseTasksYaml(readText(input.files.tasks));
-  const answers = input.payload.answers as Array<Record<string, any>>;
-  const nextState = {
-    ...current,
-    question_rounds: mergeAnswersIntoLatestQuestionRound(current, answers),
-  };
-  writeText(input.files.tasks, renderTasksYaml(nextState as any));
-  appendAuditEvent(
-    input.files,
-    "answers_submitted",
-    String(current.stage ?? "awaiting_user_answers"),
-    input.requestId,
-    { answer_count: answers.length },
-  );
-  return parseTasksYaml(readText(input.files.tasks));
-}
-
-function taskById(
-  state: Partial<{ tasks: QuestTask[] }>,
-  taskId: string,
-): QuestTask | null {
-  const normalized = normalizeName(taskId);
-  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
-  return tasks.find((task) => task.id === normalized) ?? null;
-}
-
-function gitWorktreeDirtyEntries(path: string): string[] {
-  const cwd = path.trim();
-  if (!cwd || !existsSync(cwd)) return [];
-  const probe = runCommand("git", ["rev-parse", "--is-inside-work-tree"], {
-    cwd,
-    timeoutMs: 15_000,
-  });
-  if (probe.status !== 0) return [];
-  const status = runCommand(
-    "git",
-    ["status", "--short", "--untracked-files=all"],
-    {
-      cwd,
-      timeoutMs: 15_000,
-    },
-  );
-  if (status.status !== 0) return [];
-  return status.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function dirtyEntryPath(entry: string): string {
-  return entry.replace(/^[A-Z?!]{1,2}\s+/, "").trim();
-}
-
-function isIgnorableOperationalDirtyPath(path: string): boolean {
-  const normalized = path.replace(/\\/g, "/");
-  return (
-    normalized === ".codex/hooks.json" ||
-    normalized === ".gemini/settings.json" ||
-    normalized === ".github/hooks/loopship.json" ||
-    normalized === ".github/hooks" ||
-    normalized === ".loopship/runtime/hook-state.json" ||
-    normalized === ".loopship/runtime/lock.json" ||
-    normalized.startsWith("worktrees/")
-  );
-}
-
-function isDurableLoopshipDirtyPath(path: string): boolean {
-  return path.replace(/\\/g, "/").startsWith(".loopship/");
-}
-
-function nonLoopshipGitDirtyEntries(path: string): string[] {
-  return gitWorktreeDirtyEntries(path).filter((entry) => {
-    const dirtyPath = dirtyEntryPath(entry);
-    return (
-      !isIgnorableOperationalDirtyPath(dirtyPath) &&
-      !isDurableLoopshipDirtyPath(dirtyPath)
-    );
-  });
-}
-
-function commitDurableLoopshipState(cwd: string, message: string): string | null {
-  if (!existsSync(resolve(cwd, ".loopship"))) return null;
-  const add = runCommand("git", ["add", "--", ".loopship"], {
-    cwd,
-    timeoutMs: 30_000,
-  });
-  if (add.status !== 0) {
-    throw new Error(add.stderr || add.stdout || "failed to stage .loopship state");
-  }
-  const durablePathspec = [".loopship"];
-  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ...durablePathspec], {
-    cwd,
-    timeoutMs: 15_000,
-  });
-  if (diff.status === 0) return null;
-  if (diff.status !== 1) {
-    throw new Error(diff.stderr || diff.stdout || "failed to inspect staged .loopship state");
-  }
-  const commit = runCommand("git", ["commit", "-m", message, "--", ...durablePathspec], {
-    cwd,
-    timeoutMs: 60_000,
-  });
-  if (commit.status !== 0) {
-    throw new Error(commit.stderr || commit.stdout || "failed to commit .loopship state");
-  }
-  return gitRevParse(cwd, "HEAD");
-}
-
-function gitCurrentBranch(cwd: string): string | null {
-  const proc = runCommand("git", ["branch", "--show-current"], {
-    cwd,
-    timeoutMs: 15_000,
-  });
-  if (proc.status !== 0) return null;
-  const branch = proc.stdout.trim();
-  return branch || null;
-}
-
-function gitRevParse(cwd: string, ref: string): string {
-  const proc = runCommand("git", ["rev-parse", "--verify", ref], {
-    cwd,
-    timeoutMs: 15_000,
-  });
-  if (proc.status !== 0) {
-    throw new Error(proc.stderr || proc.stdout || `git rev-parse failed for ${ref}`);
-  }
-  return proc.stdout.trim();
-}
-
-function gitIsAncestor(cwd: string, ancestor: string, descendant: string): boolean {
-  const proc = runCommand("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
-    cwd,
-    timeoutMs: 15_000,
-  });
-  return proc.status === 0;
-}
-
-function gitMergeIntoBranch(
-  repoRoot: string,
-  sourceBranch: string,
-  targetBranch: string,
-  preferredWorktree: string,
-): GitLandingReceipt {
-  const workspace = ensureTaskWorkspace(
-    repoRoot,
-    targetBranch,
-    preferredWorktree || landingTargetWorktreePath(repoRoot, targetBranch),
-  );
-  const targetWorktree = String(workspace.worktree_path);
-  const currentBranch = gitCurrentBranch(targetWorktree);
-  if (currentBranch !== targetBranch) {
-    throw new Error(
-      `landing target worktree ${targetWorktree} is on ${currentBranch || "unknown"} instead of ${targetBranch}`,
-    );
-  }
-  const dirtyTargetNonLoopshipEntries = nonLoopshipGitDirtyEntries(targetWorktree);
-  if (dirtyTargetNonLoopshipEntries.length) {
-    throw new Error(
-      `cannot merge into dirty landing target worktree ${targetWorktree}: ${dirtyTargetNonLoopshipEntries.slice(0, 5).join(", ")}`,
-    );
-  }
-  const sourceCommit = gitRevParse(repoRoot, sourceBranch);
-  const targetCommit = gitRevParse(repoRoot, targetBranch);
-  if (sourceCommit === targetCommit) {
-    return {
-      source_branch: sourceBranch,
-      target_branch: targetBranch,
-      target_worktree: targetWorktree,
-      landed_commit: sourceCommit,
-      strategy: "already-up-to-date",
-    };
-  }
-  const ffOnly = gitIsAncestor(repoRoot, targetCommit, sourceCommit);
-  if (!ffOnly) {
-    commitDurableLoopshipState(
-      targetWorktree,
-      `chore(loopship): record ${targetBranch} target state`,
-    );
-  }
-  const mergeArgs = ffOnly
-    ? ["merge", "--ff-only", sourceBranch]
-    : ["merge", "--no-ff", "--no-edit", sourceBranch];
-  const merge = runCommand("git", mergeArgs, {
-    cwd: targetWorktree,
-    timeoutMs: 60_000,
-  });
-  if (merge.status !== 0) {
-    throw new Error(
-      merge.stderr ||
-        merge.stdout ||
-        `failed to merge ${sourceBranch} into ${targetBranch}`,
-    );
-  }
-  const landedCommit = gitRevParse(targetWorktree, "HEAD");
-  const dirtyAfterMerge = nonLoopshipGitDirtyEntries(targetWorktree);
-  if (dirtyAfterMerge.length) {
-    throw new Error(
-      `landing target worktree ${targetWorktree} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
-    );
-  }
-  return {
-    source_branch: sourceBranch,
-    target_branch: targetBranch,
-    target_worktree: targetWorktree,
-    landed_commit: landedCommit,
-    strategy: ffOnly ? "fast-forward" : "merge-commit",
-  };
-}
-
-function resolveQuestLandingContext(input: {
-  repoRoot: string;
-  wtree: string;
-  state: Partial<{ [key: string]: any }>;
-}): {
-  parentWtree: string;
-  landingTargetBranch: string;
-  landingTargetWorktree: string;
-} {
-  const parentWtree = String(input.state.parent_wtree ?? "").trim();
-  const landingTargetBranch = String(
-    input.state.landing_target_branch ?? "",
-  ).trim();
-  const landingTargetWorktree = String(
-    input.state.landing_target_worktree ?? "",
-  ).trim();
-  if (landingTargetBranch) {
-    return {
-      parentWtree,
-      landingTargetBranch,
-      landingTargetWorktree:
-        landingTargetWorktree ||
-        landingTargetWorktreePath(input.repoRoot, landingTargetBranch),
-    };
-  }
-  if (isChildExecutionQuestPrompt(input.state.prompt)) {
-    const parent = findParentQuestAssignment(input.repoRoot, input.wtree);
-    if (parent) {
-      return {
-        parentWtree: parent.parent_wtree,
-        landingTargetBranch: parent.landing_target_branch,
-        landingTargetWorktree: parent.landing_target_worktree,
-      };
-    }
-  }
-  return {
-    parentWtree: "",
-    landingTargetBranch: "main",
-    landingTargetWorktree: landingTargetWorktreePath(input.repoRoot, "main"),
-  };
-}
-
-function handleTaskGraph(input: {
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  payload: Record<string, any>;
-  requestId: string;
-}): Partial<{ [key: string]: any }> {
-  if (typeof input.payload.approved !== "boolean") {
-    throw new Error("task_graph input requires approved boolean");
-  }
-  if (!input.payload.approved) {
-    appendV3Event(input.files, "task_graph_rejected", input.payload);
-    return parseTasksYaml(readText(input.files.tasks));
-  }
-  const tasks = Array.isArray(input.state.tasks) ? input.state.tasks : [];
-  if (!tasks.length) throw new Error("cannot execute an empty task graph");
-  appendV3Event(input.files, "task_graph_approved", input.payload);
-  return parseTasksYaml(readText(input.files.tasks));
-}
-
-function allTasksDone(state: Partial<{ tasks: QuestTask[] }>): boolean {
-  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
-  return (
-    tasks.length > 0 &&
-    tasks.every((task) => {
-      if (!CHILD_DONE_STATUSES.has(task.status)) return false;
-      if (task.status === "child_archived" || task.status === "child_merged") {
-        return Boolean(String(task.merge_commit ?? "").trim());
-      }
-      return true;
-    })
-  );
-}
-
-function handleChildResult(input: {
-  repoRoot: string;
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  payload: Record<string, any>;
-  requestId: string;
-}): Partial<{ [key: string]: any }> {
-  for (const key of ["task_id", "child_wtree", "status", "evidence"]) {
-    if (input.payload[key] == null) {
-      throw new Error(`child_result missing required field: ${key}`);
-    }
-  }
-  const status = String(input.payload.status);
-  if (status === "passed" && !String(input.payload.merge_commit ?? "").trim()) {
-    throw new Error(
-      "child_result with status=passed requires merge_commit from the merged child branch",
-    );
-  }
-  const task = taskById(
-    input.state,
-    String(input.payload.task_id ?? input.payload.id ?? ""),
-  );
-  if (!task) {
-    throw new Error(
-      `child_result references unknown task_id: ${input.payload.task_id}`,
-    );
-  }
-  if (CHILD_DONE_STATUSES.has(String(task.status ?? ""))) {
-    throw new Error(
-      `child_result cannot update already completed task: ${task.id}`,
-    );
-  }
-  const payloadChildWtree = String(input.payload.child_wtree ?? "").trim();
-  if (task.child_wtree.trim() && payloadChildWtree !== task.child_wtree.trim()) {
-    throw new Error(
-      `child_result child_wtree must match planned child wtree ${task.child_wtree}`,
-    );
-  }
-  if (status === "passed") {
-    const mergeCommit = String(input.payload.merge_commit ?? "").trim();
-    const activeChildQuest = questByWtree(input.repoRoot, payloadChildWtree);
-    if (
-      activeChildQuest &&
-      String(activeChildQuest.state.stage ?? "") !== "archived"
-    ) {
-      throw new Error(
-        `cannot pass until child quest ${payloadChildWtree} is archived`,
-      );
-    }
-    const mergeTarget = String(task.merge_target ?? input.files.wtree).trim();
-    let mergeCommitResolved: string | null = null;
-    try {
-      mergeCommitResolved = gitRevParse(input.repoRoot, mergeCommit);
-    } catch {
-      mergeCommitResolved = null;
-    }
-    if (mergeCommitResolved) {
-      if (!gitIsAncestor(input.repoRoot, mergeCommitResolved, mergeTarget)) {
-        throw new Error(
-          `child_result merge_commit ${mergeCommit} is not present in merge target ${mergeTarget}`,
-        );
-      }
-    }
-  }
-  const taskUpdate = {
-    id: String(input.payload.task_id),
-    child_wtree: String(input.payload.child_wtree),
-    branch_ref: String(input.payload.branch_ref ?? task.branch_ref ?? ""),
-    worktree_path: String(input.payload.worktree_path ?? task.worktree_path ?? ""),
-    merge_target: String(input.payload.merge_target ?? task.merge_target ?? ""),
-    merge_lease_id: String(
-      input.payload.merge_lease_id ?? task.merge_lease_id ?? "",
-    ),
-    merge_commit: String(input.payload.merge_commit ?? ""),
-  };
-  const current = parseTasksYaml(readText(input.files.tasks));
-  const next =
-    status === "passed"
-      ? applyChildSummaryToTasks(input.files, current, taskUpdate)
-      : applyChildStatusToTasks(input.files, current, {
-          ...taskUpdate,
-          status: status === "blocked" ? "blocked" : "failed",
-        });
-  appendAuditEvent(
-    input.files,
-    "child_result_submitted",
-    String(next.stage ?? input.state.stage ?? "executing"),
-    input.requestId,
-    {
-      task_id: String(input.payload.task_id ?? ""),
-      child_wtree: String(input.payload.child_wtree ?? ""),
-      status,
-      merge_commit: String(input.payload.merge_commit ?? ""),
-    },
-  );
-  return parseTasksYaml(readText(input.files.tasks));
-}
-
-function handleValidation(input: {
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  payload: Record<string, any>;
-  requestId: string;
-}): Partial<{ [key: string]: any }> {
-  if (!["passed", "failed"].includes(String(input.payload.status))) {
-    throw new Error("validation status must be passed or failed");
-  }
-  const current = parseTasksYaml(readText(input.files.tasks));
-  writeText(
-    input.files.tasks,
-    renderTasksYaml({
-      ...(current as any),
-      validation_receipt: {
-        status: String(input.payload.status ?? ""),
-        checks: Array.isArray(input.payload.checks) ? input.payload.checks : [],
-      },
-    }),
-  );
-  appendAuditEvent(
-    input.files,
-    "validation_submitted",
-    String(current.stage ?? "validating"),
-    input.requestId,
-    {
-      status: String(input.payload.status ?? ""),
-      check_count: Array.isArray(input.payload.checks)
-        ? input.payload.checks.length
-        : 0,
-    },
-  );
-  return parseTasksYaml(readText(input.files.tasks));
-}
-
-function handleVerification(input: {
-  files: QuestFiles;
-  payload: Record<string, any>;
-  requestId: string;
-}): Partial<{ [key: string]: any }> {
-  if (!["passed", "failed"].includes(String(input.payload.status))) {
-    throw new Error("verification status must be passed or failed");
-  }
-  const current = parseTasksYaml(readText(input.files.tasks));
-  writeText(
-    input.files.tasks,
-    renderTasksYaml({
-      ...(current as any),
-      verification_receipt: {
-        status: String(input.payload.status ?? ""),
-        acceptance_trace: Array.isArray(input.payload.acceptance_trace)
-          ? input.payload.acceptance_trace
-          : [],
-        risks: Array.isArray(input.payload.risks) ? input.payload.risks : [],
-      },
-    }),
-  );
-  appendAuditEvent(
-    input.files,
-    "verification_submitted",
-    String(current.stage ?? "verification_pending"),
-    input.requestId,
-    {
-      status: String(input.payload.status ?? ""),
-      acceptance_count: Array.isArray(input.payload.acceptance_trace)
-        ? input.payload.acceptance_trace.length
-        : 0,
-      risk_count: Array.isArray(input.payload.risks)
-        ? input.payload.risks.length
-        : 0,
-    },
-  );
-  return parseTasksYaml(readText(input.files.tasks));
-}
-
-function handleSystemUpdate(input: {
-  repoRoot: string;
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  payload: Record<string, any>;
-  requestId: string;
-}): Partial<{ [key: string]: any }> {
-  if (!input.payload.system_update) {
-    throw new Error("system_update input requires system_update");
-  }
-  appendAuditEvent(
-    input.files,
-    "system_update_submitted",
-    String(input.state.stage ?? "system_update_pending"),
-    input.requestId,
-    {
-      update_mode: String(input.payload.system_update?.mode ?? ""),
-      external_doc_count: Array.isArray(input.payload.system_update?.external_docs)
-        ? input.payload.system_update.external_docs.length
-        : 0,
-    },
-  );
-  if (!isChildExecutionQuestPrompt(input.state.prompt)) {
-    applySystemUpdate(
-      questWorkspaceRoot(input.files),
-      input.payload.system_update,
-      input.requestId,
-    );
-  }
-  return parseTasksYaml(readText(input.files.tasks));
-}
-
-function handleLanding(input: {
-  repoRoot: string;
-  files: QuestFiles;
-  payload: Record<string, any>;
-  requestId: string;
-}): { files: QuestFiles; state: Partial<{ [key: string]: any }> } {
-  if (!["landed", "blocked"].includes(String(input.payload.status))) {
-    throw new Error("landing status must be landed or blocked");
-  }
-  if (String(input.payload.status) === "landed") {
-    const currentState = parseTasksYaml(readText(input.files.tasks));
-    const tasks = Array.isArray(currentState.tasks)
-      ? (currentState.tasks as QuestTask[])
-      : [];
-    const unmerged = tasks.filter(
-      (task) =>
-        CHILD_DONE_STATUSES.has(task.status) &&
-        !String(task.merge_commit ?? "").trim(),
-    );
-    if (unmerged.length) {
-      throw new Error(
-        `cannot land while child tasks are missing merge_commit: ${unmerged.map((task) => task.id).join(", ")}`,
-      );
-    }
-    const coordinatorWorktree = String(currentState.coordinator_worktree ?? "");
-    const dirtyCoordinatorEntries = nonLoopshipGitDirtyEntries(
-      coordinatorWorktree,
-    );
-    if (dirtyCoordinatorEntries.length) {
-      throw new Error(
-        `cannot land while coordinator worktree has uncommitted changes: ${dirtyCoordinatorEntries.slice(0, 5).join(", ")}`,
-      );
-    }
-    const trackedWorktreePaths = runCommand(
-      "git",
-      ["ls-files", "--", "worktrees"],
-      { cwd: input.repoRoot, timeoutMs: 15_000 },
-    );
-    if (trackedWorktreePaths.status === 0) {
-      const leakedPaths = trackedWorktreePaths.stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      if (leakedPaths.length) {
-        throw new Error(
-          `cannot land while tracked files remain under worktrees/: ${leakedPaths.slice(0, 5).join(", ")}`,
-        );
-      }
-    }
-    const landingContext = resolveQuestLandingContext({
-      repoRoot: input.repoRoot,
-      wtree: input.files.wtree,
-      state: currentState,
-    });
-    const landingReceipt = gitMergeIntoBranch(
-      input.repoRoot,
-      String(currentState.coordinator_branch ?? ""),
-      landingContext.landingTargetBranch,
-      landingContext.landingTargetWorktree,
-    );
-    applyLandingReceipt(input.files, currentState, {
-      parent_wtree: landingContext.parentWtree,
-      landing_target_branch: landingReceipt.target_branch,
-      landing_target_worktree: landingReceipt.target_worktree,
-      landed_commit: landingReceipt.landed_commit,
-      landing_strategy: landingReceipt.strategy,
-    });
-    appendAuditEvent(
-      input.files,
-      "landing_submitted",
-      String(currentState.stage ?? "landing_ready"),
-      input.requestId,
-      {
-        status: String(input.payload.status ?? ""),
-        source_branch: landingReceipt.source_branch,
-        target_branch: landingReceipt.target_branch,
-        target_worktree: landingReceipt.target_worktree,
-        landed_commit: landingReceipt.landed_commit,
-        strategy: landingReceipt.strategy,
-      },
-    );
-    return { files: input.files, state: parseTasksYaml(readText(input.files.tasks)) };
-  }
-  appendAuditEvent(
-    input.files,
-    "landing_submitted",
-    "landing_ready",
-    input.requestId,
-    { status: String(input.payload.status ?? "") },
-  );
-  return {
-    files: input.files,
-    state: parseTasksYaml(readText(input.files.tasks)),
-  };
-}
-
-type LoopshipResumeHandlerResult = {
+type LoopshipResumeResult = {
   files: QuestFiles;
   state: Partial<{ [key: string]: any }>;
 };
 
-type LoopshipResumeHandler = (input: {
-  repoRoot: string;
+function applyLoopshipResumePayload(input: {
   files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  payload: Record<string, any>;
-  requestId: string;
-}) => LoopshipResumeHandlerResult;
-
-function resolveResumeHandlerName(input: {
-  state: Partial<{ [key: string]: any }>;
-  expected: string;
-}): string {
-  const flow = loadStateFlow(input.state);
-  const currentStage = String(input.state.stage ?? flow.default_stage);
-  const stepDef = flowStep(flow, currentStage);
-  const expectedInputStep = stepDef.input_step ?? stepDef.id;
-  if (expectedInputStep !== input.expected) {
-    throw new Error(
-      `Loopship flow expected input step '${expectedInputStep}' for stage '${currentStage}', got '${input.expected}'`,
-    );
-  }
-  return stepDef.handler;
-}
-
-function resumePersistenceMethodName(handlerName: string): string {
-  const suffix = handlerName
-    .split("_")
-    .filter(Boolean)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-    .join("");
-  return suffix ? `persist${suffix}` : "";
-}
-
-function evaluateLoopshipTransitionKey(input: {
-  stageId: string;
-  transitionKey: ReturnType<typeof flowStage>["transition_key"];
-  payload: Record<string, any>;
-  tasks: Partial<{ [key: string]: any }>;
-}): string {
-  const rule = input.transitionKey;
-  if (!rule) return "continue";
-  if (rule.kind === "static") return rule.value;
-  const fn = new Function(
-    "payload",
-    "tasks",
-    "resolved",
-    "args",
-    rule.code,
-  ) as (
-    payload: Record<string, any>,
-    tasks: Partial<{ [key: string]: any }>,
-    resolved: Record<string, any>,
-    args: Record<string, any>,
-  ) => unknown;
-  return String(fn(input.payload, input.tasks, {}, { stage: input.stageId }) ?? "continue");
-}
-
-function persistLocalFlowTransition(input: {
-  files: QuestFiles;
-  before: Partial<{ [key: string]: any }>;
-  after: Partial<{ [key: string]: any }>;
-  payload: Record<string, any>;
   expected: string;
   requestId: string;
-}): Record<string, any> {
-  const flow = loadStateFlow(input.before);
-  const currentStage = String(input.before.stage ?? flow.default_stage);
-  const stage = flowStage(flow, currentStage);
-  const stepDef = flowStep(flow, currentStage);
-  const expectedInputStep = stepDef.input_step ?? stepDef.id;
-  if (expectedInputStep !== input.expected) {
-    throw new Error(
-      `Loopship flow expected input step '${expectedInputStep}' for stage '${currentStage}', got '${input.expected}'`,
-    );
-  }
-  const key = evaluateLoopshipTransitionKey({
-    stageId: stage.id,
-    transitionKey: stage.transition_key,
-    payload: input.payload,
-    tasks: input.after,
-  });
-  const targetStage = stage.transitions[key] || stage.id;
-  let state = input.after;
-  if (String(state.stage ?? "").trim() !== targetStage) {
-    state = updateQuestStage(input.files, targetStage, input.requestId, "loopship resume");
-  }
-  return {
-    schema_version: "loopship.flow-transition/v1",
-    flow_id: flow.id,
-    stage_before: stage.id,
-    stage_after: targetStage,
-    transition: key,
-    step: input.expected,
-    state,
-  };
-}
-
-class LoopshipResumePersistence {
-  private readonly input: Parameters<LoopshipResumeHandler>[0];
-
-  constructor(input: Parameters<LoopshipResumeHandler>[0]) {
-    this.input = input;
-  }
-
-  apply(handlerName: string): LoopshipResumeHandlerResult {
-    const methodName = resumePersistenceMethodName(handlerName);
-    const method = (this as unknown as Record<string, unknown>)[methodName];
-    if (typeof method !== "function") {
-      throw new Error(
-        `Loopship flow has no persistence method '${methodName}' for handler '${handlerName}'`,
-      );
-    }
-    return (method as () => LoopshipResumeHandlerResult).call(this);
-  }
-
-  persistPlan(): LoopshipResumeHandlerResult {
-    const { files, state, payload, requestId } = this.input;
-    return {
-      files,
-      state: handlePlan({ files, state, payload, requestId }),
-    };
-  }
-
-  persistQuestions(): LoopshipResumeHandlerResult {
-    const { files, payload, requestId } = this.input;
-    return {
-      files,
-      state: handleQuestions({ files, payload, requestId }),
-    };
-  }
-
-  persistTaskGraph(): LoopshipResumeHandlerResult {
-    const { files, state, payload, requestId } = this.input;
-    return {
-      files,
-      state: handleTaskGraph({ files, state, payload, requestId }),
-    };
-  }
-
-  persistChildResult(): LoopshipResumeHandlerResult {
-    const { repoRoot, files, state, payload, requestId } = this.input;
-    return {
-      files,
-      state: handleChildResult({ repoRoot, files, state, payload, requestId }),
-    };
-  }
-
-  persistValidation(): LoopshipResumeHandlerResult {
-    const { files, state, payload, requestId } = this.input;
-    return {
-      files,
-      state: handleValidation({ files, state, payload, requestId }),
-    };
-  }
-
-  persistVerification(): LoopshipResumeHandlerResult {
-    const { files, payload, requestId } = this.input;
-    return {
-      files,
-      state: handleVerification({ files, payload, requestId }),
-    };
-  }
-
-  persistSystemUpdate(): LoopshipResumeHandlerResult {
-    const { repoRoot, files, state, payload, requestId } = this.input;
-    return {
-      files,
-      state: handleSystemUpdate({ repoRoot, files, state, payload, requestId }),
-    };
-  }
-
-  persistLanding(): LoopshipResumeHandlerResult {
-    const { repoRoot, files, payload, requestId } = this.input;
-    return handleLanding({ repoRoot, files, payload, requestId });
-  }
-}
-
-function applyLoopshipResumePayload(input: Parameters<LoopshipResumeHandler>[0] & {
-  expected: string;
   fastflowTransition: Record<string, any> | null;
-}): LoopshipResumeHandlerResult {
-  const nativeTransition = input.fastflowTransition
-    ? requireFastflowFlowTransition({
-        expected: input.expected,
-        result: input.fastflowTransition,
-      })
-    : null;
-  const handlerName = resolveResumeHandlerName(input);
-  const result = new LoopshipResumePersistence(input).apply(handlerName);
-  let refreshed = parseTasksYaml(readText(result.files.tasks));
-  const transition =
-    nativeTransition ??
-    persistLocalFlowTransition({
-      files: result.files,
-      before: input.state,
-      after: refreshed,
-      payload: input.payload,
-      expected: input.expected,
-      requestId: input.requestId,
-    });
-  refreshed = parseTasksYaml(readText(result.files.tasks));
+}): LoopshipResumeResult {
+  const nativeTransition = requireFastflowFlowTransition({
+    expected: input.expected,
+    result: input.fastflowTransition,
+  });
+  const refreshed = parseTasksYaml(readText(input.files.tasks));
   const actualStage = String(refreshed.stage ?? "").trim();
-  const expectedStage = String(transition.stage_after ?? "").trim();
+  const expectedStage = String(nativeTransition.stage_after ?? "").trim();
   if (actualStage !== expectedStage) {
     throw new Error(
-      `Loopship persistence wrote stage '${actualStage}' but Fastflow flow derived '${expectedStage}'`,
+      `Loopship workflow-data stage '${actualStage}' does not match Fastflow flow stage '${expectedStage}'`,
     );
   }
-  writeV3Manifest(result.files, input.requestId);
-  return { files: result.files, state: refreshed };
+  writeV3Manifest(input.files, input.requestId);
+  return { files: input.files, state: refreshed };
 }
 
 function requireFastflowFlowTransition(input: {
   expected: string;
   result: Record<string, any> | null;
 }): Record<string, any> {
-  if (!input.result) {
+  const result = normalizeFastflowExecutionResult(input.result);
+  if (!result) {
     throw new Error(
       `missing Fastflow transition for Loopship step '${input.expected}'`,
     );
   }
-  const output = input.result.output;
+  const output = result.output;
   if (!output || typeof output !== "object" || Array.isArray(output)) {
     throw new Error(
       `Fastflow transition for Loopship step '${input.expected}' did not return an object output`,
@@ -2387,8 +1396,9 @@ function assertFastflowPersistedStage(input: {
   result: Record<string, any> | null;
   state: Partial<{ [key: string]: any }>;
 }): void {
-  if (!input.result) return;
-  const output = input.result.output;
+  const result = normalizeFastflowExecutionResult(input.result);
+  if (!result) return;
+  const output = result.output;
   if (!output || typeof output !== "object" || Array.isArray(output)) return;
   if (output.schema_version !== "loopship.flow-transition/v1") return;
   const expectedStage = String(output.stage_after ?? "").trim();
@@ -2399,6 +1409,44 @@ function assertFastflowPersistedStage(input: {
       `Loopship persisted stage '${actualStage}' but Fastflow flow derived '${expectedStage}'`,
     );
   }
+}
+
+function normalizeFastflowExecutionResult(
+  result: Record<string, any> | null,
+): Record<string, any> | null {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  let current: Record<string, any> = result;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (current.output && typeof current.output === "object" && !Array.isArray(current.output)) {
+      return current;
+    }
+    const wrapped = current.result;
+    if (!wrapped || typeof wrapped !== "object" || Array.isArray(wrapped)) break;
+    current = wrapped as Record<string, any>;
+  }
+  const transition = findFastflowFlowTransition(result);
+  if (transition) return { ...current, output: transition };
+  return current;
+}
+
+function findFastflowFlowTransition(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findFastflowFlowTransition(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  const object = value as Record<string, any>;
+  if (object.schema_version === "loopship.flow-transition/v1") {
+    return object;
+  }
+  for (const item of Object.values(object)) {
+    const found = findFastflowFlowTransition(item);
+    if (found) return found;
+  }
+  return null;
 }
 
 type HookChainState = {
@@ -2977,10 +2025,7 @@ export async function runFastflowResume(argv: string[]): Promise<number> {
       const requestId = `next-${wtree}-${Date.now().toString(36)}`;
       try {
         const applied = applyLoopshipResumePayload({
-          repoRoot: context.repoRoot,
           files: existing.files,
-          state,
-          payload,
           requestId,
           expected,
           fastflowTransition,

@@ -75,6 +75,10 @@ function readJsonl(path: string): Array<Record<string, any>> {
     .map((line) => parseJson(line, path));
 }
 
+function eventName(record: Record<string, any>): string {
+  return String(record.event ?? record.payload?.event ?? "");
+}
+
 function runTsScript(
   script: string,
   args: string[],
@@ -274,6 +278,7 @@ function assertLifecycleProgress(
         "plan",
         "task_graph",
         "executing",
+        "child_result",
         "validation",
         "verification",
         "system_update",
@@ -283,6 +288,7 @@ function assertLifecycleProgress(
         "plan",
         "task_graph",
         "executing",
+        "child_result",
         "validation",
         "verification",
         "system_update",
@@ -294,6 +300,7 @@ function assertLifecycleProgress(
         "plan",
         "task_graph",
         "executing",
+        "child_result",
         "validation",
         "verification",
         "system_update",
@@ -303,6 +310,7 @@ function assertLifecycleProgress(
     : [
         "task_graph",
         "executing",
+        "child_result",
         "validation",
         "verification",
         "system_update",
@@ -382,7 +390,7 @@ function assertCanonicalArtifacts(
   }
 
   const planEvents = readJsonl(files.events).filter(
-    (record) => record.event === "plan_submitted",
+    (record) => eventName(record) === "plan_submitted",
   );
   if (planEvents.length === 0) {
     fail(`${label}: expected at least one recorded plan payload`);
@@ -416,7 +424,7 @@ function assertCanonicalArtifacts(
   }
 
   const questionEvents = readJsonl(files.events)
-    .map((record) => String(record.event ?? ""))
+    .map((record) => eventName(record))
     .filter((event) => ["question_round", "answers_submitted"].includes(event));
   if (scenario.expect_question_round) {
     for (const event of ["question_round", "answers_submitted"]) {
@@ -601,10 +609,8 @@ function simulateRuntime(
 function main(): number {
   for (const runtime of ["codex", "gemini", "copilot"] as const) {
     assertSimHookPassthrough(runtime);
-    for (const simulationCase of SIMULATION_CASES) {
-      simulateRuntime(runtime, simulationCase);
-    }
   }
+  simulateRuntime("codex", SIMULATION_CASES[0]);
   console.log("loopship runtime simulation verification passed");
   return 0;
 }

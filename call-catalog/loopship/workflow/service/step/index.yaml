@@ -53,7 +53,7 @@ workflows:
   executing:
     stable:
       release: 1
-      digest: "sha256:ba7af47dd2b85cbca028b9bcc9ef32fd6f251340fa6762b8c9101a45dcd9abcd"
+      digest: "sha256:ee249ec7eef2bb22695376b6ceaf66fb84cad21bfffad7b31470087e5453bb65"
       summary: "Start the ready child wtree commands and submit child_result payloads as children finish."
       inputs:
         required:
@@ -90,7 +90,7 @@ workflows:
   landing:
     stable:
       release: 1
-      digest: "sha256:05e7bc64002f10fd20be55423825bcab05cd92912adc1233f7f3d11c99b7aa7d"
+      digest: "sha256:c7255067580a7dbb87830b6707fc13914eeed29f1ae7ba9a54396ef7b98221fe"
       summary: "Submit landing status and final summary."
       inputs:
         required:
@@ -165,7 +165,7 @@ workflows:
   system-update:
     stable:
       release: 1
-      digest: "sha256:95d91a9f001af67e86d9744fd274fa82b19b410652fa54ba56a93d98d3724bd0"
+      digest: "sha256:a4dc63812c594feb80891baeae1c070fe5cf5636717f35366ac8129453013eb3"
       summary: "Submit system doc updates. Loopship writes signed repo docs."
       inputs:
         required:

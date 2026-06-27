@@ -7666,9 +7666,17 @@ input:
               type: string
             child_wtree:
               type: string
+            parent_wtree:
+              type: string
+            parent_task_id:
+              type: string
+            parent_context_ref:
+              type: string
             concurrency_group:
               type: string
             merge_target:
+              type: string
+            merge_target_worktree:
               type: string
             merge_lease_id:
               type: string
@@ -7676,6 +7684,14 @@ input:
               type: string
             system_impact_ref:
               type: string
+            commands:
+              type: object
+              additionalProperties: true
+            result_schema:
+              oneOf:
+                - type: string
+                - type: object
+                  additionalProperties: true
             acceptance:
               oneOf:
                 - type: string
@@ -15385,9 +15401,17 @@ do:
                     type: string
                   child_wtree:
                     type: string
+                  parent_wtree:
+                    type: string
+                  parent_task_id:
+                    type: string
+                  parent_context_ref:
+                    type: string
                   concurrency_group:
                     type: string
                   merge_target:
+                    type: string
+                  merge_target_worktree:
                     type: string
                   merge_lease_id:
                     type: string
@@ -15395,6 +15419,14 @@ do:
                     type: string
                   system_impact_ref:
                     type: string
+                  commands:
+                    type: object
+                    additionalProperties: true
+                  result_schema:
+                    oneOf:
+                      - type: string
+                      - type: object
+                        additionalProperties: true
                   acceptance:
                     oneOf:
                       - type: string

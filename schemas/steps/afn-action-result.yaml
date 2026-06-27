@@ -1,0 +1,12 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/afn-action-result.yaml
+title: Loopship Fastflow AFN Action Result
+type: object
+additionalProperties: true
+required:
+  - schema_version
+properties:
+  schema_version:
+    type: string
+  dry_run:
+    type: boolean
