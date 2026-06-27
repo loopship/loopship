@@ -1417,6 +1417,10 @@ export function isLoopshipFastflowHandoffStep(stepId: string): boolean {
   return found;
 }
 
+export function isLoopshipFastflowGeneratedStep(stepId: string): boolean {
+  return Boolean(loadStepDefinitions()[stepId]);
+}
+
 function materializeCatalogWorkflow(
   scope: string,
   workflow: FastflowRecord,
@@ -1617,6 +1621,34 @@ export async function startLoopshipFastflowStepSession(input: {
     session_id: result.pause.sessionId,
     nonce: result.pause.nonce,
   };
+}
+
+export async function runLoopshipFastflowStepOnce(input: {
+  repoRoot: string;
+  workspaceRoot?: string;
+  stepId: string;
+  stageId?: string;
+  flowId?: string;
+  inputs: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
+  const workflowRef = loopshipFlowWorkflowRef(input.flowId || DEFAULT_FLOW_ID);
+  return runFastflowNodeSession({
+    repoRoot: input.repoRoot,
+    workspaceRoot: input.workspaceRoot,
+    catalogRoot,
+    operation: "run",
+    request: buildLoopshipFastflowSuperviseStepRunRequest({
+      workflowRef,
+      inputs: {
+        ...input.inputs,
+        mode: "step",
+        stage: input.stageId || (input.inputs.state as string | undefined) || "",
+        step_id: input.stepId,
+      },
+      progressMode: "compact",
+    }),
+  });
 }
 
 export async function resumeLoopshipFastflowStepSession(input: {
