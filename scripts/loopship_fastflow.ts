@@ -1393,7 +1393,12 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
   await writeGeneratedWorkflowCatalog({
     outputRoot: root,
     store: "global",
-    validate: false,
+    appConfig: {
+      appName: "loopship",
+      systemWorkflowsDir: root,
+      callCatalogRoots: [root, LOOPSHIP_CALL_CATALOG_ROOT],
+      adapters: createLoopshipFastflowAdapters(),
+    },
     catalogTags: {
       "loopship.workflow.service.step": ["loopship", "step"],
       "loopship.workflow.service.flows": ["loopship", "flow"],
