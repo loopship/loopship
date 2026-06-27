@@ -1,6 +1,5 @@
 import {
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -12,7 +11,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CallDescriptor } from "@cueintent/fastflow";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   applyLandingReceipt,
   applySystemUpdate,
@@ -1235,13 +1233,6 @@ function resolveFastflowRoot(): string {
   throw new Error("could not resolve @cueintent/fastflow runtime");
 }
 
-async function hashFastflowWorkflow(workflow: FastflowRecord): Promise<string> {
-  const { hashSwfWorkflow } = await import(
-    pathToFileURL(resolve(resolveFastflowRoot(), "src", "lib", "swf-compat.mjs")).href
-  );
-  return `sha256:${hashSwfWorkflow(workflow)}`;
-}
-
 function loopshipCatalogRoot(repoRoot: string): string {
   return resolve(repoRoot, ".loopship", "call-catalog");
 }
@@ -1338,68 +1329,22 @@ export function isLoopshipFastflowHandoffStep(stepId: string): boolean {
   return found;
 }
 
-async function writeStableWorkflow(
-  root: string,
+function materializeCatalogWorkflow(
   scope: string,
-  name: string,
   workflow: FastflowRecord,
-): Promise<string> {
+): FastflowRecord {
   const materialized = structuredClone(workflow) as FastflowRecord;
   materialized.document = {
     ...((materialized.document as Record<string, unknown> | undefined) || {}),
     namespace: `${LOOPSHIP_WORKFLOW_TARGET}-${scope}`,
   };
-  const digest = await hashFastflowWorkflow(materialized);
-  const dir = resolve(
-    root,
-    LOOPSHIP_WORKFLOW_REGISTRY,
-    "workflow",
-    LOOPSHIP_WORKFLOW_TARGET,
-    scope,
-  );
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    resolve(dir, `${name}.stable.yaml`),
-    stringifyYaml(materialized, { aliasDuplicateObjects: false }),
-    "utf8",
-  );
-  const indexPath = resolve(dir, "index.yaml");
-  const existing = existsSync(indexPath)
-    ? parseYaml(readFileSync(indexPath, "utf8"))
-    : null;
-  const workflows =
-    existing && typeof existing === "object" && !Array.isArray(existing)
-      ? { ...((existing as Record<string, any>).workflows || {}) }
-      : {};
-  workflows[name] = {
-    stable: {
-      release: 1,
-      digest,
-      summary: String(
-        (materialized.document as Record<string, unknown> | undefined)?.summary ||
-          `${name} workflow`,
-      ),
-      inputs: { required: [], optional: [] },
-      requires: [],
-    },
-  };
-  writeFileSync(
-    indexPath,
-    stringifyYaml({
-      schemaVersion: "fastflow/call-catalog-scope/v1",
-      calls: [],
-      workflows,
-    }),
-    "utf8",
-  );
-  return digest;
+  return materialized;
 }
 
 export async function ensureLoopshipFastflowWorkflowCatalog(
   repoRoot: string,
 ): Promise<string> {
   const root = loopshipCatalogRoot(repoRoot);
-  mkdirSync(root, { recursive: true });
   const sourceDigest = generatedCatalogSourceDigest();
   const marker = readGeneratedCatalogMarker(root);
   if (
@@ -1411,44 +1356,50 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
   }
   const stepWorkflows = buildLoopshipFastflowStepWorkflows();
   const stepPins: StepWorkflowPins = {};
+  const generatedWorkflows: Array<{
+    call: string;
+    rawWorkflow: FastflowRecord;
+    store: "global";
+    tags: string[];
+  }> = [];
+  const {
+    buildWorkflowReleaseEntry,
+    writeGeneratedWorkflowCatalog,
+  } = await import("@cueintent/fastflow/catalog");
   for (const [stepId, workflow] of Object.entries(stepWorkflows)) {
-    const digest = await writeStableWorkflow(root, LOOPSHIP_STEP_SCOPE, workflowNameForStep(stepId), workflow);
+    const name = workflowNameForStep(stepId);
+    const call = workflowRefFor(LOOPSHIP_STEP_SCOPE, name);
+    const rawWorkflow = materializeCatalogWorkflow(LOOPSHIP_STEP_SCOPE, workflow);
+    const release = buildWorkflowReleaseEntry({ call, rawWorkflow });
     stepPins[stepId] = {
-      digest,
+      digest: release.digest,
       version: String((workflow.document as Record<string, unknown> | undefined)?.version || "0.1.0"),
     };
+    generatedWorkflows.push({
+      call,
+      rawWorkflow,
+      store: "global",
+      tags: ["loopship", "step"],
+    });
   }
   const flow = buildLoopshipFastflowFlowWorkflow(DEFAULT_FLOW_ID, { stepPins });
-  await writeStableWorkflow(
-    root,
-    LOOPSHIP_FLOW_SCOPE,
-    DEFAULT_FLOW_ID.replace(/_/g, "-"),
-    flow,
-  );
-  writeFileSync(
-    resolve(root, "index.yaml"),
-    stringifyYaml({
-      schemaVersion: "fastflow/call-catalog-manifest/v2",
-      pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml",
-      prefixes: {
-        loopship: {
-          workflow: {
-            service: {
-              step: {
-                path: "loopship/workflow/service/step/index.yaml",
-                tags: ["loopship", "step"],
-              },
-              flows: {
-                path: "loopship/workflow/service/flows/index.yaml",
-                tags: ["loopship", "flow"],
-              },
-            },
-          },
-        },
-      },
-    }),
-    "utf8",
-  );
+  const flowName = DEFAULT_FLOW_ID.replace(/_/g, "-");
+  generatedWorkflows.push({
+    call: workflowRefFor(LOOPSHIP_FLOW_SCOPE, flowName),
+    rawWorkflow: materializeCatalogWorkflow(LOOPSHIP_FLOW_SCOPE, flow),
+    store: "global",
+    tags: ["loopship", "flow"],
+  });
+  await writeGeneratedWorkflowCatalog({
+    outputRoot: root,
+    store: "global",
+    validate: false,
+    catalogTags: {
+      "loopship.workflow.service.step": ["loopship", "step"],
+      "loopship.workflow.service.flows": ["loopship", "flow"],
+    },
+    workflows: generatedWorkflows,
+  });
   writeFileSync(
     generatedCatalogMarkerPath(root),
     `${JSON.stringify({

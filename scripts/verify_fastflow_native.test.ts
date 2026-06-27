@@ -457,9 +457,11 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "index.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "step"))).toBe(false);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "flows"))).toBe(false);
-      const manifest = readFileSync(join(catalogRoot, "index.yaml"), "utf8");
-      expect(manifest).toContain("loopship/workflow/service/step/index.yaml");
-      expect(manifest).toContain("loopship/workflow/service/flows/index.yaml");
+      const manifest = parseYaml(readFileSync(join(catalogRoot, "index.yaml"), "utf8")) as any;
+      expect(manifest.schemaVersion).toBe("fastflow/call-catalog-manifest/v3");
+      expect(manifest.pathTemplate).toBe("{registry}/{kind}/{target}/{scope}/index.yaml");
+      expect(manifest.prefixes.loopship.workflow.service.step.tags).toContain("step");
+      expect(manifest.prefixes.loopship.workflow.service.flows.tags).toContain("flow");
       expect(loopshipFlowWorkflowRef("swe")).toBe("loopship.workflow.service.flows.swe");
     } finally {
       rmSync(root, { recursive: true, force: true });
