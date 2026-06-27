@@ -451,6 +451,8 @@ describe("Loopship Fastflow-native bridge", () => {
     const { root, repo } = createGitFixture("loopship-fastflow-catalog-");
     try {
       const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(repo);
+      expect(catalogRoot).toBe(join(repo, "call-catalog"));
+      expect(existsSync(join(repo, ".loopship", "call-catalog"))).toBe(false);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "plan.stable.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "step", "index.yaml"))).toBe(true);
       expect(existsSync(join(catalogRoot, "loopship", "workflow", "service", "flows", "swe.stable.yaml"))).toBe(true);

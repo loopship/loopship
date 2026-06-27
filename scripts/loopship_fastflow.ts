@@ -1234,7 +1234,7 @@ function resolveFastflowRoot(): string {
 }
 
 function loopshipCatalogRoot(repoRoot: string): string {
-  return resolve(repoRoot, ".loopship", "call-catalog");
+  return resolve(repoRoot, "call-catalog");
 }
 
 function generatedCatalogMarkerPath(root: string): string {
@@ -1714,14 +1714,14 @@ function nonLoopshipGitDirtyEntries(path: string): string[] {
 
 function commitDurableLoopshipState(cwd: string, message: string): string | null {
   if (!existsSync(resolve(cwd, ".loopship"))) return null;
-  const add = runCommand("git", ["add", "--", ".loopship", ":(exclude).loopship/call-catalog"], {
+  const add = runCommand("git", ["add", "--", ".loopship"], {
     cwd,
     timeoutMs: 30_000,
   });
   if (add.status !== 0) {
     throw new Error(add.stderr || add.stdout || "failed to stage .loopship state");
   }
-  const durablePathspec = [".loopship", ":(exclude).loopship/call-catalog"];
+  const durablePathspec = [".loopship"];
   const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ...durablePathspec], {
     cwd,
     timeoutMs: 15_000,
