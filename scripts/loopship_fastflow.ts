@@ -1310,14 +1310,19 @@ export function buildLoopshipFastflowSuperviseStepRunRequest(input: {
   };
 }
 
-function resolveFastflowRoot(): string {
+function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/catalog.mjs"]): string {
   const candidates = [
     resolve(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow"),
     resolve(LOOPSHIP_ROOT, "..", "..", "orgs", "cueintent", "fastflow"),
     resolve(LOOPSHIP_ROOT, "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
   ];
   for (const candidate of candidates) {
-    if (existsSync(resolve(candidate, "package.json"))) return candidate;
+    if (
+      existsSync(resolve(candidate, "package.json")) &&
+      requiredFiles.every((file) => existsSync(resolve(candidate, file)))
+    ) {
+      return candidate;
+    }
   }
   throw new Error("could not resolve @cueintent/fastflow runtime");
 }
@@ -1326,7 +1331,7 @@ async function importFastflowCatalogModule(): Promise<FastflowCatalogModule> {
   try {
     return await import("@cueintent/fastflow/catalog");
   } catch (error) {
-    const sourceModule = resolve(resolveFastflowRoot(), "src", "catalog.mjs");
+    const sourceModule = resolve(resolveFastflowRoot(["src/catalog.mjs"]), "src", "catalog.mjs");
     if (!existsSync(sourceModule)) throw error;
     return (await import(pathToFileURL(sourceModule).href)) as FastflowCatalogModule;
   }

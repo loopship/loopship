@@ -88,9 +88,12 @@ function fastflowImport(subpath: "root" | "workflow"): string {
   return pathToFileURL(sourcePath).href;
 }
 
-function resolveFastflowRoot(): string {
+function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/catalog.mjs"]): string {
   const installedRoot = join(process.cwd(), "node_modules", "@cueintent", "fastflow");
-  if (existsSync(join(installedRoot, "package.json"))) {
+  if (
+    existsSync(join(installedRoot, "package.json")) &&
+    requiredFiles.every((file) => existsSync(join(installedRoot, file)))
+  ) {
     return installedRoot;
   }
 
@@ -99,7 +102,8 @@ function resolveFastflowRoot(): string {
     resolve(process.cwd(), "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
   ];
   const fastflowRoot = siblingRoots.find((candidate) =>
-    existsSync(join(candidate, "package.json")),
+    existsSync(join(candidate, "package.json")) &&
+    requiredFiles.every((file) => existsSync(join(candidate, file))),
   );
   if (!fastflowRoot) {
     throw new Error("could not resolve @cueintent/fastflow from node_modules or sibling repos");
@@ -108,7 +112,7 @@ function resolveFastflowRoot(): string {
 }
 
 function fastflowSourceImport(relativePath: string): string {
-  return pathToFileURL(join(resolveFastflowRoot(), relativePath)).href;
+  return pathToFileURL(join(resolveFastflowRoot([relativePath]), relativePath)).href;
 }
 
 function validateNativeWorkflows(workflows: Record<string, unknown>): void {
@@ -305,6 +309,7 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("loads the compact Loopship call catalog", async () => {
+    expect(existsSync(join(resolveFastflowRoot(), "src", "catalog.mjs"))).toBe(true);
     const output = runNodeCheck(
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
