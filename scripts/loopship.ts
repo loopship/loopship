@@ -1628,14 +1628,15 @@ function nonLoopshipGitDirtyEntries(path: string): string[] {
 
 function commitDurableLoopshipState(cwd: string, message: string): string | null {
   if (!existsSync(resolve(cwd, ".loopship"))) return null;
-  const add = runCommand("git", ["add", "--", ".loopship"], {
+  const add = runCommand("git", ["add", "--", ".loopship", ":(exclude).loopship/call-catalog"], {
     cwd,
     timeoutMs: 30_000,
   });
   if (add.status !== 0) {
     throw new Error(add.stderr || add.stdout || "failed to stage .loopship state");
   }
-  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ".loopship"], {
+  const durablePathspec = [".loopship", ":(exclude).loopship/call-catalog"];
+  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ...durablePathspec], {
     cwd,
     timeoutMs: 15_000,
   });
@@ -1643,7 +1644,7 @@ function commitDurableLoopshipState(cwd: string, message: string): string | null
   if (diff.status !== 1) {
     throw new Error(diff.stderr || diff.stdout || "failed to inspect staged .loopship state");
   }
-  const commit = runCommand("git", ["commit", "-m", message], {
+  const commit = runCommand("git", ["commit", "-m", message, "--", ...durablePathspec], {
     cwd,
     timeoutMs: 60_000,
   });
@@ -1706,10 +1707,6 @@ function gitMergeIntoBranch(
       `cannot merge into dirty landing target worktree ${targetWorktree}: ${dirtyTargetNonLoopshipEntries.slice(0, 5).join(", ")}`,
     );
   }
-  commitDurableLoopshipState(
-    targetWorktree,
-    `chore(loopship): record ${targetBranch} target state`,
-  );
   const sourceCommit = gitRevParse(repoRoot, sourceBranch);
   const targetCommit = gitRevParse(repoRoot, targetBranch);
   if (sourceCommit === targetCommit) {
@@ -1722,6 +1719,12 @@ function gitMergeIntoBranch(
     };
   }
   const ffOnly = gitIsAncestor(repoRoot, targetCommit, sourceCommit);
+  if (!ffOnly) {
+    commitDurableLoopshipState(
+      targetWorktree,
+      `chore(loopship): record ${targetBranch} target state`,
+    );
+  }
   const mergeArgs = ffOnly
     ? ["merge", "--ff-only", sourceBranch]
     : ["merge", "--no-ff", "--no-edit", sourceBranch];
@@ -2193,6 +2196,7 @@ type HookChainState = {
 type HookRuntimeState = {
   schema_version: 1;
   chains: Record<string, HookChainState>;
+  fastflow_sessions?: Record<string, Record<string, unknown>>;
 };
 
 function hookEventName(
@@ -2216,11 +2220,109 @@ function loadHookRuntimeState(files: QuestFiles): HookRuntimeState {
     parsed.chains && typeof parsed.chains === "object"
       ? (parsed.chains as Record<string, HookChainState>)
       : {};
-  return { schema_version: 1, chains };
+  const fastflowSessions =
+    parsed.fastflow_sessions && typeof parsed.fastflow_sessions === "object"
+      ? (parsed.fastflow_sessions as Record<string, Record<string, unknown>>)
+      : {};
+  return { schema_version: 1, chains, fastflow_sessions: fastflowSessions };
 }
 
 function saveHookRuntimeState(files: QuestFiles, state: HookRuntimeState): void {
   writeJson(files.hook_state, state);
+}
+
+function fastflowSessionKey(stepId: string): string {
+  return `step:${stepId}`;
+}
+
+async function isFastflowHandoffStep(stepId: string): Promise<boolean> {
+  const { isLoopshipFastflowHandoffStep } = await import("./loopship_fastflow.ts");
+  return isLoopshipFastflowHandoffStep(stepId);
+}
+
+async function startNativeFastflowStepSession(input: {
+  repoRoot: string;
+  files: QuestFiles;
+  state: Partial<{ [key: string]: any }>;
+  stepDoc: Record<string, unknown>;
+}): Promise<void> {
+  const flow = loadStateFlow(input.state);
+  const stepId = stageToV3Step(String(input.state.stage ?? flow.default_stage), flow);
+  if (!(await isFastflowHandoffStep(stepId))) return;
+  const { startLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
+  const session = await startLoopshipFastflowStepSession({
+    repoRoot: input.repoRoot,
+    stepId,
+    inputs: input.stepDoc,
+  });
+  if (!session) return;
+  const runtime = loadHookRuntimeState(input.files);
+  const sessions = (runtime.fastflow_sessions ??= {});
+  sessions[fastflowSessionKey(stepId)] = session;
+  saveHookRuntimeState(input.files, runtime);
+  appendJsonl(input.files.events, {
+    event: "fastflow_session_started",
+    quest_id: input.files.wtree,
+    step_id: stepId,
+    workflow_ref: session.workflow_ref,
+  });
+  writeQuestManifest(input.files, `fastflow-session-${stepId}`, "loopship fastflow session");
+}
+
+async function resumeNativeFastflowStepSession(input: {
+  repoRoot: string;
+  files: QuestFiles;
+  stepId: string;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  if (!(await isFastflowHandoffStep(input.stepId))) return;
+  const runtime = loadHookRuntimeState(input.files);
+  const key = fastflowSessionKey(input.stepId);
+  let session = runtime.fastflow_sessions?.[key];
+  if (!session) {
+    const state = parseTasksYaml(readText(input.files.tasks));
+    const stepDoc = v3StepOutput({
+      repoRoot: input.repoRoot,
+      files: input.files,
+      state,
+      full: true,
+    });
+    const { startLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
+    const created = await startLoopshipFastflowStepSession({
+      repoRoot: input.repoRoot,
+      stepId: input.stepId,
+      inputs: stepDoc,
+    });
+    if (!created) {
+      throw new Error(`missing Fastflow session for Loopship step '${input.stepId}'`);
+    }
+    const sessions = (runtime.fastflow_sessions ??= {});
+    sessions[key] = created;
+    session = created;
+    saveHookRuntimeState(input.files, runtime);
+    appendJsonl(input.files.events, {
+      event: "fastflow_session_started",
+      quest_id: input.files.wtree,
+      step_id: input.stepId,
+      workflow_ref: created.workflow_ref,
+      lazy: true,
+    });
+  }
+  const { resumeLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
+  await resumeLoopshipFastflowStepSession({
+    repoRoot: input.repoRoot,
+    session: session as any,
+    decision: input.payload,
+  });
+  delete runtime.fastflow_sessions?.[key];
+  saveHookRuntimeState(input.files, runtime);
+  appendJsonl(input.files.events, {
+    event: "fastflow_session_resumed",
+    quest_id: input.files.wtree,
+    step_id: input.stepId,
+    workflow_ref: String(session.workflow_ref ?? ""),
+  });
+  writeQuestManifest(input.files, `fastflow-resume-${input.stepId}`, "loopship fastflow resume");
 }
 
 function hookChainKey(
@@ -2473,7 +2575,7 @@ function resolveHookWtree(input: {
   };
 }
 
-export function runFastflowResume(argv: string[]): number {
+export async function runFastflowResume(argv: string[]): Promise<number> {
   const args = parseQuestRepoArg(argv);
   const payload = readJsonArg(args.json);
   const context = resolveRepoContext({
@@ -2545,14 +2647,19 @@ export function runFastflowResume(argv: string[]): number {
         resolutionSource: context.source,
         flowId: flowId || DEFAULT_FLOW_ID,
       });
-      questResponse(
-        v3StepOutput({
-          repoRoot: context.repoRoot,
-          files: created.files,
-          state: created.state,
-          full: args.full,
-        }),
-      );
+      const output = v3StepOutput({
+        repoRoot: context.repoRoot,
+        files: created.files,
+        state: created.state,
+        full: args.full,
+      });
+      await startNativeFastflowStepSession({
+        repoRoot: context.repoRoot,
+        files: created.files,
+        state: created.state,
+        stepDoc: output,
+      });
+      questResponse(output);
       return 0;
     }
 
@@ -2616,6 +2723,12 @@ export function runFastflowResume(argv: string[]): number {
         );
         return 1;
       }
+      await resumeNativeFastflowStepSession({
+        repoRoot: context.repoRoot,
+        files: existing.files,
+        stepId: expected,
+        payload,
+      });
       const requestId = `next-${wtree}-${Date.now().toString(36)}`;
       try {
         if (expected === "plan") {
@@ -2689,14 +2802,19 @@ export function runFastflowResume(argv: string[]): number {
     }
 
     const refreshed = parseTasksYaml(readText(responseFiles.tasks));
-    questResponse(
-      v3StepOutput({
-        repoRoot: context.repoRoot,
-        files: responseFiles,
-        state: refreshed,
-        full: args.full,
-      }),
-    );
+    const output = v3StepOutput({
+      repoRoot: context.repoRoot,
+      files: responseFiles,
+      state: refreshed,
+      full: args.full,
+    });
+    await startNativeFastflowStepSession({
+      repoRoot: context.repoRoot,
+      files: responseFiles,
+      state: refreshed,
+      stepDoc: output,
+    });
+    questResponse(output);
     return 0;
   } finally {
     releaseWtreeLock(lock);
@@ -2911,7 +3029,7 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   const rest = argv.slice(1);
   if (cmd === "init") return runInit(rest);
   if (cmd === "hook") return runHook(rest);
-  if (cmd === "resume") return runFastflowResume(rest);
+  if (cmd === "resume") return await runFastflowResume(rest);
   if (cmd === "sim") return runSimCli(rest);
   if (cmd === "handbook") return runHandbook(rest);
   if (cmd === "cmdproto") return runLoopshipCmdproto(rest);

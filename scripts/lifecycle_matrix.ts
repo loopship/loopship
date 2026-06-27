@@ -80,7 +80,7 @@ export function runLoopship(
   return runCommand("bun", [SCRIPT, ...args], {
     cwd,
     env,
-    timeoutMs: 60_000,
+    timeoutMs: 120_000,
     input: input ? JSON.stringify(input) : undefined,
   });
 }

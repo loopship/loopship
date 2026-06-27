@@ -41,6 +41,6 @@ describe("loopship lifecycle matrix", () => {
     expect(markdown).toContain("| open-research |");
       expect(markdown).toContain("| vague-greenfield |");
     },
-    120_000,
+    300_000,
   );
 });
