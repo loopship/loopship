@@ -1,0 +1,238 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+workflows:
+  archived:
+    stable:
+      release: 1
+      digest: "sha256:3df0649634f709c1002a22db2c987cd49acc97acf5282de7f2d1e628b22aca1b"
+      summary: "Report final quest state only."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - landing
+      requires: []
+  executing:
+    stable:
+      release: 1
+      digest: "sha256:ba7af47dd2b85cbca028b9bcc9ef32fd6f251340fa6762b8c9101a45dcd9abcd"
+      summary: "Start the ready child wtree commands and submit child_result payloads as children finish."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+          - children
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - repo
+          - repoRoot
+          - quest
+          - runtime
+          - actor
+          - target_branch
+          - target_worktree
+          - source_branch
+          - receipt
+          - task
+          - update
+      requires:
+        - loopship.afn.service.child.prepare
+  landing:
+    stable:
+      release: 1
+      digest: "sha256:05e7bc64002f10fd20be55423825bcab05cd92912adc1233f7f3d11c99b7aa7d"
+      summary: "Submit landing status and final summary."
+      inputs:
+        required:
+          - step
+          - status
+          - summary
+        optional:
+          - repo
+          - repoRoot
+          - wtree
+          - quest
+          - runtime
+          - actor
+          - target_branch
+          - target_worktree
+          - source_branch
+          - receipt
+          - task
+          - update
+      requires:
+        - loopship.afn.service.landing.apply
+  plan:
+    stable:
+      release: 1
+      digest: "sha256:191ba0d65ba4d7981264112db429cda06eb3e93b5b3b39f48a81606bd88785b9"
+      summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - requirements
+      requires: []
+  questions:
+    stable:
+      release: 1
+      digest: "sha256:3d9b47b64fc9a1933b6f8f84cdb5a1abbd2cd1705347268c885c896f596f9342"
+      summary: "Submit grouped user answers for the current clarification round."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - requirements
+      requires: []
+  system-update:
+    stable:
+      release: 1
+      digest: "sha256:95d91a9f001af67e86d9744fd274fa82b19b410652fa54ba56a93d98d3724bd0"
+      summary: "Submit system doc updates. Loopship writes signed repo docs."
+      inputs:
+        required:
+          - step
+          - system_update
+        optional:
+          - repo
+          - repoRoot
+          - wtree
+          - quest
+          - runtime
+          - actor
+          - target_branch
+          - target_worktree
+          - source_branch
+          - receipt
+          - task
+          - update
+      requires:
+        - loopship.afn.service.system.apply
+  task-graph:
+    stable:
+      release: 1
+      digest: "sha256:b43ce970d6c78b8fc44b32ea43878871f1d7895b711042b769587d320271b08b"
+      summary: "Approve or reject the generated task graph, including a replan reason when rejected."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - requirements
+      requires: []
+  validation:
+    stable:
+      release: 1
+      digest: "sha256:c1b0fe2ee9819012241428b7dceec2dd2522ca62ffeefcab4d96ed515fb570cf"
+      summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - requirements
+      requires: []
+  verification:
+    stable:
+      release: 1
+      digest: "sha256:3dd506fafcc1101cdc7652a5519d0331022a77fbe8acb3e4154e7be59714b1b9"
+      summary: "Submit acceptance trace, PR-style risk review, and residual risks."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - requirements
+      requires: []

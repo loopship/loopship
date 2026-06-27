@@ -1,0 +1,20 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+workflows:
+  swe:
+    stable:
+      release: 1
+      digest: "sha256:b5184bf6eb4427d53a86de79a30c5d08256c715932f53f849ef6e0b910a2cc9e"
+      summary: "Loopship swe flow orchestration for Fastflow-native supervision."
+      inputs:
+        required: []
+        optional: []
+      requires:
+        - loopship.workflow.service.step.archived
+        - loopship.workflow.service.step.executing
+        - loopship.workflow.service.step.landing
+        - loopship.workflow.service.step.plan
+        - loopship.workflow.service.step.questions
+        - loopship.workflow.service.step.system-update
+        - loopship.workflow.service.step.task-graph
+        - loopship.workflow.service.step.validation
+        - loopship.workflow.service.step.verification

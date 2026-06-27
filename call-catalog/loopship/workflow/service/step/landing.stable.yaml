@@ -1,0 +1,418 @@
+document:
+  dsl: 1.0.3
+  namespace: service-step
+  name: landing
+  version: 0.1.0
+  summary: "Submit landing status and final summary."
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - landing
+input:
+  schema:
+    document:
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+      "$id": schemas/steps/landing-input.yaml
+      title: "Loopship V3 Landing Input"
+      type: object
+      additionalProperties: false
+      required:
+        - step
+        - status
+        - summary
+      properties:
+        step:
+          const: landing
+        status:
+          enum:
+            - landed
+            - blocked
+        summary:
+          type: string
+        repo:
+          type: string
+        repoRoot:
+          type: string
+        wtree:
+          type: string
+        quest:
+          type: object
+          additionalProperties: true
+        runtime:
+          type: string
+        actor:
+          type: string
+        target_branch:
+          type: string
+        target_worktree:
+          type: string
+        source_branch:
+          type: string
+        receipt:
+          type: object
+          additionalProperties: false
+          required:
+            - landed_commit
+          properties:
+            source_branch:
+              type: string
+            target_branch:
+              type: string
+            target_worktree:
+              type: string
+            landed_commit:
+              type: string
+              minLength: 1
+            strategy:
+              enum:
+                - already-up-to-date
+                - fast-forward
+                - merge-commit
+                - recorded
+        task:
+          type: object
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+            task_id:
+              type: string
+            title:
+              type: string
+            name:
+              type: string
+            type:
+              enum:
+                - coding
+                - general
+            status:
+              type: string
+            dependencies:
+              type: array
+              items:
+                type: string
+            depends_on:
+              type: array
+              items:
+                type: string
+            scope_files:
+              type: array
+              items:
+                type: string
+            scope:
+              type: array
+              items:
+                type: string
+            spec_refs:
+              type: array
+              items:
+                type: string
+            specs:
+              type: array
+              items:
+                type: string
+            context_refs:
+              type: array
+              items:
+                type: string
+            context:
+              type: array
+              items:
+                type: string
+            branch_ref:
+              type: string
+            worktree_path:
+              type: string
+            child_wtree:
+              type: string
+            concurrency_group:
+              type: string
+            merge_target:
+              type: string
+            merge_lease_id:
+              type: string
+            merge_commit:
+              type: string
+            system_impact_ref:
+              type: string
+            acceptance:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+            acceptance_criteria:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+        update:
+          type: object
+          additionalProperties: false
+          required:
+            - schema_version
+            - mode
+            - summary
+          properties:
+            schema_version:
+              const: 1
+            mode:
+              enum:
+                - no_change
+                - replace
+            summary:
+              type: string
+              minLength: 1
+            root:
+              type: object
+              additionalProperties: true
+            external_docs:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - op
+                  - resource_ref
+                properties:
+                  op:
+                    enum:
+                      - upsert
+                      - delete
+                  resource_ref:
+                    type: string
+                    minLength: 1
+                  document:
+                    type: object
+                    additionalProperties: true
+do:
+  - landing:
+      input:
+        schema:
+          document:
+            "$schema": "https://json-schema.org/draft/2020-12/schema"
+            "$id": schemas/steps/landing-input.yaml
+            title: "Loopship V3 Landing Input"
+            type: object
+            additionalProperties: false
+            required:
+              - step
+              - status
+              - summary
+            properties:
+              step:
+                const: landing
+              status:
+                enum:
+                  - landed
+                  - blocked
+              summary:
+                type: string
+              repo:
+                type: string
+              repoRoot:
+                type: string
+              wtree:
+                type: string
+              quest:
+                type: object
+                additionalProperties: true
+              runtime:
+                type: string
+              actor:
+                type: string
+              target_branch:
+                type: string
+              target_worktree:
+                type: string
+              source_branch:
+                type: string
+              receipt:
+                type: object
+                additionalProperties: false
+                required:
+                  - landed_commit
+                properties:
+                  source_branch:
+                    type: string
+                  target_branch:
+                    type: string
+                  target_worktree:
+                    type: string
+                  landed_commit:
+                    type: string
+                    minLength: 1
+                  strategy:
+                    enum:
+                      - already-up-to-date
+                      - fast-forward
+                      - merge-commit
+                      - recorded
+              task:
+                type: object
+                additionalProperties: false
+                properties:
+                  id:
+                    type: string
+                  task_id:
+                    type: string
+                  title:
+                    type: string
+                  name:
+                    type: string
+                  type:
+                    enum:
+                      - coding
+                      - general
+                  status:
+                    type: string
+                  dependencies:
+                    type: array
+                    items:
+                      type: string
+                  depends_on:
+                    type: array
+                    items:
+                      type: string
+                  scope_files:
+                    type: array
+                    items:
+                      type: string
+                  scope:
+                    type: array
+                    items:
+                      type: string
+                  spec_refs:
+                    type: array
+                    items:
+                      type: string
+                  specs:
+                    type: array
+                    items:
+                      type: string
+                  context_refs:
+                    type: array
+                    items:
+                      type: string
+                  context:
+                    type: array
+                    items:
+                      type: string
+                  branch_ref:
+                    type: string
+                  worktree_path:
+                    type: string
+                  child_wtree:
+                    type: string
+                  concurrency_group:
+                    type: string
+                  merge_target:
+                    type: string
+                  merge_lease_id:
+                    type: string
+                  merge_commit:
+                    type: string
+                  system_impact_ref:
+                    type: string
+                  acceptance:
+                    oneOf:
+                      - type: string
+                      - type: array
+                        items:
+                          type: string
+                  acceptance_criteria:
+                    oneOf:
+                      - type: string
+                      - type: array
+                        items:
+                          type: string
+              update:
+                type: object
+                additionalProperties: false
+                required:
+                  - schema_version
+                  - mode
+                  - summary
+                properties:
+                  schema_version:
+                    const: 1
+                  mode:
+                    enum:
+                      - no_change
+                      - replace
+                  summary:
+                    type: string
+                    minLength: 1
+                  root:
+                    type: object
+                    additionalProperties: true
+                  external_docs:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - op
+                        - resource_ref
+                      properties:
+                        op:
+                          enum:
+                            - upsert
+                            - delete
+                        resource_ref:
+                          type: string
+                          minLength: 1
+                        document:
+                          type: object
+                          additionalProperties: true
+        from: "${inputs}"
+      metadata:
+        description: "Submit landing status and final summary."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: loopship.afn.service.landing.apply
+      with:
+        body:
+          repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}"
+          wtree: "${inputs.wtree || inputs.quest?.wtree || ''}"
+          status: "${inputs.status || 'landed'}"
+          summary: "${inputs.summary || ''}"
+          target_branch: "${inputs.target_branch || ''}"
+          target_worktree: "${inputs.target_worktree || ''}"
+          source_branch: "${inputs.source_branch || ''}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+            properties:
+              schema_version:
+                type: string
+        as: "${action}"
+output:
+  schema:
+    document:
+      type: object
+      additionalProperties: true
+      properties:
+        schema_version:
+          type: string
+  as: "${state.steps.landing.action}"

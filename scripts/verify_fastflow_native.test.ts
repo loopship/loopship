@@ -294,14 +294,14 @@ describe("Loopship Fastflow-native bridge", () => {
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
-        if (!result.ok || result.calls !== 3) {
+        if (!result.ok || result.calls !== 13) {
           throw new Error(JSON.stringify(result));
         }
         console.log(JSON.stringify(result));
       `,
       [LOOPSHIP_CALL_CATALOG_ROOT],
     );
-    expect(JSON.parse(output).calls).toBe(3);
+    expect(JSON.parse(output).calls).toBe(13);
   });
 
   test("creates Fastflow-compatible Loopship consumer adapters", async () => {
@@ -468,6 +468,15 @@ describe("Loopship Fastflow-native bridge", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("ships the root Fastflow call catalog", () => {
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as {
+      files?: unknown[];
+    };
+    expect(packageJson.files).toContain("call-catalog");
+    expect(existsSync(join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step", "plan.stable.yaml"))).toBe(true);
+    expect(existsSync(join(process.cwd(), ".loopship", "call-catalog"))).toBe(false);
   });
 
   test("rejects missing required Loopship AFN fields at validation time", () => {

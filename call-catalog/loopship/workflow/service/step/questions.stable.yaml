@@ -1,0 +1,777 @@
+document:
+  dsl: 1.0.3
+  namespace: service-step
+  name: questions
+  version: 0.1.0
+  summary: "Submit grouped user answers for the current clarification round."
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - questions
+input:
+  schema:
+    document:
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+      "$id": schemas/steps/step-output.yaml
+      title: "Loopship V3 Step Output"
+      type: object
+      additionalProperties: false
+      required:
+        - step
+        - output_schema
+        - commands
+      properties:
+        schema_version:
+          const: 3
+        kind:
+          const: quest_step
+        schema_path:
+          const: schemas/steps/step-output.yaml
+        wtree:
+          type: string
+        quest_id:
+          type: string
+        flow_id:
+          type: string
+        flow_version:
+          type: integer
+        step:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: false
+              required:
+                - id
+                - instructions
+              properties:
+                id:
+                  type: string
+                instructions:
+                  type: string
+        state:
+          type: string
+        summary:
+          type: string
+        output_schema:
+          oneOf:
+            - oneOf:
+                - type: string
+                - type: object
+                  additionalProperties: false
+                  required:
+                    - schema_path
+                  properties:
+                    schema_path:
+                      type: string
+            - type: object
+              additionalProperties: true
+              required:
+                - "$schema"
+                - "$id"
+              properties:
+                "$schema":
+                  type: string
+                "$id":
+                  type: string
+                title:
+                  type: string
+                type: {}
+                required:
+                  type: array
+                  items:
+                    type: string
+                properties:
+                  type: object
+        allowed_transitions:
+          type: object
+          additionalProperties:
+            type: string
+        context:
+          type: object
+          additionalProperties: false
+          required:
+            - step
+          properties:
+            step:
+              type: object
+              additionalProperties: false
+              required:
+                - schema_version
+                - id
+                - handler
+                - input_step
+                - input_schema
+                - output_schema
+                - result_schema_path
+                - summary
+                - instructions
+              properties:
+                schema_version:
+                  const: 1
+                id:
+                  type: string
+                handler:
+                  type: string
+                input_step:
+                  type:
+                    - string
+                    - "null"
+                input_schema:
+                  oneOf:
+                    - oneOf:
+                        - oneOf:
+                            - type: string
+                            - type: object
+                              additionalProperties: false
+                              required:
+                                - schema_path
+                              properties:
+                                schema_path:
+                                  type: string
+                        - type: object
+                          additionalProperties: true
+                          required:
+                            - "$schema"
+                            - "$id"
+                          properties:
+                            "$schema":
+                              type: string
+                            "$id":
+                              type: string
+                            title:
+                              type: string
+                            type: {}
+                            required:
+                              type: array
+                              items:
+                                type: string
+                            properties:
+                              type: object
+                    - type: "null"
+                output_schema:
+                  oneOf:
+                    - oneOf:
+                        - oneOf:
+                            - type: string
+                            - type: object
+                              additionalProperties: false
+                              required:
+                                - schema_path
+                              properties:
+                                schema_path:
+                                  type: string
+                        - type: object
+                          additionalProperties: true
+                          required:
+                            - "$schema"
+                            - "$id"
+                          properties:
+                            "$schema":
+                              type: string
+                            "$id":
+                              type: string
+                            title:
+                              type: string
+                            type: {}
+                            required:
+                              type: array
+                              items:
+                                type: string
+                            properties:
+                              type: object
+                    - type: "null"
+                result_schema_path:
+                  type: string
+                summary:
+                  type: string
+                instructions:
+                  type: string
+        commands:
+          type: object
+          additionalProperties: false
+          required:
+            - next
+          properties:
+            next:
+              type: object
+              additionalProperties: false
+              required:
+                - cmd
+                - args
+              properties:
+                cmd:
+                  type: string
+                args:
+                  type: array
+                  items:
+                    type: string
+        docs:
+          type: object
+          additionalProperties: false
+          required:
+            - state_yaml
+            - events_jsonl
+            - manifest
+          properties:
+            state_yaml:
+              type: string
+            events_jsonl:
+              type: string
+            manifest:
+              type: string
+        requirements:
+          type: array
+          items:
+            type: string
+do:
+  - questions:
+      input:
+        schema:
+          document:
+            "$schema": "https://json-schema.org/draft/2020-12/schema"
+            "$id": schemas/steps/step-output.yaml
+            title: "Loopship V3 Step Output"
+            type: object
+            additionalProperties: false
+            required:
+              - step
+              - output_schema
+              - commands
+            properties:
+              schema_version:
+                const: 3
+              kind:
+                const: quest_step
+              schema_path:
+                const: schemas/steps/step-output.yaml
+              wtree:
+                type: string
+              quest_id:
+                type: string
+              flow_id:
+                type: string
+              flow_version:
+                type: integer
+              step:
+                oneOf:
+                  - type: string
+                  - type: object
+                    additionalProperties: false
+                    required:
+                      - id
+                      - instructions
+                    properties:
+                      id:
+                        type: string
+                      instructions:
+                        type: string
+              state:
+                type: string
+              summary:
+                type: string
+              output_schema:
+                oneOf:
+                  - oneOf:
+                      - type: string
+                      - type: object
+                        additionalProperties: false
+                        required:
+                          - schema_path
+                        properties:
+                          schema_path:
+                            type: string
+                  - type: object
+                    additionalProperties: true
+                    required:
+                      - "$schema"
+                      - "$id"
+                    properties:
+                      "$schema":
+                        type: string
+                      "$id":
+                        type: string
+                      title:
+                        type: string
+                      type: {}
+                      required:
+                        type: array
+                        items:
+                          type: string
+                      properties:
+                        type: object
+              allowed_transitions:
+                type: object
+                additionalProperties:
+                  type: string
+              context:
+                type: object
+                additionalProperties: false
+                required:
+                  - step
+                properties:
+                  step:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - schema_version
+                      - id
+                      - handler
+                      - input_step
+                      - input_schema
+                      - output_schema
+                      - result_schema_path
+                      - summary
+                      - instructions
+                    properties:
+                      schema_version:
+                        const: 1
+                      id:
+                        type: string
+                      handler:
+                        type: string
+                      input_step:
+                        type:
+                          - string
+                          - "null"
+                      input_schema:
+                        oneOf:
+                          - oneOf:
+                              - oneOf:
+                                  - type: string
+                                  - type: object
+                                    additionalProperties: false
+                                    required:
+                                      - schema_path
+                                    properties:
+                                      schema_path:
+                                        type: string
+                              - type: object
+                                additionalProperties: true
+                                required:
+                                  - "$schema"
+                                  - "$id"
+                                properties:
+                                  "$schema":
+                                    type: string
+                                  "$id":
+                                    type: string
+                                  title:
+                                    type: string
+                                  type: {}
+                                  required:
+                                    type: array
+                                    items:
+                                      type: string
+                                  properties:
+                                    type: object
+                          - type: "null"
+                      output_schema:
+                        oneOf:
+                          - oneOf:
+                              - oneOf:
+                                  - type: string
+                                  - type: object
+                                    additionalProperties: false
+                                    required:
+                                      - schema_path
+                                    properties:
+                                      schema_path:
+                                        type: string
+                              - type: object
+                                additionalProperties: true
+                                required:
+                                  - "$schema"
+                                  - "$id"
+                                properties:
+                                  "$schema":
+                                    type: string
+                                  "$id":
+                                    type: string
+                                  title:
+                                    type: string
+                                  type: {}
+                                  required:
+                                    type: array
+                                    items:
+                                      type: string
+                                  properties:
+                                    type: object
+                          - type: "null"
+                      result_schema_path:
+                        type: string
+                      summary:
+                        type: string
+                      instructions:
+                        type: string
+              commands:
+                type: object
+                additionalProperties: false
+                required:
+                  - next
+                properties:
+                  next:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - cmd
+                      - args
+                    properties:
+                      cmd:
+                        type: string
+                      args:
+                        type: array
+                        items:
+                          type: string
+              docs:
+                type: object
+                additionalProperties: false
+                required:
+                  - state_yaml
+                  - events_jsonl
+                  - manifest
+                properties:
+                  state_yaml:
+                    type: string
+                  events_jsonl:
+                    type: string
+                  manifest:
+                    type: string
+              requirements:
+                type: array
+                items:
+                  type: string
+        from: "${inputs}"
+      metadata:
+        description: "Submit grouped user answers for the current clarification round."
+        inference: handoff
+        validation:
+          post:
+            kind: js
+            expression: |
+              return {
+                ok: Boolean(state?.steps?.["questions"]?.action?.decision),
+                evidence: { waiting_for_decision: true }
+              };
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: fastflow.afn.core.request.input
+      with:
+        body:
+          instruction: |-
+            # Loopship Questions Step
+            
+            Act as a top-class clarification recorder for Loopship. Treat this instruction
+            block as the questions step's system prompt: capture human-provided answers
+            exactly, preserve identifiers, and return only the schema-valid `questions`
+            callback.
+            
+            ## Step-Local Callback Contract
+            
+            This step is reusable across flows. The orchestrator owns flow transitions
+            and decides which step, if any, follows this callback. Produce only the JSON
+            payload that matches this step's current `output_schema`, then submit it
+            through `commands.next`; do not shape output for a guessed successor.
+            
+            Record answers from the most recent grouped clarification round. Preserve the
+            original question ids, carry forward any previously recorded explicit
+            defaults, and submit answers through the emitted `commands.next` with the `questions` step schema. Do not auto-answer unresolved
+            questions; wait for human-provided answers before submitting this callback.
+          request:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                step:
+                  type: object
+                  additionalProperties: true
+                inputs:
+                  "$schema": "https://json-schema.org/draft/2020-12/schema"
+                  "$id": schemas/steps/step-output.yaml
+                  title: "Loopship V3 Step Output"
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - step
+                    - output_schema
+                    - commands
+                  properties:
+                    schema_version:
+                      const: 3
+                    kind:
+                      const: quest_step
+                    schema_path:
+                      const: schemas/steps/step-output.yaml
+                    wtree:
+                      type: string
+                    quest_id:
+                      type: string
+                    flow_id:
+                      type: string
+                    flow_version:
+                      type: integer
+                    step:
+                      oneOf:
+                        - type: string
+                        - type: object
+                          additionalProperties: false
+                          required:
+                            - id
+                            - instructions
+                          properties:
+                            id:
+                              type: string
+                            instructions:
+                              type: string
+                    state:
+                      type: string
+                    summary:
+                      type: string
+                    output_schema:
+                      oneOf:
+                        - oneOf:
+                            - type: string
+                            - type: object
+                              additionalProperties: false
+                              required:
+                                - schema_path
+                              properties:
+                                schema_path:
+                                  type: string
+                        - type: object
+                          additionalProperties: true
+                          required:
+                            - "$schema"
+                            - "$id"
+                          properties:
+                            "$schema":
+                              type: string
+                            "$id":
+                              type: string
+                            title:
+                              type: string
+                            type: {}
+                            required:
+                              type: array
+                              items:
+                                type: string
+                            properties:
+                              type: object
+                    allowed_transitions:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    context:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - step
+                      properties:
+                        step:
+                          type: object
+                          additionalProperties: false
+                          required:
+                            - schema_version
+                            - id
+                            - handler
+                            - input_step
+                            - input_schema
+                            - output_schema
+                            - result_schema_path
+                            - summary
+                            - instructions
+                          properties:
+                            schema_version:
+                              const: 1
+                            id:
+                              type: string
+                            handler:
+                              type: string
+                            input_step:
+                              type:
+                                - string
+                                - "null"
+                            input_schema:
+                              oneOf:
+                                - oneOf:
+                                    - oneOf:
+                                        - type: string
+                                        - type: object
+                                          additionalProperties: false
+                                          required:
+                                            - schema_path
+                                          properties:
+                                            schema_path:
+                                              type: string
+                                    - type: object
+                                      additionalProperties: true
+                                      required:
+                                        - "$schema"
+                                        - "$id"
+                                      properties:
+                                        "$schema":
+                                          type: string
+                                        "$id":
+                                          type: string
+                                        title:
+                                          type: string
+                                        type: {}
+                                        required:
+                                          type: array
+                                          items:
+                                            type: string
+                                        properties:
+                                          type: object
+                                - type: "null"
+                            output_schema:
+                              oneOf:
+                                - oneOf:
+                                    - oneOf:
+                                        - type: string
+                                        - type: object
+                                          additionalProperties: false
+                                          required:
+                                            - schema_path
+                                          properties:
+                                            schema_path:
+                                              type: string
+                                    - type: object
+                                      additionalProperties: true
+                                      required:
+                                        - "$schema"
+                                        - "$id"
+                                      properties:
+                                        "$schema":
+                                          type: string
+                                        "$id":
+                                          type: string
+                                        title:
+                                          type: string
+                                        type: {}
+                                        required:
+                                          type: array
+                                          items:
+                                            type: string
+                                        properties:
+                                          type: object
+                                - type: "null"
+                            result_schema_path:
+                              type: string
+                            summary:
+                              type: string
+                            instructions:
+                              type: string
+                    commands:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - next
+                      properties:
+                        next:
+                          type: object
+                          additionalProperties: false
+                          required:
+                            - cmd
+                            - args
+                          properties:
+                            cmd:
+                              type: string
+                            args:
+                              type: array
+                              items:
+                                type: string
+                    docs:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - state_yaml
+                        - events_jsonl
+                        - manifest
+                      properties:
+                        state_yaml:
+                          type: string
+                        events_jsonl:
+                          type: string
+                        manifest:
+                          type: string
+                    requirements:
+                      type: array
+                      items:
+                        type: string
+                state:
+                  type: object
+                  additionalProperties: true
+                args:
+                  type: object
+                  additionalProperties: true
+              required:
+                - step
+                - inputs
+            build:
+              kind: js
+              using:
+                - inputs
+                - state
+                - args
+              code: |-
+                return {
+                  step: {"id":"questions","handler":"questions","summary":"Submit grouped user answers for the current clarification round.","input_step":"questions","result_schema":"schemas/steps/step-output.yaml"},
+                  inputs,
+                  state,
+                  args
+                };
+          answer:
+            schema:
+              "$schema": "https://json-schema.org/draft/2020-12/schema"
+              "$id": schemas/steps/questions-input.yaml
+              title: "Loopship V3 Question Answers Input"
+              type: object
+              additionalProperties: false
+              required:
+                - step
+                - answers
+              properties:
+                step:
+                  const: questions
+                answers:
+                  type: array
+                  items:
+                    oneOf:
+                      - type: string
+                      - type: object
+                        additionalProperties: false
+                        required:
+                          - answer
+                        properties:
+                          id:
+                            type: string
+                          question_id:
+                            type: string
+                          question:
+                            type: string
+                          answer:
+                            type: string
+                          accepted_default:
+                            type: boolean
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+output:
+  schema:
+    document:
+      type: object
+      additionalProperties: true
+  as: "${state.steps.questions.action}"
