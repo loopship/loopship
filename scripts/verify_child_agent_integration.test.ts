@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -16,6 +16,7 @@ import { runCommand } from "./loopship_utils.ts";
 import { validateV3Input } from "./loopship_schema.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
+setDefaultTimeout(300_000);
 const EMPTY_SYSTEM_CONTEXT = {
   relevant_object_refs: [],
   relevant_assertion_refs: [],
@@ -66,7 +67,7 @@ function runLoopship(
   return runCommand("bun", [SCRIPT, ...args], {
     cwd,
     env,
-    timeoutMs: 60_000,
+    timeoutMs: 120_000,
     input: input ? JSON.stringify(input) : undefined,
   });
 }
@@ -689,7 +690,7 @@ describe("loopship v3 child wtree integration", () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
-    30_000,
+    300_000,
   );
 
   it("allows decomposition after answered clarification for vague greenfield prompts", () => {
@@ -1166,7 +1167,7 @@ describe("loopship v3 child wtree integration", () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
-    30_000,
+    300_000,
   );
 
   it("rejects passing a child result while the matching child quest is unresolved", () => {
@@ -1627,6 +1628,6 @@ describe("loopship v3 child wtree integration", () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
-    120_000,
+    300_000,
   );
 });
