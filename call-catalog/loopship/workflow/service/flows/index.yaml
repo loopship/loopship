@@ -3,13 +3,14 @@ workflows:
   swe:
     stable:
       release: 1
-      digest: "sha256:deb064858191f04d8cde05e5da9f0804acd3cc71ff36276a6312167a3afd2d93"
+      digest: "sha256:bc8e9de2fd3ab3d730712104c861a082edfa475182f01f66edcc0983dc71f1ec"
       summary: "Loopship swe flow orchestration for Fastflow-native supervision."
       inputs:
         required: []
         optional: []
       requires:
         - loopship.workflow.service.step.archived
+        - loopship.workflow.service.step.child-result
         - loopship.workflow.service.step.executing
         - loopship.workflow.service.step.landing
         - loopship.workflow.service.step.plan

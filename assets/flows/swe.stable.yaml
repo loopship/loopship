@@ -126,7 +126,7 @@ do:
         script:
           language: js
           code: |-
-            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":{"kind":"static","value":"answered"}},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":{"kind":"js","code":"if (payload.approved === false) return \"rejected\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"child_approved\"\n  : \"approved\";\n"}},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"task_graph_ready"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"executing","step":"executing","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":{"kind":"js","code":"if (payload.status === \"passed\") return \"passed\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"failed_child\"\n  : \"failed\";\n"}},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":{"kind":"js","code":"return payload.status === \"passed\" ? \"passed\" : \"failed\";\n"}},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":{"kind":"static","value":"updated"}},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":{"kind":"js","code":"return payload.status === \"blocked\" ? \"blocked\" : \"landed\";\n"}},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"archived","step":"archived","transitions":{},"transition_key":{"kind":"static","value":"continue"}}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"task_graph_ready","trigger":"children[].commands.init","result_step":"child_result","flow_id":"swe"}]};
+            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":{"kind":"static","value":"answered"}},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":{"kind":"js","code":"if (payload.approved === false) return \"rejected\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"child_approved\"\n  : \"approved\";\n"}},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"task_graph_ready"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"executing","step":"child_result","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":{"kind":"js","code":"if (payload.status === \"passed\") return \"passed\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"failed_child\"\n  : \"failed\";\n"}},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":{"kind":"js","code":"return payload.status === \"passed\" ? \"passed\" : \"failed\";\n"}},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":{"kind":"static","value":"updated"}},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":{"kind":"js","code":"return payload.status === \"blocked\" ? \"blocked\" : \"landed\";\n"}},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"archived","step":"archived","transitions":{},"transition_key":{"kind":"static","value":"continue"}}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"task_graph_ready","trigger":"children[].commands.init","result_step":"child_result","flow_id":"swe"}]};
             const tasks = state.steps.read_tasks?.action || {};
             const requestedStage = String(args.stage || args.state || tasks.stage || flow.default_stage || "").trim();
             const stage = flow.stages.find((item) => item.id === requestedStage) ||
@@ -1185,7 +1185,7 @@ do:
             state.steps.read_tasks.action.wtree || inputs.wtree || ''}
           flow_id: swe
           flow_version: 1
-          step: child_result
+          step: executing
           state: task_graph_ready
           summary: Start the ready child wtree commands and submit child_result payloads
             as children finish.
@@ -1387,7 +1387,7 @@ do:
       if: ${state.steps.resolve_stage.action.current_stage === "executing"}
       then: derive_transition
       metadata:
-        description: Run Loopship executing via the pinned executing step workflow.
+        description: Run Loopship executing via the pinned child_result step workflow.
         validation:
           post:
             kind: static
@@ -1408,13 +1408,13 @@ do:
                     return { ok, evidence: { has_action: ok } };
         ref:
           digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-      call: loopship.workflow.service.step.executing
+      call: loopship.workflow.service.step.child-result
       with:
         version: 0.1.0
         input:
           schema_version: 3
           kind: quest_step
-          schema_path: schemas/steps/child-dispatch-output.yaml
+          schema_path: schemas/steps/step-output.yaml
           wtree: ${state.steps.read_tasks.action.wtree || inputs.wtree || ''}
           quest_id: ${state.steps.read_tasks.action.quest_id ||
             state.steps.read_tasks.action.wtree || inputs.wtree || ''}
@@ -1422,8 +1422,7 @@ do:
           flow_version: 1
           step: child_result
           state: executing
-          summary: Start the ready child wtree commands and submit child_result payloads
-            as children finish.
+          summary: Submit the result of a completed child quest back to the parent flow.
           output_schema:
             schema_path: schemas/steps/child-result-input.yaml
           allowed_transitions:
@@ -1432,29 +1431,30 @@ do:
           context:
             step:
               schema_version: 1
-              id: executing
+              id: child_result
               handler: child_result
               input_step: child_result
               input_schema:
-                schema_path: schemas/steps/child-dispatch-output.yaml
+                schema_path: schemas/steps/step-output.yaml
               output_schema:
                 schema_path: schemas/steps/child-result-input.yaml
-              result_schema_path: schemas/steps/child-dispatch-output.yaml
-              summary: Start the ready child wtree commands and submit child_result payloads
-                as children finish.
+              result_schema_path: schemas/steps/step-output.yaml
+              summary: Submit the result of a completed child quest back to the parent flow.
               instructions: >-
-                # Loopship Executing Step
+                # Loopship Child Result Step
 
 
-                Act as a top-class execution coordinator for Loopship. Treat
-                this instruction
+                Act as a top-class parent quest reconciler for Loopship. Treat
+                this
 
-                block as the executing step's system prompt: dispatch ready
-                child work,
+                instruction block as the child result step's system prompt:
+                inspect canonical
 
-                monitor canonical child evidence, and return only schema-valid
+                child evidence, submit one schema-valid `child_result` callback,
+                and do not
 
-                `child_result` callbacks.
+                perform the child's implementation work inline in the parent
+                session.
 
 
                 ## Step-Local Callback Contract
@@ -1473,77 +1473,23 @@ do:
                 successor.
 
 
-                Launch all ready child CLI agents whose dependencies, scope
-                files, and
+                Submit `status: passed` only after the child quest is archived
+                and the
 
-                concurrency groups allow independent execution. Parallel child
-                worktrees are
+                child's landed commit is present in the planned merge target.
+                Include the
 
-                the default when the graph was split well.
-
-
-                Each dispatched task gets one dedicated child CLI agent session,
-                one child
-
-                quest wtree, one child worktree, and no hidden task split.
-
-
-                Launch the emitted `children[].commands.init` command in a
-                separate CLI agent
-
-                session for that child. The root session stays coordinator-only:
-                dispatch,
-
-                monitor, and reconcile results, but do not impersonate child
-                execution by
-
-                doing the child's implementation work inline in the parent
-                session.
-
-
-                Preserve the emitted child wtree/worktree boundaries, and submit
-
-                `child_result` back to the parent only after the child quest
-                reaches a
-
-                terminal child state.
-
-
-                Child quests are leaf workers. They must not create another
-                child depth or
-
-                delegate again. They should read the parent context file,
-                complete the one
-
-                assigned task, land into the assigned merge target, and return
+                exact `task_id`, `child_wtree`, evidence refs, and
                 `merge_commit`.
 
 
-                A successful `child_result` must include the merged child commit
-                hash in
+                Submit `status: blocked` or `status: failed` with evidence when
+                the child
 
-                `merge_commit`. Use the child quest's landing receipt and do not
+                cannot complete. Do not mark another task, invent a merge
+                commit, or report
 
-                report `status: passed` until the child quest has merged the
-                child branch
-
-                into the assigned `merge_target`.
-
-
-                Child worktree directories are transient execution scaffolds.
-                Never satisfy a
-
-                merge by committing `worktrees/**` paths into the parent or
-                landing branch;
-
-                land the actual deliverables in the current quest tree.
-
-
-                Prefer maximal safe parallelism over artificial serial
-                execution.
-
-                Correctness of child boundaries and result submission is
-                mandatory.
+                success from agent prose without canonical child state.
           commands:
             next:
               cmd: loopship
@@ -1557,61 +1503,6 @@ do:
             state_yaml: .loopship/runtime/tasks.yaml
             events_jsonl: .loopship/runtime/events.jsonl
             manifest: .loopship/runtime/manifest.yaml
-          children: >-
-            ${(() => {
-              const root = state.steps.read_tasks?.action || {};
-              const tasks = Array.isArray(root.tasks) ? root.tasks : [];
-              const doneStatuses = new Set(["child_merged", "child_archived", "done", "merged"]);
-              const done = new Set(tasks.filter((task) => doneStatuses.has(String(task.status || ""))).map((task) => String(task.id || task.task_id || "")));
-              const selected = [];
-              const usedGroups = new Set();
-              const usedScopes = new Set();
-              for (const task of tasks) {
-                const status = String(task.status || "child_received");
-                if (!["child_received", "pending", "ready"].includes(status)) continue;
-                const dependencies = Array.isArray(task.dependencies) ? task.dependencies : [];
-                if (!dependencies.every((id) => done.has(String(id)))) continue;
-                const group = String(task.concurrency_group || "").trim();
-                if (group && usedGroups.has(group)) continue;
-                const scopes = (Array.isArray(task.scope_files) ? task.scope_files : []).map((scope) => String(scope).trim()).filter(Boolean);
-                if (scopes.some((scope) => usedScopes.has(scope))) continue;
-                selected.push(task);
-                if (group) usedGroups.add(group);
-                for (const scope of scopes) usedScopes.add(scope);
-              }
-              const wtree = String(root.wtree || inputs.wtree || "");
-              const repo = String(inputs.repo || inputs.repoRoot || env.PWD || "");
-              const runtime = String(inputs.runtime || "codex");
-              const flowId = "swe";
-              return selected.map((task) => {
-                const taskId = String(task.id || task.task_id || "task");
-                const title = String(task.title || taskId);
-                const childWtree = String(task.child_wtree || [wtree, taskId].filter(Boolean).join("-"));
-                const branchRef = String(task.branch_ref || ["loopship", wtree, taskId].filter(Boolean).join("/"));
-                const worktreePath = String(task.worktree_path || (repo && wtree ? repo + "/worktrees/" + childWtree : ""));
-                const mergeTarget = String(task.merge_target || wtree);
-                const parentContextRef = repo && wtree ? repo + "/worktrees/" + wtree + "/.loopship/runtime/tasks.yaml" : "";
-                const request = "loopship: execute child task " + taskId + ": " + title + ". Read parent context at " + parentContextRef + ". Implement only this assigned task. Do not split into child worktrees. Land into " + mergeTarget + " and return the merge_commit.";
-                return {
-                  task_id: taskId,
-                  title,
-                  child_wtree: childWtree,
-                  parent_wtree: wtree,
-                  parent_task_id: taskId,
-                  parent_context_ref: parentContextRef,
-                  branch_ref: branchRef,
-                  worktree_path: worktreePath,
-                  merge_target: mergeTarget,
-                  merge_target_worktree: repo && wtree ? repo + "/worktrees/" + wtree : "",
-                  acceptance: Array.isArray(task.acceptance) ? task.acceptance.join("\n") : String(task.acceptance || ""),
-                  commands: {
-                    init: { cmd: "loopship", args: ["init", request, "--wtree", childWtree, "--runtime", runtime, "--flow", flowId] },
-                    next: { cmd: "loopship", args: ["resume", "--wtree", childWtree, "--json", "@-"] }
-                  },
-                  result_schema: { schema_path: "schemas/steps/child-result-input.yaml" }
-                };
-              });
-            })()}
       output:
         schema:
           document:
@@ -2718,7 +2609,7 @@ do:
         script:
           language: js
           code: |-
-            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":{"kind":"static","value":"answered"}},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":{"kind":"js","code":"if (payload.approved === false) return \"rejected\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"child_approved\"\n  : \"approved\";\n"}},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"task_graph_ready"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"executing","step":"executing","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":{"kind":"js","code":"if (payload.status === \"passed\") return \"passed\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"failed_child\"\n  : \"failed\";\n"}},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":{"kind":"js","code":"return payload.status === \"passed\" ? \"passed\" : \"failed\";\n"}},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":{"kind":"static","value":"updated"}},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":{"kind":"js","code":"return payload.status === \"blocked\" ? \"blocked\" : \"landed\";\n"}},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"archived","step":"archived","transitions":{},"transition_key":{"kind":"static","value":"continue"}}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"task_graph_ready","trigger":"children[].commands.init","result_step":"child_result","flow_id":"swe"}]};
+            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":{"kind":"static","value":"answered"}},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":{"kind":"js","code":"if (payload.approved === false) return \"rejected\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"child_approved\"\n  : \"approved\";\n"}},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"task_graph_ready"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"executing","step":"child_result","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":{"kind":"js","code":"if (payload.status === \"passed\") return \"passed\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"failed_child\"\n  : \"failed\";\n"}},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":{"kind":"js","code":"return payload.status === \"passed\" ? \"passed\" : \"failed\";\n"}},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":{"kind":"static","value":"updated"}},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":{"kind":"js","code":"return payload.status === \"blocked\" ? \"blocked\" : \"landed\";\n"}},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"archived","step":"archived","transitions":{},"transition_key":{"kind":"static","value":"continue"}}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"task_graph_ready","trigger":"children[].commands.init","result_step":"child_result","flow_id":"swe"}]};
             const stageTaskNames = {"planning":"stage_planning","awaiting_user_answers":"stage_awaiting_user_answers","plan_review":"stage_plan_review","task_graph_ready":"stage_task_graph_ready","executing":"stage_executing","validating":"stage_validating","verification_pending":"stage_verification_pending","system_update_pending":"stage_system_update_pending","landing_ready":"stage_landing_ready","replanning":"stage_replanning","archived":"stage_archived"};
             const inputStepByStage = {"planning":"plan","awaiting_user_answers":"questions","plan_review":"task_graph","task_graph_ready":"child_result","executing":"child_result","validating":"validation","verification_pending":"verification","system_update_pending":"system_update","landing_ready":"landing","replanning":"plan","archived":"archived"};
             function object(value) {

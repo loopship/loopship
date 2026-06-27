@@ -957,7 +957,9 @@ describe("loopship bundled flow definitions", () => {
     expect(flow.id).toBe("swe");
     expect(flow.stages_by_id.planning.step).toBe("plan");
     expect(flow.stages_by_id.task_graph_ready.step).toBe("executing");
+    expect(flow.stages_by_id.executing.step).toBe("child_result");
     expect(flow.steps_by_id.executing.input_step).toBe("child_result");
+    expect(flow.steps_by_id.child_result.input_step).toBe("child_result");
     for (const step of Object.values(flow.steps_by_id)) {
       if (step.output_schema) {
         expect(step.instructions).toContain("## Step-Local Callback Contract");

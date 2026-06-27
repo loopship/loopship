@@ -721,6 +721,22 @@ function stageToV3Step(stage: string, flow = loadFlowDefinition()): string {
   return flowStep(flow, stage).id;
 }
 
+function stageForFastflowStep(
+  flow: LoadedLoopshipFlow,
+  currentStage: string,
+  stepId: string,
+): string {
+  const current = flowStage(flow, currentStage);
+  if (flow.steps_by_id[current.step]?.id === stepId) return current.id;
+  const exact = flow.stages.find((stage) => flow.steps_by_id[stage.step]?.id === stepId);
+  if (exact) return exact.id;
+  const matchingInput = flow.stages.find((stage) => {
+    const step = flow.steps_by_id[stage.step];
+    return (step.input_step ?? step.id) === stepId;
+  });
+  return matchingInput?.id ?? current.id;
+}
+
 function inputSchemaForStage(
   stage: string,
   flow = loadFlowDefinition(),
@@ -2484,11 +2500,12 @@ async function resumeNativeFastflowStepSession(input: {
     if (!isLoopshipFastflowGeneratedStep(input.stepId)) return null;
     const state = parseTasksYaml(readText(input.files.tasks));
     const flow = loadStateFlow(state);
+    const currentStage = String(state.stage ?? flow.default_stage);
     return (await runLoopshipFastflowStepOnce({
       repoRoot: input.repoRoot,
       workspaceRoot: questWorkspaceRoot(input.files),
       stepId: input.stepId,
-      stageId: String(state.stage ?? flow.default_stage),
+      stageId: stageForFastflowStep(flow, currentStage, input.stepId),
       flowId: flow.id,
       inputs: {
         ...input.payload,
@@ -2510,11 +2527,12 @@ async function resumeNativeFastflowStepSession(input: {
     });
     const { startLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
     const flow = loadStateFlow(state);
+    const currentStage = String(state.stage ?? flow.default_stage);
     const created = await startLoopshipFastflowStepSession({
       repoRoot: input.repoRoot,
       workspaceRoot: questWorkspaceRoot(input.files),
       stepId: input.stepId,
-      stageId: String(state.stage ?? flow.default_stage),
+      stageId: stageForFastflowStep(flow, currentStage, input.stepId),
       flowId: flow.id,
       inputs: stepDoc,
     });

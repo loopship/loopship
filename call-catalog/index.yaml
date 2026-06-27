@@ -15,4 +15,4 @@ prefixes:
         flows:
           tags: "flow, flows, swe"
         step:
-          tags: "step, archived, executing, landing, plan, questions, system-update, system, update, task-graph, task, graph, validation, verification"
+          tags: "step, archived, child-result, child, result, executing, landing, plan, questions, system-update, system, update, task-graph, task, graph, validation, verification"

@@ -58,7 +58,7 @@ stages:
       complete: validating
       partial: task_graph_ready
   executing:
-    step: executing
+    step: child_result
     transitionKey:
       kind: js
       code: >

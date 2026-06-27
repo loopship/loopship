@@ -25,6 +25,31 @@ workflows:
           - docs
           - landing
       requires: []
+  child-result:
+    stable:
+      release: 1
+      digest: "sha256:27ec8bcbefee6d604fc5c656f7e33a1082c5d92a78ace441ec6cbad1f8d9d9ea"
+      summary: "Submit the result of a completed child quest back to the parent flow."
+      inputs:
+        required:
+          - step
+          - output_schema
+          - commands
+        optional:
+          - schema_version
+          - kind
+          - schema_path
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - state
+          - summary
+          - allowed_transitions
+          - context
+          - docs
+          - requirements
+      requires: []
   executing:
     stable:
       release: 1

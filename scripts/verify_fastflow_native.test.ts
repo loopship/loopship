@@ -309,14 +309,14 @@ describe("Loopship Fastflow-native bridge", () => {
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
-        if (!result.ok || result.calls !== 13) {
+        if (!result.ok || result.calls !== 14) {
           throw new Error(JSON.stringify(result));
         }
         console.log(JSON.stringify(result));
       `,
       [LOOPSHIP_CALL_CATALOG_ROOT],
     );
-    expect(JSON.parse(output).calls).toBe(13);
+    expect(JSON.parse(output).calls).toBe(14);
   });
 
   test("creates Fastflow-compatible Loopship consumer adapters", async () => {
@@ -358,6 +358,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const workflows = buildLoopshipFastflowStepWorkflows();
     expect(Object.keys(workflows).sort()).toEqual([
       "archived",
+      "child_result",
       "executing",
       "landing",
       "plan",
@@ -447,6 +448,19 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(calls.has(LOOPSHIP_DATA_CALLS.eventLogQuery)).toBe(true);
     expect(calls.has(loopshipStepWorkflowRef("plan"))).toBe(true);
     expect(calls.has(loopshipStepWorkflowRef("questions"))).toBe(true);
+    const stageCalls: Record<string, any> = {};
+    walk(workflow, (item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return;
+      const object = item as Record<string, any>;
+      if (object.call === loopshipStepWorkflowRef("executing")) {
+        stageCalls.executingDispatch = object;
+      }
+      if (object.call === loopshipStepWorkflowRef("child_result")) {
+        stageCalls.childResult = object;
+      }
+    });
+    expect(stageCalls.executingDispatch?.with?.input?.step).toBe("executing");
+    expect(stageCalls.childResult?.with?.input?.step).toBe("child_result");
     expect(workflow.output).toMatchObject({
       as: "${state.steps.derive_transition.action}",
     });
@@ -474,7 +488,7 @@ describe("Loopship Fastflow-native bridge", () => {
     });
     expect(isLoopshipFastflowGeneratedStep("landing")).toBe(true);
     expect(isLoopshipFastflowGeneratedStep("system_update")).toBe(true);
-    expect(isLoopshipFastflowGeneratedStep("child_result")).toBe(false);
+    expect(isLoopshipFastflowGeneratedStep("child_result")).toBe(true);
   });
 
   test("writes generated workflow catalog to canonical Loopship call-id paths", async () => {

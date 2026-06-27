@@ -853,7 +853,7 @@ function workflowInputForStage(
     quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}",
     flow_id: flow.id,
     flow_version: flow.version,
-    step: step.input_step ?? step.id,
+    step: step.id,
     state: stage.id,
     summary: step.summary,
     output_schema: schemaRefOrEmbedded(step.output_schema),
