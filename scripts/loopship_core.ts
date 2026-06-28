@@ -1133,7 +1133,7 @@ export function renderMinimalSkillMd(): string {
     "",
     "# Loopship",
     "",
-    "Package source lives in `/Volumes/Projects/business/AstronLab/omar391/loopship`.",
+    "Package source lives in `/Volumes/Projects/business/AstronLab/orgs/loopship/loopship`.",
     "",
     'When user prompt is `loopship: {request}`, invoke `loopship init "{request}" --runtime <runtime>` from the repo root and follow the instructions from output.',
     "",
