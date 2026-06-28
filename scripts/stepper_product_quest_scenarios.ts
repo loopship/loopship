@@ -1,4 +1,4 @@
-export type SimPlanPayload = {
+export type StepperPlanPayload = {
   classification: "greenfield_app";
   scope: string;
   summary: string;
@@ -25,10 +25,10 @@ const EMPTY_SYSTEM_CONTEXT = {
   durable_implications: [],
 };
 
-export type SimProductQuestScenario = {
+export type StepperProductQuestScenario = {
   id: string;
-  initial_plan: SimPlanPayload;
-  resolved_plan: SimPlanPayload | null;
+  initial_plan: StepperPlanPayload;
+  resolved_plan: StepperPlanPayload | null;
   answers: Array<{
     question_id: string;
     answer: string;
@@ -42,7 +42,7 @@ export type SimProductQuestScenario = {
   expect_question_round: boolean;
 };
 
-export type SimQuestLikeState = Partial<{
+export type StepperQuestLikeState = Partial<{
   tasks: Array<{
     id: string;
     title: string;
@@ -90,9 +90,9 @@ export const CONCRETE_PYTHON_CLI_REQUEST =
 export const CONCRETE_REACT_HABIT_TRACKER_REQUEST =
   "loopship: build a sample React habit tracker using React with TypeScript, keep it single-user and local-first, no auth, responsive UI, and basic tests";
 
-export function selectSimProductQuestScenario(
+export function selectStepperProductQuestScenario(
   request: string,
-): SimProductQuestScenario {
+): StepperProductQuestScenario {
   if (isConcretePythonCliRequest(request)) {
     return {
       id: "concrete-python-cli",
@@ -266,7 +266,7 @@ export function selectSimProductQuestScenario(
   };
 }
 
-function scenarioPlanPayload(plan: SimPlanPayload): Record<string, unknown> {
+function scenarioPlanPayload(plan: StepperPlanPayload): Record<string, unknown> {
   return {
     step: "plan",
     classification: plan.classification,
@@ -287,7 +287,7 @@ function scenarioPlanPayload(plan: SimPlanPayload): Record<string, unknown> {
   };
 }
 
-function readyTask(quest: SimQuestLikeState) {
+function readyTask(quest: StepperQuestLikeState) {
   const tasks = Array.isArray(quest.tasks) ? quest.tasks : [];
   const done = new Set(
     tasks
@@ -309,11 +309,11 @@ function readyTask(quest: SimQuestLikeState) {
 export function scenarioPayloadForStep(input: {
   request: string;
   step: string;
-  quest: SimQuestLikeState;
+  quest: StepperQuestLikeState;
   planRound: number;
   landingRound: number;
 }): Record<string, unknown> {
-  const scenario = selectSimProductQuestScenario(input.request);
+  const scenario = selectStepperProductQuestScenario(input.request);
   switch (input.step) {
     case "plan":
       return scenarioPlanPayload(
@@ -340,7 +340,7 @@ export function scenarioPayloadForStep(input: {
         step: "executing",
         output_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
         commands: {
-          next: { cmd: "loopship", args: ["sim", "step", "--json", "@-"] },
+          next: { cmd: "loopship", args: ["stepper", "step", "--json", "@-"] },
         },
         children: [
           {
@@ -379,7 +379,7 @@ export function scenarioPayloadForStep(input: {
             summary: `${task.title} simulated successfully`,
           },
         ],
-        merge_commit: `sim-${String(task.id).toLowerCase()}`,
+        merge_commit: `stepper-${String(task.id).toLowerCase()}`,
       };
     }
     case "validation":

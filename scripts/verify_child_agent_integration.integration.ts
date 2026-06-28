@@ -165,11 +165,11 @@ describe("loopship v3 child wtree integration", () => {
       ]);
       expect(usage.stdout).not.toContain("loopship quest next --wtree <name>");
       expect(usage.stdout).not.toContain("loopship resume ");
-      expect(usage.stdout).toContain("loopship sim init");
-      expect(usage.stdout).toContain("loopship sim step");
-      expect(usage.stdout).toContain("loopship sim hook");
+      expect(usage.stdout).toContain("loopship stepper init");
+      expect(usage.stdout).toContain("loopship stepper step");
+      expect(usage.stdout).toContain("loopship stepper hook");
       expect(usage.stdout).not.toContain("quest help");
-      expect(usage.stdout).not.toContain("sim quest help");
+      expect(usage.stdout).not.toContain("stepper quest help");
       expect(usage.stdout).not.toContain("loopship spec");
 
       const removedHelp = runLoopship(

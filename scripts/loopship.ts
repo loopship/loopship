@@ -70,14 +70,14 @@ import {
 } from "./loopship_schema.ts";
 import { runLoopshipCmdproto } from "./loopship_cmdproto.ts";
 import { runHandbook } from "./loopship_handbook.ts";
-import { runSimCli } from "./loopship_sim.ts";
+import { runStepperCli } from "./loopship_stepper.ts";
 
 type Command =
   | "init"
   | "doctor"
   | "resume"
   | "hook"
-  | "sim"
+  | "stepper"
   | "cmdproto"
   | "handbook";
 
@@ -117,9 +117,9 @@ function usage(): void {
 Usage:
   loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow swe] [--wtree <name>]
   loopship hook --runtime <codex|gemini|copilot>
-  loopship sim init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
-  loopship sim step --wtree <name> --json <json|@file|@->
-  loopship sim hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
+  loopship stepper init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
+  loopship stepper step --wtree <name> --json <json|@file|@->
+  loopship stepper hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
   loopship doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
   loopship handbook [--repo <path>] [--raw|--duplicates|--fix-duplicates] [--json] [--min-chars <n>]
   loopship cmdproto --help [--json]
@@ -131,7 +131,7 @@ function parseCommand(argv: string[]): Command {
   const cmd = argv[0] as Command | undefined;
   if (
     !cmd ||
-    !["init", "doctor", "resume", "hook", "sim", "cmdproto", "handbook"].includes(cmd)
+    !["init", "doctor", "resume", "hook", "stepper", "cmdproto", "handbook"].includes(cmd)
   ) {
     usage();
     process.exit(1);
@@ -2278,7 +2278,7 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   if (cmd === "init") return runInit(rest);
   if (cmd === "hook") return runHook(rest);
   if (cmd === "resume") return await runFastflowResume(rest);
-  if (cmd === "sim") return runSimCli(rest);
+  if (cmd === "stepper") return runStepperCli(rest);
   if (cmd === "handbook") return runHandbook(rest);
   if (cmd === "cmdproto") return runLoopshipCmdproto(rest);
   return runDoctor(rest);

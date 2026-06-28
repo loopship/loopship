@@ -32,7 +32,9 @@ calls:
               schema_version:
                 const: 1
               mode:
-                enum: [no_change, replace]
+                enum:
+                  - no_change
+                  - replace
               summary:
                 type: string
                 minLength: 1
@@ -49,7 +51,9 @@ calls:
                     - resource_ref
                   properties:
                     op:
-                      enum: [upsert, delete]
+                      enum:
+                        - upsert
+                        - delete
                     resource_ref:
                       type: string
                       minLength: 1
@@ -70,9 +74,9 @@ calls:
       - docs
       - signature
     preferWhen:
-      - "A Loopship workflow needs to apply schema-aware system document changes."
+      - A Loopship workflow needs to apply schema-aware system document changes.
     avoidWhen:
-      - "The workflow only needs to read or draft system document updates."
+      - The workflow only needs to read or draft system document updates.
     metadata:
       allowed_phases:
         - action

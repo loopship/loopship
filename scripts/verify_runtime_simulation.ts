@@ -8,8 +8,8 @@ import { parseTasksYaml, questFiles } from "./loopship_core.ts";
 import {
   CONCRETE_REACT_HABIT_TRACKER_REQUEST,
   scenarioPayloadForStep,
-  selectSimProductQuestScenario,
-} from "./sim_product_quest_scenarios.ts";
+  selectStepperProductQuestScenario,
+} from "./stepper_product_quest_scenarios.ts";
 import {
   DEFAULT_RUNTIME_REQUEST,
   hookEventName,
@@ -138,7 +138,7 @@ function createFixture(prefix: string, runtime: Runtime): Fixture {
   });
   if (init.status !== 0) fail(init.stderr || init.stdout);
   for (const [key, value] of [
-    ["user.email", "loopship-sim@example.invalid"],
+    ["user.email", "loopship-stepper@example.invalid"],
     ["user.name", `Loopship ${runtime} Simulator`],
   ] as const) {
     const config = runCommand("git", ["config", key, value], {
@@ -154,7 +154,7 @@ function createFixture(prefix: string, runtime: Runtime): Fixture {
     timeoutMs: 15_000,
   });
   if (branch.status !== 0) fail(branch.stderr || branch.stdout);
-  // Test fixture setup: sim is being run inside an existing repo with HEAD.
+  // Test fixture setup: stepper is being run inside an existing repo with HEAD.
   const existingRepoHead = runCommand(
     "git",
     ["commit", "--allow-empty", "-m", "simulation test baseline"],
@@ -209,18 +209,18 @@ function assertGuidedStep(
   label: string,
 ): void {
   if ("hook_output" in step || "reason_payload" in step) {
-    fail(`${label}: guided sim must not expose hook internals`);
+    fail(`${label}: guided stepper must not expose hook internals`);
   }
   if ("current_output" in step) {
-    fail(`${label}: guided sim must expose the current step directly`);
+    fail(`${label}: guided stepper must expose the current step directly`);
   }
   const command = step.commands?.next;
   if (!command || command.cmd !== "loopship") {
-    fail(`${label}: guided sim step must include commands.next`);
+    fail(`${label}: guided stepper step must include commands.next`);
   }
   const args = Array.isArray(command.args) ? command.args : [];
   const expected = [
-    "sim",
+    "stepper",
     "step",
     "--wtree",
     String(step.wtree ?? ""),
@@ -228,35 +228,35 @@ function assertGuidedStep(
     "@-",
   ];
   if (JSON.stringify(args) !== JSON.stringify(expected)) {
-    fail(`${label}: guided sim commands.next mismatch: ${JSON.stringify(args)}`);
+    fail(`${label}: guided stepper commands.next mismatch: ${JSON.stringify(args)}`);
   }
 }
 
 function assertNoFixtureFiles(repo: string, label: string): void {
   for (const name of ["callback-fixture.txt", "hook-fixture.txt"]) {
     if (existsSync(join(repo, name))) {
-      fail(`${label}: sim must not create ${name}`);
+      fail(`${label}: stepper must not create ${name}`);
     }
   }
 }
 
-function assertNoSimRuntimeArtifacts(repo: string, label: string): void {
-  if (existsSync(join(repo, ".loopship", "sim-runtime"))) {
-    fail(`${label}: sim must not create .loopship/sim-runtime`);
+function assertNoStepperRuntimeArtifacts(repo: string, label: string): void {
+  if (existsSync(join(repo, ".loopship", "stepper-runtime"))) {
+    fail(`${label}: stepper must not create .loopship/stepper-runtime`);
   }
 }
 
 function assertHeadUnchanged(fixture: Fixture, label: string): void {
   const currentHead = gitStdout(fixture.repo, ["rev-parse", "HEAD"], fixture.env);
   if (currentHead !== fixture.initialHead) {
-    fail(`${label}: sim start must not create commits or move HEAD`);
+    fail(`${label}: stepper start must not create commits or move HEAD`);
   }
 }
 
-function simCommandArgs(step: Record<string, any>, label: string): string[] {
+function stepperCommandArgs(step: Record<string, any>, label: string): string[] {
   const args = step.commands?.next?.args;
-  if (!Array.isArray(args) || args[0] !== "sim") {
-    fail(`${label}: missing runnable sim next command`);
+  if (!Array.isArray(args) || args[0] !== "stepper") {
+    fail(`${label}: missing runnable stepper next command`);
   }
   return args.map(String);
 }
@@ -267,7 +267,7 @@ function assertLifecycleProgress(
   requestSteps: string[],
   responseSteps: string[],
 ): void {
-  const scenario = selectSimProductQuestScenario(request);
+  const scenario = selectStepperProductQuestScenario(request);
   if (requestSteps.length === 0 || responseSteps.length === 0) {
     fail(`${label}: expected at least one guided simulated step`);
   }
@@ -377,7 +377,7 @@ function assertCanonicalArtifacts(
   request: string,
   label: string,
 ): void {
-  const scenario = selectSimProductQuestScenario(request);
+  const scenario = selectStepperProductQuestScenario(request);
   const expectedPlan = scenario.resolved_plan ?? scenario.initial_plan;
   const files = questFiles(fixture.repo, wtree);
   const state = parseTasksYaml(readText(files.tasks)) as Partial<{
@@ -442,14 +442,14 @@ function assertCanonicalArtifacts(
   }
 }
 
-function assertSimHookPassthrough(runtime: Runtime): void {
-  const fixture = createFixture(`loopship-runtime-sim-hook-${runtime}-`, runtime);
+function assertStepperHookPassthrough(runtime: Runtime): void {
+  const fixture = createFixture(`loopship-runtime-stepper-hook-${runtime}-`, runtime);
   const label = `${runtime}/hook`;
   try {
     const start = runLoopship(
       fixture,
       [
-        "sim",
+        "stepper",
         "init",
         DEFAULT_RUNTIME_REQUEST,
         "--repo",
@@ -462,15 +462,15 @@ function assertSimHookPassthrough(runtime: Runtime): void {
       undefined,
     );
     if (start.status !== 0) fail(start.stderr || start.stdout);
-    const started = parseJson(start.stdout, `${label} sim start`);
+    const started = parseJson(start.stdout, `${label} stepper start`);
     const wtree = String(started.wtree ?? "");
-    if (!wtree) fail(`${label}: missing wtree in sim start output`);
+    if (!wtree) fail(`${label}: missing wtree in stepper start output`);
     assertNoFixtureFiles(fixture.repo, label);
     assertHeadUnchanged(fixture, label);
     const hook = runLoopship(
       fixture,
       [
-        "sim",
+        "stepper",
         "hook",
         "--repo",
         fixture.repo,
@@ -485,12 +485,12 @@ function assertSimHookPassthrough(runtime: Runtime): void {
       undefined,
     );
     if (hook.status !== 0) fail(hook.stderr || hook.stdout);
-    const output = parseJson(hook.stdout, `${label} sim hook`);
+    const output = parseJson(hook.stdout, `${label} stepper hook`);
     assertRuntimeHookShape(runtime, output, label);
     if (typeof output.reason !== "string" || !output.reason.trim()) {
-      fail(`${label}: sim hook must expose hook reason payload`);
+      fail(`${label}: stepper hook must expose hook reason payload`);
     }
-    assertNoSimRuntimeArtifacts(fixture.repo, label);
+    assertNoStepperRuntimeArtifacts(fixture.repo, label);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -501,7 +501,7 @@ function simulateRuntime(
   simulationCase: SimulationCase,
 ): void {
   const fixture = createFixture(
-    `loopship-runtime-sim-${simulationCase.name}-`,
+    `loopship-runtime-stepper-${simulationCase.name}-`,
     runtime,
   );
   const label = `${runtime}/${simulationCase.name}`;
@@ -509,7 +509,7 @@ function simulateRuntime(
     const start = runLoopship(
       fixture,
       [
-        "sim",
+        "stepper",
         "init",
         simulationCase.request,
         "--repo",
@@ -522,16 +522,16 @@ function simulateRuntime(
       undefined,
     );
     if (start.status !== 0) {
-      fail(start.stderr || start.stdout || `${label}: sim start failed`);
+      fail(start.stderr || start.stdout || `${label}: stepper start failed`);
     }
     assertNoFixtureFiles(fixture.repo, label);
     assertHeadUnchanged(fixture, label);
-    let current = parseJson(start.stdout, `${label} sim start`);
+    let current = parseJson(start.stdout, `${label} stepper start`);
     assertGuidedStep(current, fixture.repo, label);
     const wtree = String(current.wtree ?? "");
-    if (!wtree) fail(`${label}: missing wtree in sim start output`);
+    if (!wtree) fail(`${label}: missing wtree in stepper start output`);
     if (String(current.current_stage ?? "") !== "planning") {
-      fail(`${label}: sim start must enter planning: ${start.stdout}`);
+      fail(`${label}: stepper start must enter planning: ${start.stdout}`);
     }
 
     let planRound = 0;
@@ -560,23 +560,23 @@ function simulateRuntime(
       if (requestedStep === "landing") landingRound += 1;
       const callbackProc = runLoopship(
         fixture,
-        simCommandArgs(current, label),
+        stepperCommandArgs(current, label),
         callbackInput,
       );
       if (callbackProc.status !== 0) {
         fail(
           callbackProc.stderr ||
             callbackProc.stdout ||
-            `${label}: guided sim continuation failed`,
+            `${label}: guided stepper continuation failed`,
         );
       }
-      current = parseJson(callbackProc.stdout, `${label} guided sim output`);
+      current = parseJson(callbackProc.stdout, `${label} guided stepper output`);
       assertGuidedStep(current, fixture.repo, label);
       responseSteps.push(stepId(current.step));
       childInitRuntimeChecks += assertChildInitRuntime(current, runtime, label);
       if (!stepId((current as Record<string, unknown>).step)) {
         fail(
-          `${label}: guided sim returned malformed output: ${JSON.stringify(current)}`,
+          `${label}: guided stepper returned malformed output: ${JSON.stringify(current)}`,
         );
       }
     }
@@ -599,7 +599,7 @@ function simulateRuntime(
       requestedSteps,
       responseSteps,
     );
-    assertNoSimRuntimeArtifacts(fixture.repo, label);
+    assertNoStepperRuntimeArtifacts(fixture.repo, label);
     assertCanonicalArtifacts(fixture, wtree, simulationCase.request, label);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
@@ -608,7 +608,7 @@ function simulateRuntime(
 
 function main(): number {
   for (const runtime of ["codex", "gemini", "copilot"] as const) {
-    assertSimHookPassthrough(runtime);
+    assertStepperHookPassthrough(runtime);
   }
   simulateRuntime("codex", SIMULATION_CASES[0]);
   console.log("loopship runtime simulation verification passed");

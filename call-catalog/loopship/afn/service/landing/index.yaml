@@ -71,9 +71,11 @@ calls:
       - git
       - merge
     preferWhen:
-      - "A Loopship workflow needs to apply landing policy and record landed state."
+      - A Loopship workflow needs to apply landing policy and record landed
+        state.
     avoidWhen:
-      - "The workflow only needs to inspect validation, verification, or review output."
+      - The workflow only needs to inspect validation, verification, or review
+        output.
     metadata:
       allowed_phases:
         - action

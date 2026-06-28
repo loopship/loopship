@@ -15,7 +15,7 @@ import { createLoopshipShim, questFiles } from "./loopship_core.ts";
 import { runCommand } from "./loopship_utils.ts";
 import { validateSchemaPath, v3SchemaPath } from "./loopship_schema.ts";
 import { DEFAULT_RUNTIME_REQUEST } from "./runtime_supervisor.ts";
-import { scenarioPayloadForStep } from "./sim_product_quest_scenarios.ts";
+import { scenarioPayloadForStep } from "./stepper_product_quest_scenarios.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = resolve(ROOT, "scripts", "loopship.ts");
@@ -108,10 +108,10 @@ function prepareExistingGitRepoFixture(
 ): void {
   const initGit = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
   if (initGit.status !== 0) fail(initGit.stderr || initGit.stdout);
-  runGit(repo, ["config", "user.email", "loopship-sim@example.invalid"], env);
-  runGit(repo, ["config", "user.name", "Loopship Sim Fixture"], env);
+  runGit(repo, ["config", "user.email", "loopship-stepper@example.invalid"], env);
+  runGit(repo, ["config", "user.name", "Loopship Stepper Fixture"], env);
   runGit(repo, ["checkout", "-B", "main"], env);
-  runGit(repo, ["commit", "--allow-empty", "-m", "sim fixture"], env);
+  runGit(repo, ["commit", "--allow-empty", "-m", "stepper fixture"], env);
 }
 
 function main(): number {
@@ -128,7 +128,7 @@ function main(): number {
     "rpc SimQuestNext",
     "rpc SimHook",
     'path: "quest next"',
-    'path: "sim quest next"',
+    'path: "stepper quest next"',
   ]) {
     if (protoText.includes(removed)) {
       fail(`public proto must not expose removed hard-cut command surface: ${removed}`);
@@ -341,14 +341,14 @@ function main(): number {
     if (removedHelp.status === 0) {
       fail("cmdproto quest help must be removed");
     }
-    const removedSimHelp = runLoopship(
+    const removedStepperHelp = runLoopship(
       fixture.repo,
-      ["cmdproto", "execjson", "sim", "quest", "help", "{}"],
+      ["cmdproto", "execjson", "stepper", "quest", "help", "{}"],
       undefined,
       fixture.env,
     );
-    if (removedSimHelp.status === 0) {
-      fail("cmdproto sim quest help must be removed");
+    if (removedStepperHelp.status === 0) {
+      fail("cmdproto stepper quest help must be removed");
     }
 
     const init = runLoopship(

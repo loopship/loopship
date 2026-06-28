@@ -310,6 +310,28 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(JSON.parse(output).calls).toBe(14);
   });
 
+  test("keeps static AFN call catalog descriptors in parity with adapter descriptors", async () => {
+    const adapters = createLoopshipFastflowAdapters();
+    for (const descriptor of LOOPSHIP_AFN_DESCRIPTORS) {
+      const callId = parseCallId(descriptor.call);
+      const catalogPath = join(
+        LOOPSHIP_CALL_CATALOG_ROOT,
+        callId.registry,
+        callId.kind,
+        callId.target,
+        callId.scope,
+        "index.yaml",
+      );
+      const catalog = parseYaml(readFileSync(catalogPath, "utf8")) as any;
+      expect(catalog.schemaVersion).toBe("fastflow/call-catalog-scope/v1");
+      expect(catalog.calls).toHaveLength(1);
+      expect(catalog.calls[0]).toEqual(descriptor);
+      expect(
+        (adapters.resolveCallDescriptor as Function)({ call: descriptor.call }),
+      ).toEqual(descriptor);
+    }
+  });
+
   test("creates Fastflow-compatible Loopship consumer adapters", async () => {
     const adapters = createLoopshipFastflowAdapters();
     expect(adapters.adapterIdentity).toBe("@omar391/loopship");
@@ -571,6 +593,8 @@ describe("Loopship Fastflow-native bridge", () => {
       files?: unknown[];
     };
     expect(packageJson.files).toContain("call-catalog");
+    expect(packageJson.files).toContain("scripts");
+    expect(existsSync(join(process.cwd(), "scripts", "loopship_stepper.ts"))).toBe(true);
     expect(existsSync(join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step", "plan.stable.yaml"))).toBe(true);
     expect(existsSync(join(process.cwd(), "call-catalog", ".loopship-generator.json"))).toBe(false);
     expect(existsSync(join(process.cwd(), ".loopship", "call-catalog"))).toBe(false);
@@ -752,6 +776,69 @@ describe("Loopship Fastflow-native bridge", () => {
       const landedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
       expect(landedState.stage).toBe("archived");
       expect(landedState.landed_commit).toBe(result.landed_commit);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("generated executing workflow prepares every ready child through Fastflow", async () => {
+    const fixture = createGitFixture("loopship-native-fastflow-executing-");
+    try {
+      createNativeQuest(fixture.repo, "demo");
+      const workflows = buildLoopshipFastflowStepWorkflows();
+      const result = await executeNativeWorkflow(workflows.executing as Record<string, unknown>, {
+        step: "executing",
+        output_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
+        commands: { next: { cmd: "loopship", args: ["resume", "--wtree", "demo", "--json", "@-"] } },
+        repo: fixture.repo,
+        wtree: "demo",
+        children: [
+          {
+            task_id: "task-a",
+            title: "Task A",
+            child_wtree: "demo-task-a",
+            branch_ref: "codex/demo-task-a",
+            worktree_path: join(fixture.repo, "worktrees", "demo-task-a"),
+            acceptance: "done",
+            commands: {
+              init: { cmd: "loopship", args: ["init", "task-a"] },
+              next: { cmd: "loopship", args: ["resume", "--wtree", "demo-task-a", "--json", "@-"] },
+            },
+            result_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
+          },
+          {
+            task_id: "task-b",
+            title: "Task B",
+            child_wtree: "demo-task-b",
+            branch_ref: "codex/demo-task-b",
+            worktree_path: join(fixture.repo, "worktrees", "demo-task-b"),
+            acceptance: "done",
+            commands: {
+              init: { cmd: "loopship", args: ["init", "task-b"] },
+              next: { cmd: "loopship", args: ["resume", "--wtree", "demo-task-b", "--json", "@-"] },
+            },
+            result_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
+          },
+        ],
+      });
+
+      expect(result.output).toMatchObject({
+        schema_version: "loopship.child.prepare/v1",
+        count: 2,
+      });
+      expect(result.output.prepared_children).toHaveLength(2);
+      expect(result.output.prepared_children.map((child: any) => child.task_id)).toEqual([
+        "task-a",
+        "task-b",
+      ]);
+      expect(result.output.prepared_children[0].commands.init.cmd).toBe("loopship");
+      expect(result.output.prepared_children[1].commands.next.args).toEqual([
+        "resume",
+        "--wtree",
+        "demo-task-b",
+        "--json",
+        "@-",
+      ]);
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }

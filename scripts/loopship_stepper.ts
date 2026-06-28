@@ -29,10 +29,10 @@ const SETUP_RUNTIME_HOOKS_SCRIPT = resolve(
 );
 
 type Runtime = "codex" | "gemini" | "copilot";
-type SimCommand = "init" | "step" | "hook";
+type StepperCommand = "init" | "step" | "hook";
 
-type SimArgs = {
-  command: SimCommand;
+type StepperArgs = {
+  command: StepperCommand;
   repo: string | null;
   runtime: string | null;
   json: string | null;
@@ -61,9 +61,9 @@ type QuestLikeState = Partial<{
 function usage(exitCode = 1): number {
   const text = [
     "Usage:",
-    '  loopship sim init "loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
-    "  loopship sim step --wtree <name> [--repo <path>] --json <json|@file|@->",
-    "  loopship sim hook [--repo <path>] [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]",
+    '  loopship stepper init "loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
+    "  loopship stepper step --wtree <name> [--repo <path>] --json <json|@file|@->",
+    "  loopship stepper hook [--repo <path>] [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]",
   ].join("\n");
   if (exitCode === 0) console.log(text);
   else console.error(text);
@@ -74,7 +74,7 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-function parseArgs(argv: string[]): SimArgs {
+function parseArgs(argv: string[]): StepperArgs {
   let repo: string | null = null;
   let runtime: string | null = null;
   let json: string | null = null;
@@ -84,22 +84,22 @@ function parseArgs(argv: string[]): SimArgs {
   const requestParts: string[] = [];
   const rest: string[] = [];
   const command = argv[0];
-  let simCommand: SimCommand;
+  let stepperCommand: StepperCommand;
   let body: string[];
 
   if (command === "init") {
-    simCommand = "init";
+    stepperCommand = "init";
     body = argv.slice(1);
   } else if (command === "step") {
-    simCommand = "step";
+    stepperCommand = "step";
     body = argv.slice(1);
   } else if (command === "hook") {
-    simCommand = "hook";
+    stepperCommand = "hook";
     body = argv.slice(1);
   } else if (command === "--help" || command === "-h") {
-    throw new Error("__SIM_HELP__");
+    throw new Error("__STEPPER_HELP__");
   } else {
-    throw new Error(`unknown sim command: ${command ?? ""}`.trim());
+    throw new Error(`unknown stepper command: ${command ?? ""}`.trim());
   }
 
   for (let i = 0; i < body.length; i += 1) {
@@ -107,7 +107,7 @@ function parseArgs(argv: string[]): SimArgs {
     if (arg === "--repo") repo = body[++i] ?? null;
     else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
-      throw new Error("loopship sim no longer accepts --cwd; use --repo or run from the repo root");
+      throw new Error("loopship stepper no longer accepts --cwd; use --repo or run from the repo root");
     } else if (arg === "--wtree") wtree = body[++i] ?? null;
     else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
     else if (arg === "--runtime") runtime = body[++i] ?? null;
@@ -118,14 +118,14 @@ function parseArgs(argv: string[]): SimArgs {
     else if (arg === "--flow") flow = body[++i] ?? null;
     else if (arg?.startsWith("--flow=")) flow = arg.slice("--flow=".length);
     else if (arg === "--full") full = true;
-    else if (arg === "--help" || arg === "-h") throw new Error("__SIM_HELP__");
-    else if (arg?.startsWith("-")) throw new Error(`unknown sim argument: ${arg}`);
-    else if (arg !== undefined && simCommand === "init") requestParts.push(arg);
+    else if (arg === "--help" || arg === "-h") throw new Error("__STEPPER_HELP__");
+    else if (arg?.startsWith("-")) throw new Error(`unknown stepper argument: ${arg}`);
+    else if (arg !== undefined && stepperCommand === "init") requestParts.push(arg);
     else if (arg !== undefined) rest.push(arg);
   }
 
   return {
-    command: simCommand,
+    command: stepperCommand,
     repo,
     runtime,
     json,
@@ -150,7 +150,7 @@ function resolveRuntime(
 
 function normalizeRequestText(request: string): string {
   const raw = request.trim();
-  if (!raw) fail("sim init requires a request");
+  if (!raw) fail("stepper init requires a request");
   return /^loopship:/i.test(raw) ? raw : `loopship: ${raw}`;
 }
 
@@ -212,14 +212,14 @@ function resolveRepoRoot(
   return resolve(expandHome(raw));
 }
 
-function setupSimulationHooks(repoRoot: string, runtime: Runtime): void {
+function setupStepperHooks(repoRoot: string, runtime: Runtime): void {
   const launch = tsRunner(SETUP_RUNTIME_HOOKS_SCRIPT, [
     "--repo",
     repoRoot,
     "--runtime",
     runtime,
     "--hook-script",
-    resolve(SCRIPT_DIR, "loopship_sim.ts"),
+    resolve(SCRIPT_DIR, "loopship_stepper.ts"),
   ]);
   const proc = runCommand(launch.cmd, launch.args, {
     cwd: repoRoot,
@@ -253,7 +253,7 @@ function currentFlowStepId(repoRoot: string, wtree: string): string {
   return flowStep(loadFlowDefinition(flowId), String(state.stage ?? "")).id;
 }
 
-function inferSimulationRuntime(repoRoot: string): Runtime {
+function inferStepperRuntime(repoRoot: string): Runtime {
   if (existsSync(resolve(repoRoot, ".codex", "hooks.json"))) return "codex";
   if (existsSync(resolve(repoRoot, ".gemini", "settings.json"))) return "gemini";
   if (existsSync(resolve(repoRoot, ".github", "hooks", "loopship.json"))) {
@@ -262,13 +262,13 @@ function inferSimulationRuntime(repoRoot: string): Runtime {
   return "codex";
 }
 
-function simCommand(args: string[]): Record<string, unknown> {
+function stepperCommand(args: string[]): Record<string, unknown> {
   return { cmd: "loopship", args };
 }
 
-function simNextCommand(repoRoot: string, wtree: string): Record<string, unknown> {
-  return simCommand([
-    "sim",
+function stepperNextCommand(repoRoot: string, wtree: string): Record<string, unknown> {
+  return stepperCommand([
+    "stepper",
     "step",
     "--wtree",
     wtree,
@@ -313,7 +313,7 @@ function withGuidedEnvelope(input: {
     ...input.output,
     commands: {
       ...originalCommands,
-      next: simNextCommand(input.repoRoot, input.wtree),
+      next: stepperNextCommand(input.repoRoot, input.wtree),
     },
   };
 }
@@ -341,7 +341,7 @@ function executeHook(
   return { envelope, output, reason };
 }
 
-function routeSimQuestInit(input: {
+function routeStepperQuestInit(input: {
   repoRoot: string;
   runtime: Runtime;
   request: string;
@@ -393,7 +393,7 @@ function routeSimQuestInit(input: {
   };
 }
 
-function runHookMode(args: SimArgs): number {
+function runHookMode(args: StepperArgs): number {
   const raw = readJsonArg(args.json);
   const repoRoot = resolveRepoRoot(args.repo, raw);
   const runtime = resolveRuntime(args.runtime);
@@ -402,18 +402,18 @@ function runHookMode(args: SimArgs): number {
   return 0;
 }
 
-function runSimInit(args: SimArgs): number {
+function runStepperInit(args: StepperArgs): number {
   if (!args.request) {
     throw new Error(
-      'sim init requires a request, for example: loopship sim init "loopship: build the app" --flow swe --runtime codex',
+      'stepper init requires a request, for example: loopship stepper init "loopship: build the app" --flow swe --runtime codex',
     );
   }
   const repoRoot = defaultRepoRoot(args.repo);
   const runtime = resolveRuntime(args.runtime);
   const request = normalizeRequestText(args.request);
   const flowId = resolveFlowId(args.flow);
-  setupSimulationHooks(repoRoot, runtime);
-  const started = routeSimQuestInit({
+  setupStepperHooks(repoRoot, runtime);
+  const started = routeStepperQuestInit({
     repoRoot,
     runtime,
     request,
@@ -435,21 +435,21 @@ function runSimInit(args: SimArgs): number {
   return 0;
 }
 
-function runSimStep(args: SimArgs): number {
+function runStepperStep(args: StepperArgs): number {
   if (!args.json) {
-    throw new Error("sim step requires --json <json|@file|@->");
+    throw new Error("stepper step requires --json <json|@file|@->");
   }
   const wtree = String(args.wtree ?? "").trim();
   if (!wtree) {
-    throw new Error("sim step requires --wtree <name>");
+    throw new Error("stepper step requires --wtree <name>");
   }
   const payload = readJsonArg(args.json);
   if (Object.keys(payload).length === 0) {
-    throw new Error("sim step requires a non-empty JSON payload");
+    throw new Error("stepper step requires a non-empty JSON payload");
   }
   const repoRoot = resolveRepoRoot(args.repo, payload);
   if (!existsSync(questFiles(repoRoot, wtree).tasks)) {
-    throw new Error(`missing quest state for simulated quest: ${wtree}`);
+    throw new Error(`missing quest state for guided quest: ${wtree}`);
   }
   currentFlowStepId(repoRoot, wtree);
   const questArgs = [
@@ -468,8 +468,8 @@ function runSimStep(args: SimArgs): number {
   if (proc.status !== 0) {
     throw new Error(proc.stderr || proc.stdout || "loopship resume failed");
   }
-  const output = parseJsonText(proc.stdout, "guided sim output");
-  const runtime = resolveRuntime(args.runtime, inferSimulationRuntime(repoRoot));
+  const output = parseJsonText(proc.stdout, "guided stepper output");
+  const runtime = resolveRuntime(args.runtime, inferStepperRuntime(repoRoot));
   process.stdout.write(
     JSON.stringify(
       withGuidedEnvelope({
@@ -485,32 +485,32 @@ function runSimStep(args: SimArgs): number {
   return 0;
 }
 
-export function runSimCli(argv: string[]): number {
-  let args: SimArgs;
+export function runStepperCli(argv: string[]): number {
+  let args: StepperArgs;
   try {
     args = parseArgs(argv);
   } catch (error) {
-    if (error instanceof Error && error.message === "__SIM_HELP__") {
+    if (error instanceof Error && error.message === "__STEPPER_HELP__") {
       return usage(0);
     }
     if (
       error instanceof Error &&
-      (error.message.startsWith("unknown sim argument:") ||
-        error.message.startsWith("unknown sim command:"))
+      (error.message.startsWith("unknown stepper argument:") ||
+        error.message.startsWith("unknown stepper command:"))
     ) {
       console.error(error.message);
       return usage(1);
     }
     throw error;
   }
-  if (args.command === "init") return runSimInit(args);
-  if (args.command === "step") return runSimStep(args);
+  if (args.command === "init") return runStepperInit(args);
+  if (args.command === "step") return runStepperStep(args);
   return runHookMode(args);
 }
 
 if (import.meta.main) {
   try {
-    process.exit(runSimCli(process.argv.slice(2)));
+    process.exit(runStepperCli(process.argv.slice(2)));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTasksYaml, questFiles } from "./loopship_core.ts";
-import { scenarioPayloadForStep } from "./sim_product_quest_scenarios.ts";
+import { scenarioPayloadForStep } from "./stepper_product_quest_scenarios.ts";
 import { readText, runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
@@ -37,16 +37,16 @@ function stepId(value: unknown): string {
   return "";
 }
 
-function runSim(args: string[]) {
-  return runCommand("bun", [SCRIPT, "sim", ...args], {
+function runStepper(args: string[]) {
+  return runCommand("bun", [SCRIPT, "stepper", ...args], {
     cwd: commandCwd,
     env: commandEnv,
     timeoutMs: 120_000,
   });
 }
 
-function runSimWithInput(args: string[], input: Record<string, unknown>) {
-  return runCommand("bun", [SCRIPT, "sim", ...args], {
+function runStepperWithInput(args: string[], input: Record<string, unknown>) {
+  return runCommand("bun", [SCRIPT, "stepper", ...args], {
     cwd: commandCwd,
     env: commandEnv,
     input: JSON.stringify(input),
@@ -56,18 +56,18 @@ function runSimWithInput(args: string[], input: Record<string, unknown>) {
 
 function assertGuidedStep(step: Record<string, any>, repo: string): void {
   if ("hook_output" in step || "reason_payload" in step) {
-    fail(`guided sim must not expose hook internals: ${JSON.stringify(step)}`);
+    fail(`guided stepper must not expose hook internals: ${JSON.stringify(step)}`);
   }
   if ("current_output" in step) {
-    fail(`guided sim must expose the current step directly: ${JSON.stringify(step)}`);
+    fail(`guided stepper must expose the current step directly: ${JSON.stringify(step)}`);
   }
   const command = step.commands?.next;
   if (!command || command.cmd !== "loopship") {
-    fail(`guided sim step must include commands.next: ${JSON.stringify(step)}`);
+    fail(`guided stepper step must include commands.next: ${JSON.stringify(step)}`);
   }
   const args = Array.isArray(command.args) ? command.args : [];
   const expected = [
-    "sim",
+    "stepper",
     "step",
     "--wtree",
     String(step.wtree ?? ""),
@@ -75,38 +75,63 @@ function assertGuidedStep(step: Record<string, any>, repo: string): void {
     "@-",
   ];
   if (JSON.stringify(args) !== JSON.stringify(expected)) {
-    fail(`guided sim commands.next mismatch: ${JSON.stringify(args)}`);
+    fail(`guided stepper commands.next mismatch: ${JSON.stringify(args)}`);
   }
 }
 
-function simArgsFromStep(step: Record<string, any>): string[] {
+function stepperArgsFromStep(step: Record<string, any>): string[] {
   const args = step.commands?.next?.args;
-  if (!Array.isArray(args) || args[0] !== "sim") {
-    fail(`missing runnable sim next command: ${JSON.stringify(step.commands)}`);
+  if (!Array.isArray(args) || args[0] !== "stepper") {
+    fail(`missing runnable stepper next command: ${JSON.stringify(step.commands)}`);
   }
   return args.slice(1).map(String);
 }
 
-function assertOldSimCommandsAreUnknown(): void {
+function fastflowSessions(repoRoot: string, wtree: string): Record<string, any> {
+  const parsed = JSON.parse(readText(questFiles(repoRoot, wtree).hook_state));
+  const sessions = parsed?.fastflow_sessions;
+  return sessions && typeof sessions === "object" && !Array.isArray(sessions)
+    ? sessions
+    : {};
+}
+
+function assertFastflowSession(
+  repoRoot: string,
+  wtree: string,
+  stepId: string,
+  expected: boolean,
+): void {
+  const key = `step:${stepId}`;
+  const session = fastflowSessions(repoRoot, wtree)[key];
+  if (expected) {
+    if (!session?.session_id || session.workflow_ref !== "loopship.workflow.service.flows.swe") {
+      fail(`missing native Fastflow session ${key}: ${JSON.stringify(session)}`);
+    }
+  } else if (session) {
+    fail(`native Fastflow session ${key} should have been consumed: ${JSON.stringify(session)}`);
+  }
+}
+
+function assertOldStepperCommandsAreUnknown(): void {
   const cases = [
     ["loopship: old top-level start"],
-    ["--repo", "/tmp/loopship-sim-old", "--json", "{}"],
+    ["--repo", "/tmp/loopship-stepper-old", "--json", "{}"],
     ["start", "--request", "loopship: old path"],
-    ["next", "--repo", "/tmp/loopship-sim-old"],
-    ["callback", "--repo", "/tmp/loopship-sim-old", "--json", "{}"],
-    ["status", "--repo", "/tmp/loopship-sim-old"],
+    ["next", "--repo", "/tmp/loopship-stepper-old"],
+    ["callback", "--repo", "/tmp/loopship-stepper-old", "--json", "{}"],
+    ["status", "--repo", "/tmp/loopship-stepper-old"],
     ["quest", "help"],
   ];
   for (const args of cases) {
-    const oldCommand = runSim(args);
+    const oldCommand = runStepper(args);
     if (oldCommand.status === 0) {
-      fail(`old sim command unexpectedly succeeded: ${oldCommand.stdout}`);
+      fail(`old stepper command unexpectedly succeeded: ${oldCommand.stdout}`);
     }
     const combined = `${oldCommand.stderr}\n${oldCommand.stdout}`;
     const expectedError =
-      `unknown sim command: ${args[0]}`;
+      `unknown stepper command: ${args[0]}`;
     if (!combined.includes(expectedError)) {
-      fail(`old sim command must hard-fail as unknown: ${combined}`);
+      fail(`old stepper command must hard-fail as unknown: ${combined}`);
     }
   }
 }
@@ -129,7 +154,7 @@ function prepareExistingGitRepoFixture(repo: string): void {
     timeoutMs: 15_000,
   });
   if (branch.status !== 0) fail(branch.stderr || branch.stdout);
-  // Test fixture setup: sim is being run inside an existing repo with HEAD.
+  // Test fixture setup: stepper is being run inside an existing repo with HEAD.
   const existingRepoHead = runCommand(
     "git",
     ["commit", "--allow-empty", "-m", "stepper test baseline"],
@@ -154,11 +179,11 @@ function main(): number {
     LOOPSHIP_SCRIPT: SCRIPT,
   };
   try {
-    assertOldSimCommandsAreUnknown();
+    assertOldStepperCommandsAreUnknown();
     prepareExistingGitRepoFixture(repo);
     commandCwd = repo;
 
-    const start = runSim([
+    const start = runStepper([
       "init",
       request,
       "--repo",
@@ -169,17 +194,18 @@ function main(): number {
       "swe",
     ]);
     if (start.status !== 0) fail(start.stderr || start.stdout);
-    if (existsSync(join(repo, ".loopship", "sim-runtime"))) {
-      fail("guided sim must not create .loopship/sim-runtime");
+    if (existsSync(join(repo, ".loopship", "stepper-runtime"))) {
+      fail("guided stepper must not create .loopship/stepper-runtime");
     }
     let current = parseJson(start.stdout);
     assertGuidedStep(current, repo);
     if (current.wtree !== "a-fullstack-app") {
-      fail(`unexpected wtree from guided sim start: ${start.stdout}`);
+      fail(`unexpected wtree from guided stepper start: ${start.stdout}`);
     }
     if (current.current_stage !== "planning") {
-      fail(`guided sim start must create a planning quest: ${start.stdout}`);
+      fail(`guided stepper start must create a planning quest: ${start.stdout}`);
     }
+    assertFastflowSession(repo, String(current.wtree), "plan", true);
 
     const seenOutputs: string[] = [stepId(current.step)];
     let sawExecutingChildren = false;
@@ -189,7 +215,7 @@ function main(): number {
       if (current.done === true) break;
       const requestedStep = stepId(current.step);
       if (!requestedStep) {
-        fail(`guided sim missing current step id: ${JSON.stringify(current)}`);
+        fail(`guided stepper missing current step id: ${JSON.stringify(current)}`);
       }
       const quest = parseTasksYaml(readText(questFiles(repo, current.wtree).tasks));
       const callbackInput = scenarioPayloadForStep({
@@ -201,11 +227,15 @@ function main(): number {
       });
       if (requestedStep === "plan") planRound += 1;
       if (requestedStep === "landing") landingRound += 1;
-      const continued = runSimWithInput(simArgsFromStep(current), callbackInput);
+      const continued = runStepperWithInput(stepperArgsFromStep(current), callbackInput);
       if (continued.status !== 0) fail(continued.stderr || continued.stdout);
       current = parseJson(continued.stdout);
       assertGuidedStep(current, repo);
       const outputStep = stepId(current.step);
+      if (requestedStep === "plan" && outputStep === "questions") {
+        assertFastflowSession(repo, String(current.wtree), "plan", false);
+        assertFastflowSession(repo, String(current.wtree), "questions", true);
+      }
       if (outputStep) seenOutputs.push(outputStep);
       if (
         outputStep === "executing" &&
@@ -230,16 +260,16 @@ function main(): number {
     ];
     for (const step of expected) {
       if (!seenOutputs.includes(step)) {
-        fail(`guided sim never emitted ${step}: ${JSON.stringify(seenOutputs)}`);
+        fail(`guided stepper never emitted ${step}: ${JSON.stringify(seenOutputs)}`);
       }
     }
     if (!sawExecutingChildren) {
       fail(
-        `guided sim never exposed executing children: ${JSON.stringify(seenOutputs)}`,
+        `guided stepper never exposed executing children: ${JSON.stringify(seenOutputs)}`,
       );
     }
     if (current.current_stage !== "archived" || current.done !== true) {
-      fail(`guided sim must finish at archived: ${JSON.stringify(current)}`);
+      fail(`guided stepper must finish at archived: ${JSON.stringify(current)}`);
     }
 
     console.log("loopship runtime stepper verification passed");
