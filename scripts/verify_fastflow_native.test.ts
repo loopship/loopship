@@ -85,6 +85,7 @@ function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/catalog.mjs"
 
   const siblingRoots = [
     resolve(process.cwd(), "..", "..", "orgs", "cueintent", "fastflow"),
+    resolve(process.cwd(), "..", "..", "..", "..", "cueintent", "fastflow"),
     resolve(process.cwd(), "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
   ];
   const fastflowRoot = siblingRoots.find((candidate) =>
@@ -246,6 +247,22 @@ function loadYamlWorkflow(path: string): Record<string, unknown> {
   return parseYaml(readFileSync(path, "utf8")) as Record<string, unknown>;
 }
 
+const FORBIDDEN_EXECUTABLE_PAYLOAD_FIELDS = new Set([
+  "step",
+  "state",
+  "allowed_transitions",
+  "commands",
+  "docs",
+  "flow_spec",
+]);
+
+function expectNoLoopshipEnvelopeFields(value: unknown): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  for (const key of Object.keys(value as Record<string, unknown>)) {
+    expect(FORBIDDEN_EXECUTABLE_PAYLOAD_FIELDS.has(key)).toBe(false);
+  }
+}
+
 function runGit(cwd: string, args: string[]): string {
   const proc = runCommand("git", args, { cwd, timeoutMs: 30_000 });
   expect(proc.status, proc.stderr || proc.stdout).toBe(0);
@@ -323,9 +340,10 @@ describe("Loopship Fastflow-native bridge", () => {
         "index.yaml",
       );
       const catalog = parseYaml(readFileSync(catalogPath, "utf8")) as any;
-      expect(catalog.schemaVersion).toBe("fastflow/call-catalog-scope/v1");
+      expect(catalog.schemaVersion).toBe("fastflow/call-catalog-scope/v2");
       expect(catalog.calls).toHaveLength(1);
-      expect(catalog.calls[0]).toEqual(descriptor);
+      const { tags: _tags, ...descriptorWithoutTags } = descriptor as Record<string, unknown>;
+      expect(catalog.calls[0]).toEqual(descriptorWithoutTags);
       expect(
         (adapters.resolveCallDescriptor as Function)({ call: descriptor.call }),
       ).toEqual(descriptor);
@@ -361,8 +379,8 @@ describe("Loopship Fastflow-native bridge", () => {
     ).resolves.toMatchObject({
       schema_version: "loopship.child.prepare/v1",
       parent_wtree: "demo",
-      commands: {
-        next: { cmd: "loopship" },
+      actions: {
+        resume: { cmd: "loopship" },
       },
     });
     await expect(
@@ -386,8 +404,8 @@ describe("Loopship Fastflow-native bridge", () => {
       schema_version: "loopship.child.prepare/v1",
       count: 2,
       prepared_children: [
-        { task_id: "task-a", commands: { init: { cmd: "loopship" } } },
-        { task_id: "task-b", commands: { init: { cmd: "loopship" } } },
+        { task_id: "task-a", actions: { init: { cmd: "loopship" } } },
+        { task_id: "task-b", actions: { init: { cmd: "loopship" } } },
       ],
     });
   });
@@ -509,9 +527,12 @@ describe("Loopship Fastflow-native bridge", () => {
         stageCalls.childResult = object;
       }
     });
-    expect(stageCalls.executingDispatch?.with?.input?.step).toBe("executing");
-    expect(stageCalls.executingDispatch?.with?.input?.output_schema?.properties?.schema_version?.type).toBe("string");
-    expect(stageCalls.childResult?.with?.input?.step).toBe("child_result");
+    expectNoLoopshipEnvelopeFields(stageCalls.executingDispatch?.with?.input);
+    expect(stageCalls.executingDispatch?.with?.input?.children).toBe(
+      "${inputs.children || []}",
+    );
+    expectNoLoopshipEnvelopeFields(stageCalls.childResult?.with?.input);
+    expect(stageCalls.childResult?.with?.input?.current_stage).toBe("executing");
     const deriveTransition = (workflow.do as any[]).find((entry) =>
       Boolean(entry.derive_transition),
     )?.derive_transition;
@@ -787,9 +808,6 @@ describe("Loopship Fastflow-native bridge", () => {
       createNativeQuest(fixture.repo, "demo");
       const workflows = buildLoopshipFastflowStepWorkflows();
       const result = await executeNativeWorkflow(workflows.executing as Record<string, unknown>, {
-        step: "executing",
-        output_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
-        commands: { next: { cmd: "loopship", args: ["resume", "--wtree", "demo", "--json", "@-"] } },
         repo: fixture.repo,
         wtree: "demo",
         children: [
@@ -800,11 +818,6 @@ describe("Loopship Fastflow-native bridge", () => {
             branch_ref: "codex/demo-task-a",
             worktree_path: join(fixture.repo, "worktrees", "demo-task-a"),
             acceptance: "done",
-            commands: {
-              init: { cmd: "loopship", args: ["init", "task-a"] },
-              next: { cmd: "loopship", args: ["resume", "--wtree", "demo-task-a", "--json", "@-"] },
-            },
-            result_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
           },
           {
             task_id: "task-b",
@@ -813,11 +826,6 @@ describe("Loopship Fastflow-native bridge", () => {
             branch_ref: "codex/demo-task-b",
             worktree_path: join(fixture.repo, "worktrees", "demo-task-b"),
             acceptance: "done",
-            commands: {
-              init: { cmd: "loopship", args: ["init", "task-b"] },
-              next: { cmd: "loopship", args: ["resume", "--wtree", "demo-task-b", "--json", "@-"] },
-            },
-            result_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
           },
         ],
       });
@@ -831,8 +839,8 @@ describe("Loopship Fastflow-native bridge", () => {
         "task-a",
         "task-b",
       ]);
-      expect(result.output.prepared_children[0].commands.init.cmd).toBe("loopship");
-      expect(result.output.prepared_children[1].commands.next.args).toEqual([
+      expect(result.output.prepared_children[0].actions.init.cmd).toBe("loopship");
+      expect(result.output.prepared_children[1].actions.resume.args).toEqual([
         "resume",
         "--wtree",
         "demo-task-b",
@@ -855,7 +863,6 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const workflows = buildLoopshipFastflowStepWorkflows();
       const result = await executeNativeWorkflow(workflows.landing as Record<string, unknown>, {
-        step: "landing",
         status: "landed",
         summary: "landed through Fastflow",
         repo: fixture.repo,

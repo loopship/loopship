@@ -1,0 +1,36 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/child-dispatch-request.yaml
+title: Loopship Fastflow Child Dispatch Request Payload
+type: object
+additionalProperties: false
+required:
+  - children
+properties:
+  schema_version:
+    const: loopship.child-dispatch.request/v1
+  kind:
+    const: child_dispatch_request
+  wtree:
+    type: string
+  quest_id:
+    type: string
+  flow_id:
+    type: string
+  flow_version:
+    type: integer
+  current_stage:
+    type: string
+  summary:
+    type: string
+  prompt:
+    type: string
+  repo:
+    type: string
+  repoRoot:
+    type: string
+  runtime:
+    type: string
+  children:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/task_graph_task

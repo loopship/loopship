@@ -3,81 +3,91 @@ workflows:
   archived:
     stable:
       release: 1
-      digest: "sha256:3df0649634f709c1002a22db2c987cd49acc97acf5282de7f2d1e628b22aca1b"
+      digest: "sha256:0b48de73a5680250f4d0610d922421d4d5e858ec72d137df23d36489c8678e5e"
       summary: "Report final quest state only."
       inputs:
-        required:
-          - step
-          - output_schema
-          - commands
+        required: []
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
-          - landing
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - requirements
       requires: []
   child-result:
     stable:
       release: 1
-      digest: "sha256:27ec8bcbefee6d604fc5c656f7e33a1082c5d92a78ace441ec6cbad1f8d9d9ea"
+      digest: "sha256:bcb9234ace000a9a4d99a1e6e8a6e86379c82a79d42812dcd5ad98f910f743dc"
       summary: "Submit the result of a completed child quest back to the parent flow."
       inputs:
-        required:
-          - step
-          - output_schema
-          - commands
+        required: []
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
           - requirements
       requires: []
   executing:
     stable:
       release: 1
-      digest: "sha256:ee249ec7eef2bb22695376b6ceaf66fb84cad21bfffad7b31470087e5453bb65"
+      digest: "sha256:8819d9544d58fc29523b79bba2db97c596d9a67dc902f6426a42ece061de75b1"
       summary: "Start the ready child wtree commands and submit child_result payloads as children finish."
       inputs:
         required:
-          - step
-          - output_schema
-          - commands
           - children
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
+          - prompt
           - repo
           - repoRoot
-          - quest
           - runtime
+          - quest
           - actor
           - target_branch
           - target_worktree
@@ -90,11 +100,10 @@ workflows:
   landing:
     stable:
       release: 1
-      digest: "sha256:c7255067580a7dbb87830b6707fc13914eeed29f1ae7ba9a54396ef7b98221fe"
+      digest: "sha256:903dfd2927a13aed9355a4579bb40e72354561ad565eeeb54df9faddbf5a858a"
       summary: "Submit landing status and final summary."
       inputs:
         required:
-          - step
           - status
           - summary
         optional:
@@ -115,61 +124,76 @@ workflows:
   plan:
     stable:
       release: 1
-      digest: "sha256:191ba0d65ba4d7981264112db429cda06eb3e93b5b3b39f48a81606bd88785b9"
+      digest: "sha256:c68e5565e0cfeab19d1bfcbf0a4053a0834f057687473fd38277a95557b85e74"
       summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
       inputs:
-        required:
-          - step
-          - output_schema
-          - commands
+        required: []
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
           - requirements
       requires: []
   questions:
     stable:
       release: 1
-      digest: "sha256:3d9b47b64fc9a1933b6f8f84cdb5a1abbd2cd1705347268c885c896f596f9342"
+      digest: "sha256:3b9b49e2836bc6c30f0b671e25a8278f60042bb28f153d2b3f0c1e56d2336820"
       summary: "Submit grouped user answers for the current clarification round."
       inputs:
-        required:
-          - step
-          - output_schema
-          - commands
+        required: []
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
           - requirements
       requires: []
   system-update:
     stable:
       release: 1
-      digest: "sha256:a4dc63812c594feb80891baeae1c070fe5cf5636717f35366ac8129453013eb3"
+      digest: "sha256:01642934a42a4cb3b540974517c37f26d6a4e20467097ae7b2df590318577de1"
       summary: "Submit system doc updates. Loopship writes signed repo docs."
       inputs:
         required:
-          - step
           - system_update
         optional:
           - repo
@@ -189,75 +213,99 @@ workflows:
   task-graph:
     stable:
       release: 1
-      digest: "sha256:b43ce970d6c78b8fc44b32ea43878871f1d7895b711042b769587d320271b08b"
+      digest: "sha256:7ef0065a1f6015c70a319f9885fd2e6ddae92e561faa6bdcf14796ce82a68c98"
       summary: "Approve or reject the generated task graph, including a replan reason when rejected."
       inputs:
-        required:
-          - step
-          - output_schema
-          - commands
+        required: []
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
           - requirements
       requires: []
   validation:
     stable:
       release: 1
-      digest: "sha256:c1b0fe2ee9819012241428b7dceec2dd2522ca62ffeefcab4d96ed515fb570cf"
+      digest: "sha256:656d1854e80abcfcd2dddfdae8b9ccd41e75c51b1c10e02ce9b32066ea48cd09"
       summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
       inputs:
-        required:
-          - step
-          - output_schema
-          - commands
+        required: []
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
           - requirements
       requires: []
   verification:
     stable:
       release: 1
-      digest: "sha256:3dd506fafcc1101cdc7652a5519d0331022a77fbe8acb3e4154e7be59714b1b9"
+      digest: "sha256:c4f63378c2c3eab5b551795ffb6d9c8f45499d9c15cfd6678e1acec31a335e92"
       summary: "Submit acceptance trace, PR-style risk review, and residual risks."
       inputs:
-        required:
-          - step
-          - output_schema
-          - commands
+        required: []
         optional:
           - schema_version
           - kind
-          - schema_path
           - wtree
           - quest_id
           - flow_id
           - flow_version
-          - state
+          - current_stage
           - summary
-          - allowed_transitions
-          - context
-          - docs
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
           - requirements
       requires: []

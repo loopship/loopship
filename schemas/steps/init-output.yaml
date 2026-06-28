@@ -68,27 +68,24 @@ properties:
     required:
       - suggested_wtree
       - command
-      - output_schema
+      - resume_input_schema
       - input
     properties:
       suggested_wtree:
         type: string
       command:
         $ref: common.yaml#/$defs/command
-      output_schema:
+      resume_input_schema:
         $ref: common.yaml#/$defs/schema_ref_or_embedded
       input:
         type: object
         additionalProperties: false
         required:
-          - step
           - action
           - wtree
           - flow_id
           - request
         properties:
-          step:
-            const: select_quest
           action:
             const: create_quest
           wtree:

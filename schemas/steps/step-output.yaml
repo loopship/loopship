@@ -4,9 +4,9 @@ title: Loopship V3 Step Output
 type: object
 additionalProperties: false
 required:
-  - step
-  - output_schema
-  - commands
+  - task
+  - answer_schema
+  - continuation
 properties:
   schema_version:
     const: 3
@@ -22,24 +22,16 @@ properties:
     type: string
   flow_version:
     type: integer
-  step:
-    oneOf:
-      - type: string
-      - $ref: common.yaml#/$defs/compact_step
-  state:
+  current_stage:
     type: string
   summary:
     type: string
-  output_schema:
+  task:
+    $ref: common.yaml#/$defs/compact_step
+  answer_schema:
     $ref: common.yaml#/$defs/schema_ref_or_embedded
-  allowed_transitions:
-    $ref: common.yaml#/$defs/transitions
-  context:
-    $ref: common.yaml#/$defs/step_context
-  commands:
-    $ref: common.yaml#/$defs/step_commands
-  docs:
-    $ref: common.yaml#/$defs/docs
+  continuation:
+    $ref: common.yaml#/$defs/resume_continuation
   requirements:
     type: array
     items:

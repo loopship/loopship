@@ -14,21 +14,15 @@ input:
   schema:
     document:
       "$schema": "https://json-schema.org/draft/2020-12/schema"
-      "$id": schemas/steps/step-output.yaml
-      title: "Loopship V3 Step Output"
+      "$id": schemas/steps/step-request.yaml
+      title: "Loopship Fastflow Step Request Payload"
       type: object
       additionalProperties: false
-      required:
-        - step
-        - output_schema
-        - commands
       properties:
         schema_version:
-          const: 3
+          const: loopship.step.request/v1
         kind:
-          const: quest_step
-        schema_path:
-          const: schemas/steps/step-output.yaml
+          const: quest_step_request
         wtree:
           type: string
         quest_id:
@@ -37,190 +31,130 @@ input:
           type: string
         flow_version:
           type: integer
-        step:
-          oneOf:
-            - type: string
-            - type: object
-              additionalProperties: false
-              required:
-                - id
-                - instructions
-              properties:
-                id:
-                  type: string
-                instructions:
-                  type: string
-        state:
+        current_stage:
           type: string
         summary:
           type: string
-        output_schema:
-          oneOf:
-            - oneOf:
-                - type: string
-                - type: object
-                  additionalProperties: false
-                  required:
-                    - schema_path
-                  properties:
-                    schema_path:
+        prompt:
+          type: string
+        repo:
+          type: string
+        repoRoot:
+          type: string
+        runtime:
+          type: string
+        tasks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - title
+              - acceptance
+            properties:
+              id:
+                type: string
+              task_id:
+                type: string
+              title:
+                type: string
+              name:
+                type: string
+              type:
+                enum:
+                  - coding
+                  - general
+              status:
+                type: string
+              dependencies:
+                type: array
+                items:
+                  type: string
+              depends_on:
+                type: array
+                items:
+                  type: string
+              scope_files:
+                type: array
+                items:
+                  type: string
+              scope:
+                type: array
+                items:
+                  type: string
+              spec_refs:
+                type: array
+                items:
+                  type: string
+              specs:
+                type: array
+                items:
+                  type: string
+              context_refs:
+                type: array
+                items:
+                  type: string
+              context:
+                type: array
+                items:
+                  type: string
+              branch_ref:
+                type: string
+              worktree_path:
+                type: string
+              child_wtree:
+                type: string
+              concurrency_group:
+                type: string
+              merge_target:
+                type: string
+              merge_lease_id:
+                type: string
+              merge_commit:
+                type: string
+              system_impact_ref:
+                type: string
+              acceptance:
+                oneOf:
+                  - type: string
+                  - type: array
+                    items:
                       type: string
-            - type: object
-              additionalProperties: true
-              required:
-                - "$schema"
-                - "$id"
-              properties:
-                "$schema":
-                  type: string
-                "$id":
-                  type: string
-                title:
-                  type: string
-                type: {}
-                required:
-                  type: array
-                  items:
-                    type: string
-                properties:
-                  type: object
-        allowed_transitions:
+              acceptance_criteria:
+                oneOf:
+                  - type: string
+                  - type: array
+                    items:
+                      type: string
+        question_rounds:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        plan_detail:
           type: object
-          additionalProperties:
-            type: string
-        context:
+          additionalProperties: true
+        validation_receipt:
           type: object
-          additionalProperties: false
-          required:
-            - step
-          properties:
-            step:
-              type: object
-              additionalProperties: false
-              required:
-                - schema_version
-                - id
-                - handler
-                - input_step
-                - input_schema
-                - output_schema
-                - result_schema_path
-                - summary
-                - instructions
-              properties:
-                schema_version:
-                  const: 1
-                id:
-                  type: string
-                handler:
-                  type: string
-                input_step:
-                  type:
-                    - string
-                    - "null"
-                input_schema:
-                  oneOf:
-                    - oneOf:
-                        - oneOf:
-                            - type: string
-                            - type: object
-                              additionalProperties: false
-                              required:
-                                - schema_path
-                              properties:
-                                schema_path:
-                                  type: string
-                        - type: object
-                          additionalProperties: true
-                          required:
-                            - "$schema"
-                            - "$id"
-                          properties:
-                            "$schema":
-                              type: string
-                            "$id":
-                              type: string
-                            title:
-                              type: string
-                            type: {}
-                            required:
-                              type: array
-                              items:
-                                type: string
-                            properties:
-                              type: object
-                    - type: "null"
-                output_schema:
-                  oneOf:
-                    - oneOf:
-                        - oneOf:
-                            - type: string
-                            - type: object
-                              additionalProperties: false
-                              required:
-                                - schema_path
-                              properties:
-                                schema_path:
-                                  type: string
-                        - type: object
-                          additionalProperties: true
-                          required:
-                            - "$schema"
-                            - "$id"
-                          properties:
-                            "$schema":
-                              type: string
-                            "$id":
-                              type: string
-                            title:
-                              type: string
-                            type: {}
-                            required:
-                              type: array
-                              items:
-                                type: string
-                            properties:
-                              type: object
-                    - type: "null"
-                result_schema_path:
-                  type: string
-                summary:
-                  type: string
-                instructions:
-                  type: string
-        commands:
+          additionalProperties: true
+        verification_receipt:
           type: object
-          additionalProperties: false
-          required:
-            - next
-          properties:
-            next:
-              type: object
-              additionalProperties: false
-              required:
-                - cmd
-                - args
-              properties:
-                cmd:
-                  type: string
-                args:
-                  type: array
-                  items:
-                    type: string
-        docs:
-          type: object
-          additionalProperties: false
-          required:
-            - state_yaml
-            - events_jsonl
-            - manifest
-          properties:
-            state_yaml:
-              type: string
-            events_jsonl:
-              type: string
-            manifest:
-              type: string
+          additionalProperties: true
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        parent_wtree:
+          type: string
+        coordinator_branch:
+          type: string
+        coordinator_worktree:
+          type: string
+        landing_target_branch:
+          type: string
+        landing_target_worktree:
+          type: string
         requirements:
           type: array
           items:
@@ -231,21 +165,15 @@ do:
         schema:
           document:
             "$schema": "https://json-schema.org/draft/2020-12/schema"
-            "$id": schemas/steps/step-output.yaml
-            title: "Loopship V3 Step Output"
+            "$id": schemas/steps/step-request.yaml
+            title: "Loopship Fastflow Step Request Payload"
             type: object
             additionalProperties: false
-            required:
-              - step
-              - output_schema
-              - commands
             properties:
               schema_version:
-                const: 3
+                const: loopship.step.request/v1
               kind:
-                const: quest_step
-              schema_path:
-                const: schemas/steps/step-output.yaml
+                const: quest_step_request
               wtree:
                 type: string
               quest_id:
@@ -254,190 +182,130 @@ do:
                 type: string
               flow_version:
                 type: integer
-              step:
-                oneOf:
-                  - type: string
-                  - type: object
-                    additionalProperties: false
-                    required:
-                      - id
-                      - instructions
-                    properties:
-                      id:
-                        type: string
-                      instructions:
-                        type: string
-              state:
+              current_stage:
                 type: string
               summary:
                 type: string
-              output_schema:
-                oneOf:
-                  - oneOf:
-                      - type: string
-                      - type: object
-                        additionalProperties: false
-                        required:
-                          - schema_path
-                        properties:
-                          schema_path:
+              prompt:
+                type: string
+              repo:
+                type: string
+              repoRoot:
+                type: string
+              runtime:
+                type: string
+              tasks:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - title
+                    - acceptance
+                  properties:
+                    id:
+                      type: string
+                    task_id:
+                      type: string
+                    title:
+                      type: string
+                    name:
+                      type: string
+                    type:
+                      enum:
+                        - coding
+                        - general
+                    status:
+                      type: string
+                    dependencies:
+                      type: array
+                      items:
+                        type: string
+                    depends_on:
+                      type: array
+                      items:
+                        type: string
+                    scope_files:
+                      type: array
+                      items:
+                        type: string
+                    scope:
+                      type: array
+                      items:
+                        type: string
+                    spec_refs:
+                      type: array
+                      items:
+                        type: string
+                    specs:
+                      type: array
+                      items:
+                        type: string
+                    context_refs:
+                      type: array
+                      items:
+                        type: string
+                    context:
+                      type: array
+                      items:
+                        type: string
+                    branch_ref:
+                      type: string
+                    worktree_path:
+                      type: string
+                    child_wtree:
+                      type: string
+                    concurrency_group:
+                      type: string
+                    merge_target:
+                      type: string
+                    merge_lease_id:
+                      type: string
+                    merge_commit:
+                      type: string
+                    system_impact_ref:
+                      type: string
+                    acceptance:
+                      oneOf:
+                        - type: string
+                        - type: array
+                          items:
                             type: string
-                  - type: object
-                    additionalProperties: true
-                    required:
-                      - "$schema"
-                      - "$id"
-                    properties:
-                      "$schema":
-                        type: string
-                      "$id":
-                        type: string
-                      title:
-                        type: string
-                      type: {}
-                      required:
-                        type: array
-                        items:
-                          type: string
-                      properties:
-                        type: object
-              allowed_transitions:
+                    acceptance_criteria:
+                      oneOf:
+                        - type: string
+                        - type: array
+                          items:
+                            type: string
+              question_rounds:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+              plan_detail:
                 type: object
-                additionalProperties:
-                  type: string
-              context:
+                additionalProperties: true
+              validation_receipt:
                 type: object
-                additionalProperties: false
-                required:
-                  - step
-                properties:
-                  step:
-                    type: object
-                    additionalProperties: false
-                    required:
-                      - schema_version
-                      - id
-                      - handler
-                      - input_step
-                      - input_schema
-                      - output_schema
-                      - result_schema_path
-                      - summary
-                      - instructions
-                    properties:
-                      schema_version:
-                        const: 1
-                      id:
-                        type: string
-                      handler:
-                        type: string
-                      input_step:
-                        type:
-                          - string
-                          - "null"
-                      input_schema:
-                        oneOf:
-                          - oneOf:
-                              - oneOf:
-                                  - type: string
-                                  - type: object
-                                    additionalProperties: false
-                                    required:
-                                      - schema_path
-                                    properties:
-                                      schema_path:
-                                        type: string
-                              - type: object
-                                additionalProperties: true
-                                required:
-                                  - "$schema"
-                                  - "$id"
-                                properties:
-                                  "$schema":
-                                    type: string
-                                  "$id":
-                                    type: string
-                                  title:
-                                    type: string
-                                  type: {}
-                                  required:
-                                    type: array
-                                    items:
-                                      type: string
-                                  properties:
-                                    type: object
-                          - type: "null"
-                      output_schema:
-                        oneOf:
-                          - oneOf:
-                              - oneOf:
-                                  - type: string
-                                  - type: object
-                                    additionalProperties: false
-                                    required:
-                                      - schema_path
-                                    properties:
-                                      schema_path:
-                                        type: string
-                              - type: object
-                                additionalProperties: true
-                                required:
-                                  - "$schema"
-                                  - "$id"
-                                properties:
-                                  "$schema":
-                                    type: string
-                                  "$id":
-                                    type: string
-                                  title:
-                                    type: string
-                                  type: {}
-                                  required:
-                                    type: array
-                                    items:
-                                      type: string
-                                  properties:
-                                    type: object
-                          - type: "null"
-                      result_schema_path:
-                        type: string
-                      summary:
-                        type: string
-                      instructions:
-                        type: string
-              commands:
+                additionalProperties: true
+              verification_receipt:
                 type: object
-                additionalProperties: false
-                required:
-                  - next
-                properties:
-                  next:
-                    type: object
-                    additionalProperties: false
-                    required:
-                      - cmd
-                      - args
-                    properties:
-                      cmd:
-                        type: string
-                      args:
-                        type: array
-                        items:
-                          type: string
-              docs:
-                type: object
-                additionalProperties: false
-                required:
-                  - state_yaml
-                  - events_jsonl
-                  - manifest
-                properties:
-                  state_yaml:
-                    type: string
-                  events_jsonl:
-                    type: string
-                  manifest:
-                    type: string
+                additionalProperties: true
+              events:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+              parent_wtree:
+                type: string
+              coordinator_branch:
+                type: string
+              coordinator_worktree:
+                type: string
+              landing_target_branch:
+                type: string
+              landing_target_worktree:
+                type: string
               requirements:
                 type: array
                 items:
@@ -478,254 +346,193 @@ do:
             
             ## Step-Local Callback Contract
             
-            This step is reusable across flows. The orchestrator owns flow transitions
-            and decides which step, if any, follows this callback. Produce only the JSON
-            payload that matches this step's current `output_schema`, then submit it
-            through `commands.next`; do not shape output for a guessed successor.
+            This step is reusable across flows. The Fastflow orchestrator owns flow transitions and continuation state. Return exactly one JSON payload matching this step's answer schema; do not include command strings, successor-state scaffolding, or fields for a guessed next step.
             
             Perform acceptance trace, risk review, behavior coverage, and evidence review.
           request:
             schema:
+              "$schema": "https://json-schema.org/draft/2020-12/schema"
+              "$id": schemas/steps/step-request.yaml
+              title: "Loopship Fastflow Step Request Payload"
               type: object
-              additionalProperties: true
+              additionalProperties: false
               properties:
-                step:
-                  type: object
-                  additionalProperties: true
-                inputs:
-                  "$schema": "https://json-schema.org/draft/2020-12/schema"
-                  "$id": schemas/steps/step-output.yaml
-                  title: "Loopship V3 Step Output"
-                  type: object
-                  additionalProperties: false
-                  required:
-                    - step
-                    - output_schema
-                    - commands
-                  properties:
-                    schema_version:
-                      const: 3
-                    kind:
-                      const: quest_step
-                    schema_path:
-                      const: schemas/steps/step-output.yaml
-                    wtree:
-                      type: string
-                    quest_id:
-                      type: string
-                    flow_id:
-                      type: string
-                    flow_version:
-                      type: integer
-                    step:
-                      oneOf:
-                        - type: string
-                        - type: object
-                          additionalProperties: false
-                          required:
-                            - id
-                            - instructions
-                          properties:
-                            id:
-                              type: string
-                            instructions:
-                              type: string
-                    state:
-                      type: string
-                    summary:
-                      type: string
-                    output_schema:
-                      oneOf:
-                        - oneOf:
-                            - type: string
-                            - type: object
-                              additionalProperties: false
-                              required:
-                                - schema_path
-                              properties:
-                                schema_path:
-                                  type: string
-                        - type: object
-                          additionalProperties: true
-                          required:
-                            - "$schema"
-                            - "$id"
-                          properties:
-                            "$schema":
-                              type: string
-                            "$id":
-                              type: string
-                            title:
-                              type: string
-                            type: {}
-                            required:
-                              type: array
-                              items:
-                                type: string
-                            properties:
-                              type: object
-                    allowed_transitions:
-                      type: object
-                      additionalProperties:
+                schema_version:
+                  const: loopship.step.request/v1
+                kind:
+                  const: quest_step_request
+                wtree:
+                  type: string
+                quest_id:
+                  type: string
+                flow_id:
+                  type: string
+                flow_version:
+                  type: integer
+                current_stage:
+                  type: string
+                summary:
+                  type: string
+                prompt:
+                  type: string
+                repo:
+                  type: string
+                repoRoot:
+                  type: string
+                runtime:
+                  type: string
+                tasks:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - title
+                      - acceptance
+                    properties:
+                      id:
                         type: string
-                    context:
-                      type: object
-                      additionalProperties: false
-                      required:
-                        - step
-                      properties:
-                        step:
-                          type: object
-                          additionalProperties: false
-                          required:
-                            - schema_version
-                            - id
-                            - handler
-                            - input_step
-                            - input_schema
-                            - output_schema
-                            - result_schema_path
-                            - summary
-                            - instructions
-                          properties:
-                            schema_version:
-                              const: 1
-                            id:
-                              type: string
-                            handler:
-                              type: string
-                            input_step:
-                              type:
-                                - string
-                                - "null"
-                            input_schema:
-                              oneOf:
-                                - oneOf:
-                                    - oneOf:
-                                        - type: string
-                                        - type: object
-                                          additionalProperties: false
-                                          required:
-                                            - schema_path
-                                          properties:
-                                            schema_path:
-                                              type: string
-                                    - type: object
-                                      additionalProperties: true
-                                      required:
-                                        - "$schema"
-                                        - "$id"
-                                      properties:
-                                        "$schema":
-                                          type: string
-                                        "$id":
-                                          type: string
-                                        title:
-                                          type: string
-                                        type: {}
-                                        required:
-                                          type: array
-                                          items:
-                                            type: string
-                                        properties:
-                                          type: object
-                                - type: "null"
-                            output_schema:
-                              oneOf:
-                                - oneOf:
-                                    - oneOf:
-                                        - type: string
-                                        - type: object
-                                          additionalProperties: false
-                                          required:
-                                            - schema_path
-                                          properties:
-                                            schema_path:
-                                              type: string
-                                    - type: object
-                                      additionalProperties: true
-                                      required:
-                                        - "$schema"
-                                        - "$id"
-                                      properties:
-                                        "$schema":
-                                          type: string
-                                        "$id":
-                                          type: string
-                                        title:
-                                          type: string
-                                        type: {}
-                                        required:
-                                          type: array
-                                          items:
-                                            type: string
-                                        properties:
-                                          type: object
-                                - type: "null"
-                            result_schema_path:
-                              type: string
-                            summary:
-                              type: string
-                            instructions:
-                              type: string
-                    commands:
-                      type: object
-                      additionalProperties: false
-                      required:
-                        - next
-                      properties:
-                        next:
-                          type: object
-                          additionalProperties: false
-                          required:
-                            - cmd
-                            - args
-                          properties:
-                            cmd:
-                              type: string
-                            args:
-                              type: array
-                              items:
-                                type: string
-                    docs:
-                      type: object
-                      additionalProperties: false
-                      required:
-                        - state_yaml
-                        - events_jsonl
-                        - manifest
-                      properties:
-                        state_yaml:
-                          type: string
-                        events_jsonl:
-                          type: string
-                        manifest:
-                          type: string
-                    requirements:
-                      type: array
-                      items:
+                      task_id:
                         type: string
-                state:
+                      title:
+                        type: string
+                      name:
+                        type: string
+                      type:
+                        enum:
+                          - coding
+                          - general
+                      status:
+                        type: string
+                      dependencies:
+                        type: array
+                        items:
+                          type: string
+                      depends_on:
+                        type: array
+                        items:
+                          type: string
+                      scope_files:
+                        type: array
+                        items:
+                          type: string
+                      scope:
+                        type: array
+                        items:
+                          type: string
+                      spec_refs:
+                        type: array
+                        items:
+                          type: string
+                      specs:
+                        type: array
+                        items:
+                          type: string
+                      context_refs:
+                        type: array
+                        items:
+                          type: string
+                      context:
+                        type: array
+                        items:
+                          type: string
+                      branch_ref:
+                        type: string
+                      worktree_path:
+                        type: string
+                      child_wtree:
+                        type: string
+                      concurrency_group:
+                        type: string
+                      merge_target:
+                        type: string
+                      merge_lease_id:
+                        type: string
+                      merge_commit:
+                        type: string
+                      system_impact_ref:
+                        type: string
+                      acceptance:
+                        oneOf:
+                          - type: string
+                          - type: array
+                            items:
+                              type: string
+                      acceptance_criteria:
+                        oneOf:
+                          - type: string
+                          - type: array
+                            items:
+                              type: string
+                question_rounds:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                plan_detail:
                   type: object
                   additionalProperties: true
-                args:
+                validation_receipt:
                   type: object
                   additionalProperties: true
-              required:
-                - step
-                - inputs
+                verification_receipt:
+                  type: object
+                  additionalProperties: true
+                events:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                parent_wtree:
+                  type: string
+                coordinator_branch:
+                  type: string
+                coordinator_worktree:
+                  type: string
+                landing_target_branch:
+                  type: string
+                landing_target_worktree:
+                  type: string
+                requirements:
+                  type: array
+                  items:
+                    type: string
             build:
               kind: js
               using:
                 - inputs
                 - state
-                - args
+                - env
               code: |-
+                const quest = (state && state.steps && state.steps.read_tasks && state.steps.read_tasks.action) || {};
+                const queriedEvents = (state && state.steps && state.steps.query_events && state.steps.query_events.action) || [];
+                const array = (value) => Array.isArray(value) ? value : [];
+                const object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
                 return {
-                  step: {"id":"verification","handler":"verification","summary":"Submit acceptance trace, PR-style risk review, and residual risks.","input_step":"verification","result_schema":"schemas/steps/step-output.yaml"},
-                  inputs,
-                  state,
-                  args
+                  schema_version: inputs.schema_version || "loopship.step.request/v1",
+                  kind: inputs.kind || "quest_step_request",
+                  wtree: String(inputs.wtree || quest.wtree || ""),
+                  quest_id: String(inputs.quest_id || quest.quest_id || inputs.wtree || quest.wtree || ""),
+                  flow_id: String(inputs.flow_id || quest.flow_id || "swe"),
+                  flow_version: Number(inputs.flow_version || quest.flow_version || 1),
+                  current_stage: String(inputs.current_stage || quest.stage || ""),
+                  summary: String(inputs.summary || "Submit acceptance trace, PR-style risk review, and residual risks."),
+                  prompt: String(inputs.prompt || quest.prompt || ""),
+                  repo: String(inputs.repo || inputs.repoRoot || quest.context_root || env.PWD || ""),
+                  repoRoot: String(inputs.repoRoot || inputs.repo || quest.context_root || env.PWD || ""),
+                  runtime: String(inputs.runtime || ""),
+                  tasks: array(inputs.tasks).length ? array(inputs.tasks) : array(quest.tasks),
+                  question_rounds: array(inputs.question_rounds).length ? array(inputs.question_rounds) : array(quest.question_rounds),
+                  plan_detail: Object.keys(object(inputs.plan_detail)).length ? object(inputs.plan_detail) : object(quest.plan_detail),
+                  validation_receipt: Object.keys(object(inputs.validation_receipt)).length ? object(inputs.validation_receipt) : object(quest.validation_receipt),
+                  verification_receipt: Object.keys(object(inputs.verification_receipt)).length ? object(inputs.verification_receipt) : object(quest.verification_receipt),
+                  events: array(inputs.events).length ? array(inputs.events) : array(queriedEvents),
+                  parent_wtree: String(inputs.parent_wtree || quest.parent_wtree || ""),
+                  coordinator_branch: String(inputs.coordinator_branch || quest.coordinator_branch || ""),
+                  coordinator_worktree: String(inputs.coordinator_worktree || quest.coordinator_worktree || ""),
+                  landing_target_branch: String(inputs.landing_target_branch || quest.landing_target_branch || ""),
+                  landing_target_worktree: String(inputs.landing_target_worktree || quest.landing_target_worktree || ""),
+                  requirements: array(inputs.requirements)
                 };
           answer:
             schema:
@@ -735,13 +542,10 @@ do:
               type: object
               additionalProperties: false
               required:
-                - step
                 - status
                 - acceptance_trace
                 - risks
               properties:
-                step:
-                  const: verification
                 status:
                   enum:
                     - passed

@@ -285,22 +285,20 @@ function withGuidedEnvelope(input: {
 }): Record<string, unknown> {
   const state = questState(input.repoRoot, input.wtree);
   const outputStep =
-    typeof input.output.step === "string"
-      ? input.output.step
-      : input.output.step &&
-          typeof input.output.step === "object" &&
-          !Array.isArray(input.output.step)
-        ? String((input.output.step as Record<string, unknown>).id ?? "")
-        : "";
-  const outputStage = String(input.output.state ?? "");
+    input.output.task &&
+    typeof input.output.task === "object" &&
+    !Array.isArray(input.output.task)
+      ? String((input.output.task as Record<string, unknown>).id ?? "")
+      : "";
+  const outputStage = String(input.output.current_stage ?? "");
   const stage =
     outputStep === "archived" ? "archived" : outputStage || String(state.stage ?? "");
   const flowId = String(state.flow_id ?? DEFAULT_FLOW_ID).trim() || DEFAULT_FLOW_ID;
-  const originalCommands =
-    input.output.commands &&
-    typeof input.output.commands === "object" &&
-    !Array.isArray(input.output.commands)
-      ? (input.output.commands as Record<string, unknown>)
+  const originalContinuation =
+    input.output.continuation &&
+    typeof input.output.continuation === "object" &&
+    !Array.isArray(input.output.continuation)
+      ? (input.output.continuation as Record<string, unknown>)
       : {};
   return {
     repo: input.repoRoot,
@@ -311,9 +309,12 @@ function withGuidedEnvelope(input: {
     current_stage: stage,
     done: stage === "archived" || outputStep === "archived",
     ...input.output,
-    commands: {
-      ...originalCommands,
-      next: stepperNextCommand(input.repoRoot, input.wtree),
+    continuation: {
+      kind: "fastflow.resume",
+      transport: "loopship-stepper",
+      wtree: input.wtree,
+      ...originalContinuation,
+      command: stepperNextCommand(input.repoRoot, input.wtree),
     },
   };
 }

@@ -19,12 +19,9 @@ input:
       type: object
       additionalProperties: false
       required:
-        - step
         - status
         - summary
       properties:
-        step:
-          const: landing
         status:
           enum:
             - landed
@@ -145,14 +142,6 @@ input:
               type: string
             system_impact_ref:
               type: string
-            commands:
-              type: object
-              additionalProperties: true
-            result_schema:
-              oneOf:
-                - type: string
-                - type: object
-                  additionalProperties: true
             acceptance:
               oneOf:
                 - type: string
@@ -215,12 +204,9 @@ do:
             type: object
             additionalProperties: false
             required:
-              - step
               - status
               - summary
             properties:
-              step:
-                const: landing
               status:
                 enum:
                   - landed
@@ -341,14 +327,6 @@ do:
                     type: string
                   system_impact_ref:
                     type: string
-                  commands:
-                    type: object
-                    additionalProperties: true
-                  result_schema:
-                    oneOf:
-                      - type: string
-                      - type: object
-                        additionalProperties: true
                   acceptance:
                     oneOf:
                       - type: string

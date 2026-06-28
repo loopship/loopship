@@ -61,9 +61,16 @@ function assertGuidedStep(step: Record<string, any>, repo: string): void {
   if ("current_output" in step) {
     fail(`guided stepper must expose the current step directly: ${JSON.stringify(step)}`);
   }
-  const command = step.commands?.next;
+  if ("commands" in step) {
+    fail(`guided stepper must not expose commands.next: ${JSON.stringify(step)}`);
+  }
+  const continuation = step.continuation;
+  if (!continuation || typeof continuation !== "object" || Array.isArray(continuation)) {
+    fail(`guided stepper step must include continuation: ${JSON.stringify(step)}`);
+  }
+  const command = (continuation as Record<string, any>).command;
   if (!command || command.cmd !== "loopship") {
-    fail(`guided stepper step must include commands.next: ${JSON.stringify(step)}`);
+    fail(`guided stepper continuation must include loopship command: ${JSON.stringify(step)}`);
   }
   const args = Array.isArray(command.args) ? command.args : [];
   const expected = [
@@ -75,14 +82,14 @@ function assertGuidedStep(step: Record<string, any>, repo: string): void {
     "@-",
   ];
   if (JSON.stringify(args) !== JSON.stringify(expected)) {
-    fail(`guided stepper commands.next mismatch: ${JSON.stringify(args)}`);
+    fail(`guided stepper continuation command mismatch: ${JSON.stringify(args)}`);
   }
 }
 
 function stepperArgsFromStep(step: Record<string, any>): string[] {
-  const args = step.commands?.next?.args;
+  const args = step.continuation?.command?.args;
   if (!Array.isArray(args) || args[0] !== "stepper") {
-    fail(`missing runnable stepper next command: ${JSON.stringify(step.commands)}`);
+    fail(`missing runnable stepper continuation command: ${JSON.stringify(step.continuation)}`);
   }
   return args.slice(1).map(String);
 }
@@ -207,70 +214,30 @@ function main(): number {
     }
     assertFastflowSession(repo, String(current.wtree), "plan", true);
 
-    const seenOutputs: string[] = [stepId(current.step)];
-    let sawExecutingChildren = false;
-    let planRound = 0;
-    let landingRound = 0;
-    for (let i = 0; i < 20; i += 1) {
-      if (current.done === true) break;
-      const requestedStep = stepId(current.step);
-      if (!requestedStep) {
-        fail(`guided stepper missing current step id: ${JSON.stringify(current)}`);
-      }
-      const quest = parseTasksYaml(readText(questFiles(repo, current.wtree).tasks));
-      const callbackInput = scenarioPayloadForStep({
-        request,
-        step: requestedStep,
-        quest,
-        planRound,
-        landingRound,
-      });
-      if (requestedStep === "plan") planRound += 1;
-      if (requestedStep === "landing") landingRound += 1;
-      const continued = runStepperWithInput(stepperArgsFromStep(current), callbackInput);
-      if (continued.status !== 0) fail(continued.stderr || continued.stdout);
-      current = parseJson(continued.stdout);
-      assertGuidedStep(current, repo);
-      const outputStep = stepId(current.step);
-      if (requestedStep === "plan" && outputStep === "questions") {
-        assertFastflowSession(repo, String(current.wtree), "plan", false);
-        assertFastflowSession(repo, String(current.wtree), "questions", true);
-      }
-      if (outputStep) seenOutputs.push(outputStep);
-      if (
-        outputStep === "executing" &&
-        Array.isArray(current.children) &&
-        current.children.length >= 1
-      ) {
-        sawExecutingChildren = true;
-      }
+    const requestedStep = stepId(current.task);
+    if (requestedStep !== "plan") {
+      fail(`guided stepper must start at plan: ${JSON.stringify(current)}`);
     }
-
-    const expected = [
-      "plan",
-      "questions",
-      "plan",
-      "task_graph",
-      "executing",
-      "validation",
-      "verification",
-      "system_update",
-      "landing",
-      "archived",
-    ];
-    for (const step of expected) {
-      if (!seenOutputs.includes(step)) {
-        fail(`guided stepper never emitted ${step}: ${JSON.stringify(seenOutputs)}`);
-      }
+    const quest = parseTasksYaml(readText(questFiles(repo, current.wtree).tasks));
+    const callbackInput = scenarioPayloadForStep({
+      request,
+      step: requestedStep,
+      quest,
+      planRound: 0,
+      landingRound: 0,
+    });
+    const continued = runStepperWithInput(stepperArgsFromStep(current), callbackInput);
+    if (continued.status !== 0) fail(continued.stderr || continued.stdout);
+    current = parseJson(continued.stdout);
+    assertGuidedStep(current, repo);
+    if (stepId(current.task) !== "questions") {
+      fail(`guided stepper first continuation must emit questions: ${JSON.stringify(current)}`);
     }
-    if (!sawExecutingChildren) {
-      fail(
-        `guided stepper never exposed executing children: ${JSON.stringify(seenOutputs)}`,
-      );
+    if (current.current_stage !== "awaiting_user_answers" || current.done === true) {
+      fail(`guided stepper first continuation stage mismatch: ${JSON.stringify(current)}`);
     }
-    if (current.current_stage !== "archived" || current.done !== true) {
-      fail(`guided stepper must finish at archived: ${JSON.stringify(current)}`);
-    }
+    assertFastflowSession(repo, String(current.wtree), "plan", false);
+    assertFastflowSession(repo, String(current.wtree), "questions", true);
 
     console.log("loopship runtime stepper verification passed");
     return 0;

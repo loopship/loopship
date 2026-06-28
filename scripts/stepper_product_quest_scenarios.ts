@@ -268,7 +268,6 @@ export function selectStepperProductQuestScenario(
 
 function scenarioPlanPayload(plan: StepperPlanPayload): Record<string, unknown> {
   return {
-    step: "plan",
     classification: plan.classification,
     scope: plan.scope,
     summary: plan.summary,
@@ -326,22 +325,16 @@ export function scenarioPayloadForStep(input: {
         throw new Error(`scenario ${scenario.id} has no recorded answers`);
       }
       return {
-        step: "questions",
         answers: scenario.answers,
       };
     case "task_graph":
-      return { step: "task_graph", approved: true };
+      return { approved: true };
     case "executing": {
       const task = readyTask(input.quest);
       if (!task) {
         throw new Error(`scenario ${scenario.id} has no ready task to report`);
       }
       return {
-        step: "executing",
-        output_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
-        commands: {
-          next: { cmd: "loopship", args: ["stepper", "step", "--json", "@-"] },
-        },
         children: [
           {
             task_id: task.id,
@@ -350,14 +343,6 @@ export function scenarioPayloadForStep(input: {
             branch_ref: task.branch_ref,
             worktree_path: task.worktree_path,
             acceptance: task.acceptance,
-            commands: {
-              init: {
-                cmd: "loopship",
-                args: ["init", `loopship: execute child task ${task.id}`, "--runtime", "codex"],
-              },
-              next: { cmd: "loopship", args: ["resume", "--json", "@-"] },
-            },
-            result_schema: { schema_path: "schemas/steps/child-result-input.yaml" },
           },
         ],
       };
@@ -368,7 +353,6 @@ export function scenarioPayloadForStep(input: {
         throw new Error(`scenario ${scenario.id} has no ready task to report`);
       }
       return {
-        step: "child_result",
         task_id: task.id,
         child_wtree: task.child_wtree,
         status: "passed",
@@ -384,13 +368,11 @@ export function scenarioPayloadForStep(input: {
     }
     case "validation":
       return {
-        step: "validation",
         status: "passed",
         checks: scenario.validation_checks,
       };
     case "verification":
       return {
-        step: "verification",
         status: "passed",
         acceptance_trace: (Array.isArray(input.quest.tasks)
           ? input.quest.tasks
@@ -403,7 +385,6 @@ export function scenarioPayloadForStep(input: {
       };
     case "system_update":
       return {
-        step: "system_update",
         system_update: {
           schema_version: 1,
           mode: "no_change",
@@ -413,13 +394,11 @@ export function scenarioPayloadForStep(input: {
     case "landing":
       if (input.landingRound === 0) {
         return {
-          step: "landing",
           status: "blocked",
           summary: "waiting for simulated final merge",
         };
       }
       return {
-        step: "landing",
         status: "landed",
         summary: scenario.landing_summary,
       };

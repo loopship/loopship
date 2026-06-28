@@ -23,6 +23,10 @@ const CATALOG_WORKFLOW_ROOT = resolve(
   "workflow",
   "service",
 );
+const FASTFLOW_REQUEST_INPUT_CALL = "fastflow.afn.core.request.input";
+const LOOPSHIP_CHILD_PREPARE_CALL = "loopship.afn.service.child.prepare";
+const LOOPSHIP_STEP_REQUEST_SCHEMA = "schemas/steps/step-request.yaml";
+const LOOPSHIP_CHILD_DISPATCH_REQUEST_SCHEMA = "schemas/steps/child-dispatch-request.yaml";
 
 export type LoopshipStepDefinition = {
   schema_version: 1;
@@ -179,6 +183,23 @@ function stepConstFromSchema(schema: LoopshipSchemaSource): string | null {
     : null;
 }
 
+function workflowInputSchemaForTask(input: {
+  call: string;
+  inputSchema: LoopshipSchemaSource;
+}): LoopshipSchemaSource {
+  if (input.call === FASTFLOW_REQUEST_INPUT_CALL) {
+    return LOOPSHIP_STEP_REQUEST_SCHEMA;
+  }
+  if (input.call === LOOPSHIP_CHILD_PREPARE_CALL) {
+    return LOOPSHIP_CHILD_DISPATCH_REQUEST_SCHEMA;
+  }
+  return input.inputSchema;
+}
+
+function normalizeStepInstructionText(value: unknown): string {
+  return String(value ?? "");
+}
+
 function readSchemaObject(schemaPath: string): Record<string, any> | null {
   const path =
     schemaPath.endsWith(".yaml") || schemaPath.endsWith(".json")
@@ -270,11 +291,16 @@ export function loadStepDefinitions(
     ];
     const id = taskName;
     if (steps[id]) fail(`duplicate step definition id: ${id}`);
-    const inputSchema = schemaSourceFromSwfSchema(path, taskDef?.input?.schema);
+    const rawInputSchema = schemaSourceFromSwfSchema(path, taskDef?.input?.schema);
+    const call = taskDef?.call ? stringValue(taskDef.call, `${path}.${taskName}.call`) : "set";
+    const inputSchema = workflowInputSchemaForTask({
+      call,
+      inputSchema: rawInputSchema,
+    });
     const outputSchema =
       !taskDef?.call
         ? null
-        : taskDef?.call === "fastflow.afn.core.request.input"
+        : taskDef?.call === FASTFLOW_REQUEST_INPUT_CALL
           ? schemaSourceFromDocumentSchema(path, taskDef?.with?.body?.answer?.schema)
           : schemaSourceFromSwfSchema(path, taskDef?.output?.schema);
     if (typeof inputSchema === "string") assertKnownStepSchema(inputSchema, path);
@@ -285,7 +311,7 @@ export function loadStepDefinitions(
       schema_version: 1,
       id,
       handler,
-      call: taskDef?.call ? stringValue(taskDef.call, `${path}.${taskName}.call`) : "set",
+      call,
       input_step:
         outputSchema === null ? null : handler,
       input_schema: inputSchema,
@@ -295,9 +321,11 @@ export function loadStepDefinitions(
         raw.document?.summary ?? taskDef?.metadata?.description ?? "",
       ),
       instructions: String(
-        taskDef?.with?.body?.instruction ??
-          taskDef?.metadata?.description ??
-          "",
+        normalizeStepInstructionText(
+          taskDef?.with?.body?.instruction ??
+            taskDef?.metadata?.description ??
+            "",
+        ),
       ),
     };
   }
@@ -450,10 +478,87 @@ export function loadFlowDefinitionFromPath(
   };
 }
 
-function stepIdFromWorkflowCall(call: unknown): string {
-  const text = typeof call === "string" ? call.trim() : "";
-  const segment = text.split(".").pop() || "";
-  return segment.replace(/-/g, "_");
+function extractEmbeddedFlowFromResolveStage(
+  workflow: Record<string, any>,
+): Record<string, any> | null {
+  const tasks = Array.isArray(workflow.do) ? workflow.do : [];
+  const resolveStage = tasks.find(
+    (entry) =>
+      entry &&
+      typeof entry === "object" &&
+      !Array.isArray(entry) &&
+      (entry as Record<string, unknown>).resolve_stage,
+  ) as Record<string, any> | undefined;
+  const code = resolveStage?.resolve_stage?.run?.script?.code;
+  if (typeof code !== "string") return null;
+  const match = code.match(/const flow = (\{[\s\S]*?\});\nconst tasks = /);
+  if (!match) return null;
+  const parsed = JSON.parse(match[1]);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  return parsed as Record<string, any>;
+}
+
+function loadFlowDefinitionFromEmbeddedFlow(
+  path: string,
+  workflow: Record<string, any>,
+  expectedFlowId: string | undefined,
+  stepsById: Record<string, LoopshipStepDefinition>,
+): LoadedLoopshipFlow | null {
+  const embedded = extractEmbeddedFlowFromResolveStage(workflow);
+  if (!embedded) return null;
+  const name = stringValue(workflow.document?.name, `${path}.document.name`);
+  const flowId = expectedFlowId || stringValue(embedded.id ?? name.replace(/-/g, "_"), `${path}.flow.id`);
+  if (expectedFlowId && flowId !== expectedFlowId) {
+    fail(`${path} flow id must match requested flow ${expectedFlowId}`);
+  }
+  const defaultStage = stringValue(embedded.default_stage, `${path}.flow.default_stage`);
+  const rawStages = Array.isArray(embedded.stages) ? embedded.stages : [];
+  if (!rawStages.length) fail(`${path} embedded Fastflow flow must declare stages`);
+  const stages = rawStages.map((stage, index) => {
+    if (!stage || typeof stage !== "object" || Array.isArray(stage)) {
+      fail(`${path}.flow.stages[${index}] must be an object`);
+    }
+    const stageId = stringValue(stage.id, `${path}.flow.stages[${index}].id`);
+    const stepId = stringValue(stage.step, `${path}.flow.stages[${index}].step`);
+    if (!stepsById[stepId]) {
+      fail(`${path} stage ${stageId} references missing step workflow ${stepId}`);
+    }
+    const transitions =
+      stage.transitions &&
+      typeof stage.transitions === "object" &&
+      !Array.isArray(stage.transitions)
+        ? Object.fromEntries(
+            Object.entries(stage.transitions as Record<string, unknown>)
+              .map(([key, value]) => [key, String(value)]),
+          )
+        : {};
+    return {
+      id: stageId,
+      step: stepId,
+      transitions,
+      transition_key: null,
+    };
+  });
+  const stagesById: Record<string, LoopshipFlowStage> = {};
+  for (const stage of stages) {
+    if (stagesById[stage.id]) fail(`duplicate flow stage id: ${stage.id}`);
+    stagesById[stage.id] = stage;
+  }
+  if (!stagesById[defaultStage]) {
+    fail(`${path} default stage is not in stages: ${defaultStage}`);
+  }
+  return {
+    schema_version: 1,
+    id: flowId,
+    version: DEFAULT_FLOW_VERSION,
+    default_stage: defaultStage,
+    stages,
+    subflows: Array.isArray(embedded.subflows)
+      ? (embedded.subflows as LoopshipSubflowDefinition[])
+      : [],
+    stages_by_id: stagesById,
+    steps_by_id: stepsById,
+  };
 }
 
 function loadFlowDefinitionFromWorkflow(
@@ -462,65 +567,14 @@ function loadFlowDefinitionFromWorkflow(
   expectedFlowId: string | undefined,
   stepsById: Record<string, LoopshipStepDefinition>,
 ): LoadedLoopshipFlow {
-  const name = stringValue(workflow.document?.name, `${path}.document.name`);
-  const flowId = expectedFlowId || name.replace(/-/g, "_");
-  if (expectedFlowId && flowId !== expectedFlowId) {
-    fail(`${path} flow id must match requested flow ${expectedFlowId}`);
-  }
-  const stages: LoopshipFlowStage[] = [];
-  for (const entry of workflow.do as unknown[]) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-    const [taskName, taskDef] = Object.entries(entry as Record<string, any>)[0] || [];
-    if (!taskName || !taskName.startsWith("stage_")) continue;
-    if (!taskDef || typeof taskDef !== "object" || Array.isArray(taskDef)) continue;
-    const input = taskDef.with?.input;
-    if (!input || typeof input !== "object" || Array.isArray(input)) continue;
-    const stageId = stringValue(
-      input.state ?? taskName.slice("stage_".length),
-      `${path}.${taskName}.with.input.state`,
-    );
-    const rawStepId = String(input.step || "");
-    const stepId = rawStepId.includes("${")
-      ? stepIdFromWorkflowCall(taskDef.call)
-      : rawStepId || stepIdFromWorkflowCall(taskDef.call);
-    if (!stepsById[stepId]) {
-      fail(`${path} stage ${stageId} references missing step workflow ${stepId}`);
-    }
-    const transitions =
-      input.allowed_transitions &&
-      typeof input.allowed_transitions === "object" &&
-      !Array.isArray(input.allowed_transitions)
-        ? Object.fromEntries(
-            Object.entries(input.allowed_transitions as Record<string, unknown>)
-              .map(([key, value]) => [key, String(value)]),
-          )
-        : {};
-    stages.push({
-      id: stageId,
-      step: stepId,
-      transitions,
-      transition_key: null,
-    });
-  }
-  if (!stages.length) {
-    fail(`${path} Fastflow flow workflow must contain generated stage tasks`);
-  }
-  const stagesById: Record<string, LoopshipFlowStage> = {};
-  for (const stage of stages) {
-    if (stagesById[stage.id]) fail(`duplicate flow stage id: ${stage.id}`);
-    stagesById[stage.id] = stage;
-  }
-  const defaultStage = stagesById.planning ? "planning" : stages[0].id;
-  return {
-    schema_version: 1,
-    id: flowId,
-    version: DEFAULT_FLOW_VERSION,
-    default_stage: defaultStage,
-    stages,
-    subflows: [],
-    stages_by_id: stagesById,
-    steps_by_id: stepsById,
-  };
+  const embeddedFlow = loadFlowDefinitionFromEmbeddedFlow(
+    path,
+    workflow,
+    expectedFlowId,
+    stepsById,
+  );
+  if (embeddedFlow) return embeddedFlow;
+  fail(`${path} Fastflow flow workflow must include a generated resolve_stage script with an embedded flow graph`);
 }
 
 export function flowStage(

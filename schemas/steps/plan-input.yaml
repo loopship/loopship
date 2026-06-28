@@ -4,15 +4,12 @@ title: Loopship V3 Plan Input
 type: object
 additionalProperties: false
 required:
-  - step
   - classification
   - scope
   - system_context
   - verification_targets
   - task_graph
 properties:
-  step:
-    const: plan
   classification:
     enum:
       - greenfield_app

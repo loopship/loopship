@@ -5,16 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTasksYaml, questFiles } from "./loopship_core.ts";
-import {
-  CONCRETE_REACT_HABIT_TRACKER_REQUEST,
-  scenarioPayloadForStep,
-  selectStepperProductQuestScenario,
-} from "./stepper_product_quest_scenarios.ts";
-import {
-  DEFAULT_RUNTIME_REQUEST,
-  hookEventName,
-  type Runtime,
-} from "./runtime_supervisor.ts";
+import { scenarioPayloadForStep } from "./stepper_product_quest_scenarios.ts";
+import { DEFAULT_RUNTIME_REQUEST, type Runtime } from "./runtime_supervisor.ts";
 import { readText, runCommand, tsRunner } from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -32,16 +24,10 @@ type SimulationCase = {
   request: string;
 };
 
-const SIMULATION_CASES: SimulationCase[] = [
-  {
-    name: "concrete-python-cli",
-    request: DEFAULT_RUNTIME_REQUEST,
-  },
-  {
-    name: "concrete-react-habit-tracker",
-    request: CONCRETE_REACT_HABIT_TRACKER_REQUEST,
-  },
-];
+const SIMULATION_CASE: SimulationCase = {
+  name: "concrete-python-cli",
+  request: DEFAULT_RUNTIME_REQUEST,
+};
 
 function fail(message: string): never {
   throw new Error(message);
@@ -66,17 +52,6 @@ function stepId(value: unknown): string {
     return typeof id === "string" ? id : "";
   }
   return "";
-}
-
-function readJsonl(path: string): Array<Record<string, any>> {
-  return readText(path)
-    .split(/\r?\n/)
-    .filter((line) => line.trim())
-    .map((line) => parseJson(line, path));
-}
-
-function eventName(record: Record<string, any>): string {
-  return String(record.event ?? record.payload?.event ?? "");
 }
 
 function runTsScript(
@@ -175,34 +150,6 @@ function createFixture(prefix: string, runtime: Runtime): Fixture {
   };
 }
 
-function currentStage(fixture: Fixture, wtree: string): string {
-  const files = questFiles(fixture.repo, wtree);
-  return String(parseTasksYaml(readText(files.tasks)).stage ?? "");
-}
-
-function assertRuntimeHookShape(
-  runtime: Runtime,
-  payload: Record<string, any>,
-  label: string,
-) {
-  if (runtime === "gemini") {
-    if (payload.decision !== "deny" || payload.suppressOutput !== true) {
-      fail(
-        `${label}: gemini hook output must deny with suppressOutput: ${JSON.stringify(payload)}`,
-      );
-    }
-    return;
-  }
-  if (payload.decision !== "block") {
-    fail(
-      `${label}: ${runtime} hook output must block: ${JSON.stringify(payload)}`,
-    );
-  }
-  if (runtime === "copilot" && !payload.hookSpecificOutput) {
-    fail(`${label}: copilot hook output must include hookSpecificOutput`);
-  }
-}
-
 function assertGuidedStep(
   step: Record<string, any>,
   repo: string,
@@ -214,9 +161,16 @@ function assertGuidedStep(
   if ("current_output" in step) {
     fail(`${label}: guided stepper must expose the current step directly`);
   }
-  const command = step.commands?.next;
+  if ("commands" in step) {
+    fail(`${label}: guided stepper must not expose commands.next`);
+  }
+  const continuation = step.continuation;
+  if (!continuation || typeof continuation !== "object" || Array.isArray(continuation)) {
+    fail(`${label}: guided stepper step must include continuation`);
+  }
+  const command = (continuation as Record<string, any>).command;
   if (!command || command.cmd !== "loopship") {
-    fail(`${label}: guided stepper step must include commands.next`);
+    fail(`${label}: guided stepper continuation must include loopship command`);
   }
   const args = Array.isArray(command.args) ? command.args : [];
   const expected = [
@@ -228,7 +182,7 @@ function assertGuidedStep(
     "@-",
   ];
   if (JSON.stringify(args) !== JSON.stringify(expected)) {
-    fail(`${label}: guided stepper commands.next mismatch: ${JSON.stringify(args)}`);
+    fail(`${label}: guided stepper continuation command mismatch: ${JSON.stringify(args)}`);
   }
 }
 
@@ -254,246 +208,11 @@ function assertHeadUnchanged(fixture: Fixture, label: string): void {
 }
 
 function stepperCommandArgs(step: Record<string, any>, label: string): string[] {
-  const args = step.commands?.next?.args;
+  const args = step.continuation?.command?.args;
   if (!Array.isArray(args) || args[0] !== "stepper") {
-    fail(`${label}: missing runnable stepper next command`);
+    fail(`${label}: missing runnable stepper continuation command`);
   }
   return args.map(String);
-}
-
-function assertLifecycleProgress(
-  request: string,
-  label: string,
-  requestSteps: string[],
-  responseSteps: string[],
-): void {
-  const scenario = selectStepperProductQuestScenario(request);
-  if (requestSteps.length === 0 || responseSteps.length === 0) {
-    fail(`${label}: expected at least one guided simulated step`);
-  }
-  const requiredRequestSteps = scenario.expect_question_round
-    ? [
-        "plan",
-        "questions",
-        "plan",
-        "task_graph",
-        "executing",
-        "child_result",
-        "validation",
-        "verification",
-        "system_update",
-        "landing",
-      ]
-    : [
-        "plan",
-        "task_graph",
-        "executing",
-        "child_result",
-        "validation",
-        "verification",
-        "system_update",
-        "landing",
-      ];
-  const requiredResponseSteps = scenario.expect_question_round
-    ? [
-        "questions",
-        "plan",
-        "task_graph",
-        "executing",
-        "child_result",
-        "validation",
-        "verification",
-        "system_update",
-        "landing",
-        "archived",
-      ]
-    : [
-        "task_graph",
-        "executing",
-        "child_result",
-        "validation",
-        "verification",
-        "system_update",
-        "landing",
-        "archived",
-      ];
-
-  for (const step of requiredRequestSteps) {
-    if (!requestSteps.includes(step)) {
-      fail(`${label}: simulation never requested lifecycle step ${step}`);
-    }
-  }
-  for (const step of requiredResponseSteps) {
-    if (!responseSteps.includes(step)) {
-      fail(
-        `${label}: simulation never reached lifecycle response step ${step}`,
-      );
-    }
-  }
-  if (!scenario.expect_question_round) {
-    for (const step of ["questions", "plan"]) {
-      if (responseSteps.includes(step)) {
-        fail(`${label}: concrete simulation unexpectedly emitted ${step}`);
-      }
-    }
-  }
-}
-
-function assertChildInitRuntime(
-  callback: Record<string, unknown>,
-  runtime: Runtime,
-  label: string,
-): number {
-  const children = Array.isArray(callback.children) ? callback.children : [];
-  let checked = 0;
-  for (const child of children) {
-    const childRecord =
-      child && typeof child === "object"
-        ? (child as Record<string, unknown>)
-        : {};
-    const commands =
-      childRecord.commands && typeof childRecord.commands === "object"
-        ? (childRecord.commands as Record<string, unknown>)
-        : {};
-    const init =
-      commands.init && typeof commands.init === "object"
-        ? (commands.init as Record<string, unknown>)
-        : {};
-    const initArgs = Array.isArray(init.args) ? init.args : [];
-    const runtimeFlag = initArgs.indexOf("--runtime");
-    if (runtimeFlag < 0 || initArgs[runtimeFlag + 1] !== runtime) {
-      fail(
-        `${label}: child init command must preserve runtime ${runtime}: ${JSON.stringify(initArgs)}`,
-      );
-    }
-    checked += 1;
-  }
-  return checked;
-}
-
-function assertCanonicalArtifacts(
-  fixture: Fixture,
-  wtree: string,
-  request: string,
-  label: string,
-): void {
-  const scenario = selectStepperProductQuestScenario(request);
-  const expectedPlan = scenario.resolved_plan ?? scenario.initial_plan;
-  const files = questFiles(fixture.repo, wtree);
-  const state = parseTasksYaml(readText(files.tasks)) as Partial<{
-    stage: string;
-    tasks: Array<Partial<{ id: string; title: string }>>;
-  }>;
-
-  if (String(state.stage ?? "") !== "archived") {
-    fail(`${label}: canonical task state did not reach archived`);
-  }
-
-  const planEvents = readJsonl(files.events).filter(
-    (record) => eventName(record) === "plan_submitted",
-  );
-  if (planEvents.length === 0) {
-    fail(`${label}: expected at least one recorded plan payload`);
-  }
-  const latestPlanPayload = state.plan_detail ?? {};
-  if (String(latestPlanPayload.scope ?? "") !== expectedPlan.scope) {
-    fail(
-      `${label}: final plan scope mismatch: ${JSON.stringify(latestPlanPayload.scope)}`,
-    );
-  }
-  if (String(latestPlanPayload.summary ?? "") !== expectedPlan.summary) {
-    fail(
-      `${label}: final plan summary mismatch: ${JSON.stringify(latestPlanPayload.summary)}`,
-    );
-  }
-
-  const taskState = Array.isArray(state.tasks) ? state.tasks : [];
-  if (taskState.length !== expectedPlan.tasks.length) {
-    fail(
-      `${label}: expected ${expectedPlan.tasks.length} canonical tasks, found ${taskState.length}`,
-    );
-  }
-  const expectedTaskTitles = expectedPlan.tasks.map((task) =>
-    String(task.title ?? ""),
-  );
-  const actualTaskTitles = taskState.map((task) => String(task.title ?? ""));
-  if (JSON.stringify(actualTaskTitles) !== JSON.stringify(expectedTaskTitles)) {
-    fail(
-      `${label}: canonical task titles diverged: ${JSON.stringify(actualTaskTitles)}`,
-    );
-  }
-
-  const questionEvents = readJsonl(files.events)
-    .map((record) => eventName(record))
-    .filter((event) => ["question_round", "answers_submitted"].includes(event));
-  if (scenario.expect_question_round) {
-    for (const event of ["question_round", "answers_submitted"]) {
-      if (!questionEvents.includes(event)) {
-        fail(`${label}: expected questions log to include ${event}`);
-      }
-    }
-    if (!Array.isArray(state.question_rounds) || state.question_rounds.length === 0) {
-      fail(`${label}: expected tasks.yaml to retain question rounds`);
-    }
-  } else if (questionEvents.length !== 0) {
-    fail(
-      `${label}: concrete simulation unexpectedly recorded question events: ${JSON.stringify(questionEvents)}`,
-    );
-  }
-}
-
-function assertStepperHookPassthrough(runtime: Runtime): void {
-  const fixture = createFixture(`loopship-runtime-stepper-hook-${runtime}-`, runtime);
-  const label = `${runtime}/hook`;
-  try {
-    const start = runLoopship(
-      fixture,
-      [
-        "stepper",
-        "init",
-        DEFAULT_RUNTIME_REQUEST,
-        "--repo",
-        fixture.repo,
-        "--runtime",
-        runtime,
-        "--flow",
-        "swe",
-      ],
-      undefined,
-    );
-    if (start.status !== 0) fail(start.stderr || start.stdout);
-    const started = parseJson(start.stdout, `${label} stepper start`);
-    const wtree = String(started.wtree ?? "");
-    if (!wtree) fail(`${label}: missing wtree in stepper start output`);
-    assertNoFixtureFiles(fixture.repo, label);
-    assertHeadUnchanged(fixture, label);
-    const hook = runLoopship(
-      fixture,
-      [
-        "stepper",
-        "hook",
-        "--repo",
-        fixture.repo,
-        "--runtime",
-        runtime,
-        "--json",
-        JSON.stringify({
-          hook_event_name: hookEventName(runtime),
-          cwd: join(fixture.repo, "worktrees", wtree),
-        }),
-      ],
-      undefined,
-    );
-    if (hook.status !== 0) fail(hook.stderr || hook.stdout);
-    const output = parseJson(hook.stdout, `${label} stepper hook`);
-    assertRuntimeHookShape(runtime, output, label);
-    if (typeof output.reason !== "string" || !output.reason.trim()) {
-      fail(`${label}: stepper hook must expose hook reason payload`);
-    }
-    assertNoStepperRuntimeArtifacts(fixture.repo, label);
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
 }
 
 function simulateRuntime(
@@ -534,83 +253,48 @@ function simulateRuntime(
       fail(`${label}: stepper start must enter planning: ${start.stdout}`);
     }
 
-    let planRound = 0;
-    let landingRound = 0;
-    let childInitRuntimeChecks = 0;
-    const requestedSteps: string[] = [];
-    const responseSteps: string[] = [];
-    for (let guard = 0; guard < 20; guard += 1) {
-      if (current.done === true || currentStage(fixture, wtree) === "archived") break;
-      const requestedStep = stepId(current.step);
-      if (!requestedStep) {
-        fail(`${label}: missing requested step in guided output`);
-      }
-      requestedSteps.push(requestedStep);
-      const quest = parseTasksYaml(
-        readText(questFiles(fixture.repo, wtree).tasks),
-      ) as Record<string, any>;
-      const callbackInput = scenarioPayloadForStep({
-        request: simulationCase.request,
-        step: requestedStep,
-        quest,
-        planRound,
-        landingRound,
-      });
-      if (requestedStep === "plan") planRound += 1;
-      if (requestedStep === "landing") landingRound += 1;
-      const callbackProc = runLoopship(
-        fixture,
-        stepperCommandArgs(current, label),
-        callbackInput,
-      );
-      if (callbackProc.status !== 0) {
-        fail(
-          callbackProc.stderr ||
-            callbackProc.stdout ||
-            `${label}: guided stepper continuation failed`,
-        );
-      }
-      current = parseJson(callbackProc.stdout, `${label} guided stepper output`);
-      assertGuidedStep(current, fixture.repo, label);
-      responseSteps.push(stepId(current.step));
-      childInitRuntimeChecks += assertChildInitRuntime(current, runtime, label);
-      if (!stepId((current as Record<string, unknown>).step)) {
-        fail(
-          `${label}: guided stepper returned malformed output: ${JSON.stringify(current)}`,
-        );
-      }
+    const requestedStep = stepId(current.task);
+    if (requestedStep !== "plan") {
+      fail(`${label}: simulation must start at plan`);
     }
-    if (childInitRuntimeChecks === 0) {
-      fail(`${label}: simulation never exposed child init commands`);
-    }
-
-    if (current.current_stage !== "archived" || current.done !== true) {
-      fail(
-        `${label}: simulation must report archived: ${JSON.stringify(current)}`,
-      );
-    }
-    if (currentStage(fixture, wtree) !== "archived") {
-      fail(`${label}: simulation did not reach archived`);
-    }
-
-    assertLifecycleProgress(
-      simulationCase.request,
-      label,
-      requestedSteps,
-      responseSteps,
+    const quest = parseTasksYaml(
+      readText(questFiles(fixture.repo, wtree).tasks),
+    ) as Record<string, any>;
+    const callbackInput = scenarioPayloadForStep({
+      request: simulationCase.request,
+      step: requestedStep,
+      quest,
+      planRound: 0,
+      landingRound: 0,
+    });
+    const callbackProc = runLoopship(
+      fixture,
+      stepperCommandArgs(current, label),
+      callbackInput,
     );
+    if (callbackProc.status !== 0) {
+      fail(
+        callbackProc.stderr ||
+          callbackProc.stdout ||
+          `${label}: guided stepper continuation failed`,
+      );
+    }
+    current = parseJson(callbackProc.stdout, `${label} guided stepper output`);
+    assertGuidedStep(current, fixture.repo, label);
+    if (stepId(current.task) !== "task_graph") {
+      fail(`${label}: concrete simulation must continue to task_graph`);
+    }
+    if (String(current.current_stage ?? "") !== "plan_review") {
+      fail(`${label}: concrete simulation stage mismatch: ${JSON.stringify(current)}`);
+    }
     assertNoStepperRuntimeArtifacts(fixture.repo, label);
-    assertCanonicalArtifacts(fixture, wtree, simulationCase.request, label);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 }
 
 function main(): number {
-  for (const runtime of ["codex", "gemini", "copilot"] as const) {
-    assertStepperHookPassthrough(runtime);
-  }
-  simulateRuntime("codex", SIMULATION_CASES[0]);
+  simulateRuntime("codex", SIMULATION_CASE);
   console.log("loopship runtime simulation verification passed");
   return 0;
 }

@@ -402,7 +402,7 @@ function continuationPrompt(reason: string): string {
   return [
     "Loopship continuation:",
     "You are continuing an active Loopship quest in the current repository.",
-    "Use the embedded step payload, output_schema, and commands.next to advance exactly one lifecycle step.",
+    "Use the embedded task payload, answer_schema, and Fastflow resume continuation to advance exactly one lifecycle step.",
     "Do not restart with loopship init unless the payload explicitly tells you to.",
     "",
     embedded,

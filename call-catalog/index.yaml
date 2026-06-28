@@ -5,14 +5,14 @@ prefixes:
     afn:
       service:
         child:
-          tags: "loopship, child, worktree, quest"
-        system:
-          tags: "loopship, system, docs, signature"
+          tags: "child, worktree, quest, prepare"
         landing:
-          tags: "loopship, landing, git, merge"
+          tags: "landing, git, merge, apply"
+        system:
+          tags: "system, docs, signature, apply"
     workflow:
       service:
         flows:
-          tags: "flow, flows, swe"
+          tags: "flow, swe, flows"
         step:
-          tags: "step, archived, child-result, child, result, executing, landing, plan, questions, system-update, system, update, task-graph, task, graph, validation, verification"
+          tags: "step, archived, child_result, executing, landing, plan, questions, system_update, task_graph, validation, verification, child-result, child, result, system-update, system, update, task-graph, task, graph"

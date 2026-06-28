@@ -4,12 +4,9 @@ title: Loopship V3 Validation Input
 type: object
 additionalProperties: false
 required:
-  - step
   - status
   - checks
 properties:
-  step:
-    const: validation
   status:
     enum:
       - passed

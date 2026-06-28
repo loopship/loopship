@@ -1146,9 +1146,11 @@ export function renderMinimalSkillMd(): string {
 
 export function ensureGlobalSkillFiles(skillRoot?: string | null): string {
   const home = process.env.HOME?.trim() || ".";
+  const sharedSkillRoot = "/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules/skills/loopship";
   const base =
     skillRoot?.trim() ||
     process.env.LOOPSHIP_SKILL_HOME?.trim() ||
+    (existsSync(resolve(sharedSkillRoot, "SKILL.md")) ? sharedSkillRoot : "") ||
     resolve(home, ".agents", "skills", "loopship");
   const skillPath = resolve(expandHome(base), "SKILL.md");
   const expected = renderMinimalSkillMd();
