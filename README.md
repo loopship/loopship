@@ -21,7 +21,7 @@ node index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
 ```
 
 The launcher skill lives in
-`/Volumes/Projects/business/AstronLab/omar391/ai-rules/skills/loopship/SKILL.md`.
+`/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules/skills/loopship/SKILL.md`.
 Lifecycle, prompts, schemas, state, manifests, child subagent flow, and next
 actions are owned by this `loopship` package through Fastflow-native generated
 workflows, the Loopship Fastflow consumer adapter, YAML/JSONL workflow-data
