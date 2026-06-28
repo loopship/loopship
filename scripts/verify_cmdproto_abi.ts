@@ -127,6 +127,8 @@ function main(): number {
     "rpc SimInit",
     "rpc SimQuestNext",
     "rpc SimHook",
+    "rpc Resume",
+    'path: "resume"',
     'path: "quest next"',
     'path: "stepper quest next"',
   ]) {

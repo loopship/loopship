@@ -90,9 +90,10 @@ $defs:
   embedded_schema:
     type: object
     additionalProperties: true
-    required:
-      - $schema
-      - $id
+    minProperties: 1
+    not:
+      required:
+        - schema_path
     properties:
       $schema:
         type: string

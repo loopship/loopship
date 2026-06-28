@@ -2,13 +2,32 @@
 
 import {
   LIFECYCLE_MATRIX,
+  type MatrixScenario,
   lifecycleMatrixMarkdown,
   runLifecycleMatrix,
   summarizeLifecycleMatrix,
 } from "./lifecycle_matrix.ts";
 
+function selectedMatrix(): MatrixScenario[] {
+  const selected = String(process.env.LOOPSHIP_LIFECYCLE_CASES ?? "").trim();
+  if (!selected) return LIFECYCLE_MATRIX;
+  const ids = selected
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const byId = new Map(LIFECYCLE_MATRIX.map((scenario) => [scenario.id, scenario]));
+  return ids.map((id) => {
+    const scenario = byId.get(id);
+    if (!scenario) {
+      throw new Error(`unknown lifecycle matrix case: ${id}`);
+    }
+    return scenario;
+  });
+}
+
 if (process.env.LOOPSHIP_EXECUTE_LIFECYCLE_MATRIX === "1") {
-  const results = runLifecycleMatrix();
+  const scenarios = selectedMatrix();
+  const results = runLifecycleMatrix(scenarios);
   const summary = summarizeLifecycleMatrix(results);
 
   process.stdout.write(lifecycleMatrixMarkdown(results));

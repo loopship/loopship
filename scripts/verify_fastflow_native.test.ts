@@ -295,6 +295,33 @@ function createNativeQuest(repo: string, wtree = "demo") {
 }
 
 describe("Loopship Fastflow-native bridge", () => {
+  test("requires focused native lifecycle release verification", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(packageJson.scripts["verify:lifecycle"]).toContain(
+      "LOOPSHIP_EXECUTE_LIFECYCLE_MATRIX=1",
+    );
+    expect(packageJson.scripts["verify:lifecycle"]).toContain(
+      "LOOPSHIP_LIFECYCLE_CASES=bugfix,feature-parallel,vague-greenfield",
+    );
+    expect(packageJson.scripts["verify:lifecycle"]).toContain(
+      "scripts/report_lifecycle_matrix.ts",
+    );
+    expect(packageJson.scripts["verify:release"]).toContain("bun run verify");
+    expect(packageJson.scripts["verify:release"]).toContain(
+      "bun run verify:lifecycle",
+    );
+    expect(packageJson.scripts.prepublishOnly).toBe("bun run verify:release");
+  });
+
+  test("keeps review packet paths rooted at each copied package", () => {
+    const source = readFileSync("scripts/create_architect_packet.ts", "utf8");
+    expect(source).toContain('copyDirIfPresent(repo, dir, packetRoot)');
+    expect(source).toContain('"repos", repo.name, relativePath');
+    expect(source).toContain("There should be no doubled packet paths");
+  });
+
   test("registers exactly the minimal Loopship side-effect AFNs", () => {
     const calls = LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort();
     expect(calls).toEqual([
@@ -872,6 +899,7 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(result.output).toMatchObject({
         schema_version: "loopship.landing.apply/v1",
         status: "landed",
+        summary: "landed through Fastflow",
         target_branch: "main",
       });
       expect(readFileSync(join(fixture.repo, "FASTFLOW.md"), "utf8")).toContain("fastflow");

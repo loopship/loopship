@@ -1104,10 +1104,24 @@ function normalizeName(value) {
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-") || "main";
 }
+function compactDigest(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < String(value || "").length; index += 1) {
+    hash ^= String(value || "").charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
 function compactTaskAssignmentKey(wtree, taskId) {
   const normalizedWtree = normalizeName(wtree || "quest");
   const normalizedTaskId = normalizeName(taskId || "task");
-  return [normalizedWtree, normalizedTaskId].filter(Boolean).join("-").slice(0, 72);
+  const full = [normalizedWtree, normalizedTaskId].filter(Boolean).join("-");
+  if (full.length <= 72) return full;
+  const digest = compactDigest(full).slice(0, 8);
+  const taskPart = normalizedTaskId.slice(0, 20).replace(/-+$/g, "") || "task";
+  const wtreeBudget = Math.max(16, 72 - taskPart.length - digest.length - 2);
+  const wtreePart = normalizedWtree.slice(0, wtreeBudget).replace(/-+$/g, "") || "quest";
+  return [wtreePart, taskPart, digest].join("-");
 }
 function taskAssignmentBranchRef(wtree, taskId) {
   return "codex/" + compactTaskAssignmentKey(wtree, taskId);
@@ -2325,6 +2339,7 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
     schema_version: "loopship.landing.apply/v1",
     dry_run: false,
     status,
+    summary: optionalString(body.summary),
     ...landingReceipt,
   };
 }

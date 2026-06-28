@@ -3,7 +3,7 @@ workflows:
   swe:
     stable:
       release: 1
-      digest: "sha256:bbece3ad5e9e2165187c66e505fcbced6c9868734a733df50ba935ca4f67404b"
+      digest: "sha256:0252c8204eae6841f565569663e2c9c55c079933aae25b111fa14e4adca3778f"
       summary: "Loopship swe flow orchestration for Fastflow-native supervision."
       inputs:
         required: []
