@@ -50,7 +50,6 @@
     "verify:lifecycle": "LOOPSHIP_EXECUTE_LIFECYCLE_MATRIX=1 LOOPSHIP_LIFECYCLE_CASES=bugfix,feature-parallel,vague-greenfield bun run scripts/report_lifecycle_matrix.ts",
     "verify:release": "bun run verify && bun run verify:lifecycle",
     "verify:live": "bun run scripts/verify_runtime_live.ts",
-    "review:packet": "bun run scripts/create_architect_packet.ts",
     "prepublishOnly": "bun run verify:release"
   },
   "devDependencies": {
