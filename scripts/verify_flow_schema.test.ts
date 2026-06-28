@@ -729,6 +729,24 @@ describe("loopship strict v3 step schemas", () => {
     });
   }
 
+  it("accepts plain embedded JSON Schema fragments for answer schemas", () => {
+    expect(
+      validateV3Input(
+        {
+          ...validPayloads["child-dispatch-output"],
+          answer_schema: {
+            type: "object",
+            additionalProperties: true,
+            properties: {
+              schema_version: { type: "string" },
+            },
+          },
+        },
+        "child-dispatch-output",
+      ),
+    ).toEqual([]);
+  });
+
   it("requires replan_reason when rejecting task graph approval", () => {
     expect(
       validateV3Input(

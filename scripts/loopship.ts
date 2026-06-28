@@ -1200,6 +1200,11 @@ function v3StepOutput(input: {
         input.state,
       );
     }
+    if (step === "archived") {
+      compactOutput.terminal = true;
+      delete compactOutput.answer_schema;
+      delete compactOutput.continuation;
+    }
     if (step === "archived" && String(input.state.landed_commit ?? "").trim()) {
       compactOutput.landing = {
         source_branch: String(input.state.coordinator_branch ?? ""),

@@ -61,3 +61,19 @@ For mocked runtime lifecycle stepping, `loopship stepper` supports:
 - `loopship stepper init "loopship: <request>" --repo <repo> --flow swe --runtime codex`: start guided lifecycle stepping and emit the first selected-flow step
 - `loopship stepper step --wtree <name> --repo <repo> --json @-`: submit the next step payload and stop at the next selected-flow step
 - `loopship stepper hook --repo <repo> --runtime codex --json @-`: explicitly exercise runtime hook passthrough behavior
+
+Routine verification keeps lifecycle checks focused and bounded:
+
+```bash
+bun run verify
+```
+
+Release/publish verification runs the focused native lifecycle release set,
+including single-child, multi-child, clarification, child callback, validation,
+verification, system-update, landing, and archive paths:
+
+```bash
+bun run verify:release
+```
+
+The package `prepublishOnly` hook runs the release gate.

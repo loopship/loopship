@@ -156,6 +156,41 @@ function childResultPayload(taskId: string, childWtree: string, worktreePath: st
   };
 }
 
+function childDispatchPayload(
+  scenario: MatrixScenario,
+  children: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  const byId = new Map(
+    scenario.tasks.map((task) => [String(task.id ?? task.task_id ?? ""), task]),
+  );
+  return {
+    schema_version: "loopship.child-dispatch.request/v1",
+    kind: "child_dispatch_request",
+    children: children.map((child) => {
+      const taskId = String(child.task_id ?? child.id ?? "");
+      const source = byId.get(taskId) ?? {};
+      return {
+        id: taskId,
+        task_id: taskId,
+        title: String(child.title ?? source.title ?? taskId),
+        type: source.type ?? "coding",
+        acceptance: child.acceptance ?? source.acceptance ?? "done",
+        dependencies: source.dependencies ?? source.depends_on ?? [],
+        scope_files: source.scope_files ?? source.scope ?? [],
+        spec_refs: source.spec_refs ?? source.specs ?? [],
+        context_refs: source.context_refs ?? source.context ?? [],
+        branch_ref: String(child.branch_ref ?? source.branch_ref ?? ""),
+        worktree_path: String(child.worktree_path ?? source.worktree_path ?? ""),
+        child_wtree: String(child.child_wtree ?? source.child_wtree ?? ""),
+        concurrency_group: String(source.concurrency_group ?? ""),
+        merge_target: String(child.merge_target ?? source.merge_target ?? ""),
+        merge_lease_id: String(source.merge_lease_id ?? ""),
+        system_impact_ref: String(source.system_impact_ref ?? ""),
+      };
+    }),
+  };
+}
+
 function routeAndCreateQuest(
   fixture: MatrixFixture,
   prompt: string,
@@ -248,6 +283,14 @@ function driveScenario(
     expect(existsSync(String(child.worktree_path))).toBe(true);
     expect(worktrees).toContain(resolve(String(child.worktree_path)));
   }
+
+  const childResultStep = next(
+    fixture,
+    wtree,
+    childDispatchPayload(scenario, children),
+  );
+  expectValidSchema(childResultStep, "step-output");
+  expect(childResultStep.task.id).toBe("child_result");
 
   for (const child of children) {
     next(
@@ -487,8 +530,10 @@ export function runLifecycleScenario(
   }
 }
 
-export function runLifecycleMatrix(): MatrixScenarioResult[] {
-  return LIFECYCLE_MATRIX.map((scenario) => runLifecycleScenario(scenario));
+export function runLifecycleMatrix(
+  scenarios: MatrixScenario[] = LIFECYCLE_MATRIX,
+): MatrixScenarioResult[] {
+  return scenarios.map((scenario) => runLifecycleScenario(scenario));
 }
 
 export function summarizeLifecycleMatrix(results: MatrixScenarioResult[]): {

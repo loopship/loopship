@@ -23,6 +23,7 @@ function hasCmdprotoDeps() {
 function findFastflowRoot() {
   const candidates = [
     path.resolve(root, "../../orgs/cueintent/fastflow"),
+    path.resolve(root, "../../../../cueintent/fastflow"),
     path.resolve(root, "../../../../orgs/cueintent/fastflow"),
     path.resolve(root, "../../../orgs/cueintent/fastflow"),
   ];

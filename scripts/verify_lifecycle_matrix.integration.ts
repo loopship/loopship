@@ -81,6 +81,10 @@ describe("loopship lifecycle matrix", () => {
     const markdown = lifecycleMatrixMarkdown(planned);
     expect(markdown).toContain("| bugfix |");
     expect(markdown).toContain("| open-research |");
+    expect(markdown).toContain("| feature-parallel |");
     expect(markdown).toContain("| vague-greenfield |");
+    expect(planned.find((scenario) => scenario.id === "feature-parallel")).toMatchObject({
+      child_count: 2,
+    });
   });
 });
