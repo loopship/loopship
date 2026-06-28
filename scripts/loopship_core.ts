@@ -201,12 +201,27 @@ function normalizeTaskPathSegment(value: string): string {
   return cleaned || "task";
 }
 
+function compactTaskAssignmentDigest(value: string): string {
+  const fnv = (seed: number): string => {
+    let hash = seed;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  };
+  return `${fnv(2166136261)}${fnv(2166136261 ^ 0x9e3779b9)}`.slice(
+    0,
+    12,
+  );
+}
+
 function compactTaskAssignmentKey(wtree: string, taskId: string): string {
   const normalizedWtree = normalizeTaskPathSegment(wtree);
   const normalizedTaskId = normalizeTaskPathSegment(taskId);
   const full = `${normalizedWtree}-${normalizedTaskId}`;
   if (full.length <= 72) return full;
-  const digest = hashText(full).slice(0, 12);
+  const digest = compactTaskAssignmentDigest(full);
   const taskPart = normalizedTaskId.slice(0, 20).replace(/-+$/g, "") || "task";
   const wtreeBudget = Math.max(16, 72 - taskPart.length - digest.length - 2);
   const wtreePart =

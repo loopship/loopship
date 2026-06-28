@@ -10,6 +10,7 @@ import {
   ensureCoordinatorWorkspace,
   parseTasksYaml,
   renderTasksYaml,
+  taskAssignmentChildWtree,
   type QuestState,
 } from "./loopship_core.ts";
 import {
@@ -329,6 +330,25 @@ describe("Loopship Fastflow-native bridge", () => {
         target: "service",
       });
     }
+  });
+
+  test("keeps generated child assignment keys aligned with core compacting", () => {
+    const longParent =
+      "build-a-small-feature-that-intentionally-decomposes-into-frontend-and-backend-child-tasks";
+    const first = taskAssignmentChildWtree(longParent, "T001");
+    const second = taskAssignmentChildWtree(longParent, "T002");
+
+    expect(first).not.toBe(second);
+    expect(first.length).toBeLessThanOrEqual(72);
+    expect(second.length).toBeLessThanOrEqual(72);
+    expect(first).toMatch(/-T001-[0-9a-f]{12}$/);
+    expect(second).toMatch(/-T002-[0-9a-f]{12}$/);
+
+    const flowSource = JSON.stringify(buildLoopshipFastflowFlowWorkflow("swe"));
+    expect(flowSource).toContain("function normalizeTaskPathSegment");
+    expect(flowSource).toContain("2166136261 ^ 0x9e3779b9");
+    expect(flowSource).toContain("slice(0, 12)");
+    expect(flowSource).toContain("normalizeTaskPathSegment(wtree ||");
   });
 
   test("loads the compact Loopship call catalog", async () => {
