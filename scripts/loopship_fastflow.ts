@@ -1104,20 +1104,34 @@ function normalizeName(value) {
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-") || "main";
 }
+function normalizeTaskPathSegment(value) {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/[\\\\/]+/g, "-")
+    .replace(/\\s+/g, "-")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned || "task";
+}
 function compactDigest(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < String(value || "").length; index += 1) {
-    hash ^= String(value || "").charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  const text = String(value || "");
+  const fnv = (seed) => {
+    let hash = seed;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  };
+  return (fnv(2166136261) + fnv(2166136261 ^ 0x9e3779b9)).slice(0, 12);
 }
 function compactTaskAssignmentKey(wtree, taskId) {
-  const normalizedWtree = normalizeName(wtree || "quest");
-  const normalizedTaskId = normalizeName(taskId || "task");
+  const normalizedWtree = normalizeTaskPathSegment(wtree || "quest");
+  const normalizedTaskId = normalizeTaskPathSegment(taskId || "task");
   const full = [normalizedWtree, normalizedTaskId].filter(Boolean).join("-");
   if (full.length <= 72) return full;
-  const digest = compactDigest(full).slice(0, 8);
+  const digest = compactDigest(full);
   const taskPart = normalizedTaskId.slice(0, 20).replace(/-+$/g, "") || "task";
   const wtreeBudget = Math.max(16, 72 - taskPart.length - digest.length - 2);
   const wtreePart = normalizedWtree.slice(0, wtreeBudget).replace(/-+$/g, "") || "quest";
