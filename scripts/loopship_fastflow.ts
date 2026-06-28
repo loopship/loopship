@@ -76,10 +76,6 @@ const TASK_PAYLOAD_SCHEMA = {
     merge_lease_id: { type: "string" },
     merge_commit: { type: "string" },
     system_impact_ref: { type: "string" },
-    commands: { type: "object", additionalProperties: true },
-    result_schema: {
-      oneOf: [{ type: "string" }, { type: "object", additionalProperties: true }],
-    },
     acceptance: {
       oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
     },
@@ -589,31 +585,39 @@ function requestInputTask(step: LoopshipStepDefinition): Record<string, unknown>
       body: {
         instruction: step.instructions || step.summary,
         request: {
-          schema: {
-            type: "object",
-            additionalProperties: true,
-            properties: {
-              step: { type: "object", additionalProperties: true },
-              inputs: inputSchema,
-              state: { type: "object", additionalProperties: true },
-              args: { type: "object", additionalProperties: true },
-            },
-            required: ["step", "inputs"],
-          },
+          schema: inputSchema,
           build: {
             kind: "js",
-            using: ["inputs", "state", "args"],
-            code: `return {
-  step: ${JSON.stringify({
-    id: step.id,
-    handler: step.handler,
-    summary: step.summary,
-    input_step: step.input_step,
-    result_schema: step.result_schema,
-  })},
-  inputs,
-  state,
-  args
+            using: ["inputs", "state", "env"],
+            code: `const quest = (state && state.steps && state.steps.read_tasks && state.steps.read_tasks.action) || {};
+const queriedEvents = (state && state.steps && state.steps.query_events && state.steps.query_events.action) || [];
+const array = (value) => Array.isArray(value) ? value : [];
+const object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+return {
+  schema_version: inputs.schema_version || "loopship.step.request/v1",
+  kind: inputs.kind || "quest_step_request",
+  wtree: String(inputs.wtree || quest.wtree || ""),
+  quest_id: String(inputs.quest_id || quest.quest_id || inputs.wtree || quest.wtree || ""),
+  flow_id: String(inputs.flow_id || quest.flow_id || ${JSON.stringify(DEFAULT_FLOW_ID)}),
+  flow_version: Number(inputs.flow_version || quest.flow_version || 1),
+  current_stage: String(inputs.current_stage || quest.stage || ""),
+  summary: String(inputs.summary || ${JSON.stringify(step.summary)}),
+  prompt: String(inputs.prompt || quest.prompt || ""),
+  repo: String(inputs.repo || inputs.repoRoot || quest.context_root || env.PWD || ""),
+  repoRoot: String(inputs.repoRoot || inputs.repo || quest.context_root || env.PWD || ""),
+  runtime: String(inputs.runtime || ""),
+  tasks: array(inputs.tasks).length ? array(inputs.tasks) : array(quest.tasks),
+  question_rounds: array(inputs.question_rounds).length ? array(inputs.question_rounds) : array(quest.question_rounds),
+  plan_detail: Object.keys(object(inputs.plan_detail)).length ? object(inputs.plan_detail) : object(quest.plan_detail),
+  validation_receipt: Object.keys(object(inputs.validation_receipt)).length ? object(inputs.validation_receipt) : object(quest.validation_receipt),
+  verification_receipt: Object.keys(object(inputs.verification_receipt)).length ? object(inputs.verification_receipt) : object(quest.verification_receipt),
+  events: array(inputs.events).length ? array(inputs.events) : array(queriedEvents),
+  parent_wtree: String(inputs.parent_wtree || quest.parent_wtree || ""),
+  coordinator_branch: String(inputs.coordinator_branch || quest.coordinator_branch || ""),
+  coordinator_worktree: String(inputs.coordinator_worktree || quest.coordinator_worktree || ""),
+  landing_target_branch: String(inputs.landing_target_branch || quest.landing_target_branch || ""),
+  landing_target_worktree: String(inputs.landing_target_worktree || quest.landing_target_worktree || ""),
+  requirements: array(inputs.requirements)
 };`,
           },
         },
@@ -763,7 +767,6 @@ function sideEffectStageInputExpression(
   key: string,
   step: LoopshipStepDefinition,
 ): string {
-  if (key === "step") return `\${inputs.step || ${JSON.stringify(step.id)}}`;
   if (key === "repo") {
     return "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}";
   }
@@ -788,6 +791,65 @@ function sideEffectStageInputExpression(
   if (key === "status") return "${inputs.status || 'landed'}";
   if (key === "summary") return "${inputs.summary || ''}";
   return inputAccessExpression(key);
+}
+
+function stepRequestStageInputExpression(
+  key: string,
+  flow: LoadedLoopshipFlow,
+  stage: LoopshipFlowStage,
+  step: LoopshipStepDefinition,
+): unknown {
+  if (key === "schema_version") return "loopship.step.request/v1";
+  if (key === "kind") return "quest_step_request";
+  if (key === "wtree") return "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}";
+  if (key === "quest_id") return "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}";
+  if (key === "flow_id") return flow.id;
+  if (key === "flow_version") return flow.version;
+  if (key === "current_stage") return stage.id;
+  if (key === "summary") return step.summary;
+  if (key === "prompt") return "${state.steps.read_tasks.action.prompt || inputs.request || ''}";
+  if (key === "repo") return "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}";
+  if (key === "repoRoot") return "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}";
+  if (key === "runtime") return "${inputs.runtime || ''}";
+  if (key === "tasks") return "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}";
+  if (key === "question_rounds") return "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}";
+  if (key === "plan_detail") return "${state.steps.read_tasks.action.plan_detail || {}}";
+  if (key === "validation_receipt") return "${state.steps.read_tasks.action.validation_receipt || {}}";
+  if (key === "verification_receipt") return "${state.steps.read_tasks.action.verification_receipt || {}}";
+  if (key === "events") return "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}";
+  if (key === "parent_wtree") return "${state.steps.read_tasks.action.parent_wtree || ''}";
+  if (key === "coordinator_branch") return "${state.steps.read_tasks.action.coordinator_branch || ''}";
+  if (key === "coordinator_worktree") return "${state.steps.read_tasks.action.coordinator_worktree || ''}";
+  if (key === "landing_target_branch") return "${state.steps.read_tasks.action.landing_target_branch || 'main'}";
+  if (key === "landing_target_worktree") return "${state.steps.read_tasks.action.landing_target_worktree || ''}";
+  if (key === "requirements" && step.id === "plan") {
+    return [
+      "Classify the request.",
+      "Use repository discovery before asking questions.",
+      "Use AF to surface contradictions, hidden assumptions, weak evidence, and edge cases.",
+      "Use OF to collapse scope, defaults, acceptance, decomposition, and verification targets.",
+      "For greenfield app/product work, ask or explicitly default every high-impact unknown before task graph approval.",
+    ];
+  }
+  if (key === "requirements") return [];
+  return inputAccessExpression(key);
+}
+
+function workflowStepRequestInputFromSchema(
+  flow: LoadedLoopshipFlow,
+  stage: LoopshipFlowStage,
+  step: LoopshipStepDefinition,
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const properties = isPlainObject(schema.properties)
+    ? (schema.properties as Record<string, unknown>)
+    : {};
+  return Object.fromEntries(
+    Object.keys(properties).map((key) => [
+      key,
+      stepRequestStageInputExpression(key, flow, stage, step),
+    ]),
+  );
 }
 
 function sideEffectWorkflowInputFromSchema(
@@ -821,20 +883,6 @@ function schemaRefOrEmbedded(source: unknown): unknown {
   return source;
 }
 
-function stepContextForWorkflowInput(step: LoopshipStepDefinition): Record<string, unknown> {
-  return {
-    schema_version: step.schema_version,
-    id: step.id,
-    handler: step.handler,
-    input_step: step.input_step,
-    input_schema: schemaRefOrEmbedded(step.input_schema),
-    output_schema: schemaRefOrEmbedded(step.output_schema),
-    result_schema_path: step.result_schema,
-    summary: step.summary,
-    instructions: step.instructions,
-  };
-}
-
 function childDispatchExpression(_flow: LoadedLoopshipFlow): string {
   return "${inputs.children || []}";
 }
@@ -848,75 +896,17 @@ function workflowInputForStage(
   const properties = isPlainObject(schema.properties)
     ? (schema.properties as Record<string, unknown>)
     : {};
-  if (!("step" in properties) || !("output_schema" in properties) || !("commands" in properties)) {
-    if (LOOPSHIP_AFN_CALL_SET.has(step.call)) {
-      return sideEffectWorkflowInputFromSchema(step, schema);
+  if (LOOPSHIP_AFN_CALL_SET.has(step.call)) {
+    const input = sideEffectWorkflowInputFromSchema(step, schema);
+    if ("children" in properties) {
+      return {
+        ...input,
+        children: childDispatchExpression(flow),
+      };
     }
-    return workflowInputFromSchema(schema);
+    return input;
   }
-  const required = requiredSchemaProperties(schema);
-  const wtreeExpression = "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}";
-  const envelope: Record<string, unknown> = {
-    schema_version: 3,
-    kind: "quest_step",
-    schema_path:
-      typeof step.input_schema === "string"
-        ? step.input_schema
-        : "schemas/steps/step-output.yaml",
-    wtree: wtreeExpression,
-    quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}",
-    flow_id: flow.id,
-    flow_version: flow.version,
-    step: step.id,
-    state: stage.id,
-    summary: step.summary,
-    output_schema: schemaRefOrEmbedded(step.output_schema),
-    allowed_transitions: stage.transitions,
-    context: {
-      step: stepContextForWorkflowInput(step),
-    },
-    commands: {
-      next: {
-        cmd: "loopship",
-        args: ["resume", "--wtree", wtreeExpression, "--json", "@-"],
-      },
-    },
-    docs: {
-      state_yaml: ".loopship/runtime/tasks.yaml",
-      events_jsonl: ".loopship/runtime/events.jsonl",
-      manifest: ".loopship/runtime/manifest.yaml",
-    },
-    repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}",
-    repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}",
-    runtime: "${inputs.runtime || ''}",
-  };
-  if ("children" in properties) {
-    envelope.children = childDispatchExpression(flow);
-  }
-
-  const alwaysUseful = new Set([
-    "schema_version",
-    "kind",
-    "schema_path",
-    "wtree",
-    "quest_id",
-    "flow_id",
-    "flow_version",
-    "state",
-    "summary",
-    "allowed_transitions",
-    "context",
-    "docs",
-    "repo",
-    "repoRoot",
-    "runtime",
-  ]);
-  return Object.fromEntries(
-    Object.entries(envelope).filter(([key]) => {
-      if (!(key in properties)) return false;
-      return required.has(key) || alwaysUseful.has(key);
-    }),
-  );
+  return workflowStepRequestInputFromSchema(flow, stage, step, schema);
 }
 
 export function buildLoopshipFastflowStepWorkflow(
@@ -929,7 +919,7 @@ export function buildLoopshipFastflowStepWorkflow(
   return {
     document: {
       dsl: "1.0.3",
-      namespace: "loopship-steps",
+      namespace: "service-step",
       name: workflowNameForStep(step.id),
       version: "0.1.0",
       summary: step.summary,
@@ -1032,7 +1022,7 @@ function buildTransitionKeyFunction(flow: LoadedLoopshipFlow): string {
     const rule = stage.transition_key;
     if (!rule) {
       return `    case ${JSON.stringify(stage.id)}:
-      return "continue";`;
+      return defaultTransitionKey(stageId, payload, tasks, resolved, args);`;
     }
     if (rule.kind === "static") {
       return `    case ${JSON.stringify(stage.id)}:
@@ -1042,7 +1032,36 @@ function buildTransitionKeyFunction(flow: LoadedLoopshipFlow): string {
 ${indentGeneratedCode(rule.code, "      ")}
     }`;
   });
-  return `function transitionKey(stageId, payload, tasks, resolved, args) {
+  return `function terminalTaskState(tasks) {
+  const statuses = array(object(tasks).tasks)
+    .map((task) => String(object(task).status || "child_received"))
+    .filter(Boolean);
+  if (!statuses.length) return "unknown";
+  const done = new Set(["child_merged", "child_archived", "done", "merged"]);
+  const stalled = new Set(["blocked", "deferred", "failed"]);
+  if (statuses.every((status) => done.has(status))) return "all_done";
+  if (statuses.every((status) => stalled.has(status))) return "all_stalled";
+  return "continue";
+}
+function defaultTransitionKey(stageId, payload, tasks, resolved, args) {
+  const transitions = object(object(resolved).transitions);
+  if ("questions" in transitions && array(object(payload).questions).length) return "questions";
+  if ("planned" in transitions && ("task_graph" in object(payload) || "classification" in object(payload))) return "planned";
+  if ("answered" in transitions && "answers" in object(payload)) return "answered";
+  if ("rejected" in transitions && (object(payload).approved === false || object(payload).rejected === true)) return "rejected";
+  if ("approved" in transitions && object(payload).approved === true) return "approved";
+  if ("complete" in transitions || "partial" in transitions) {
+    const terminal = terminalTaskState(tasks);
+    if (terminal === "all_done" && "complete" in transitions) return "complete";
+    if (terminal === "all_stalled" && "failed_child" in transitions) return "failed_child";
+    if ("partial" in transitions) return "partial";
+  }
+  const status = String(object(payload).status || object(args).status || "").trim();
+  if (status && status in transitions) return status;
+  if ("updated" in transitions && ("system_update" in object(payload) || "update" in object(payload) || "mode" in object(payload))) return "updated";
+  return "continue";
+}
+function transitionKey(stageId, payload, tasks, resolved, args) {
   switch (stageId) {
 ${cases.join("\n")}
     default:
@@ -1156,6 +1175,44 @@ function decisionPayload(value) {
   if (Object.keys(decision).length) return decision;
   if (Object.prototype.hasOwnProperty.call(out, "decision")) return out.decision;
   return out;
+}
+function payloadMatchesStep(payload, stepId) {
+  const row = object(payload);
+  if (stepId === "plan") {
+    return "classification" in row || "questions" in row || "task_graph" in row;
+  }
+  if (stepId === "questions") return "answers" in row;
+  if (stepId === "task_graph") return "approved" in row || "rejected" in row || "replan_reason" in row;
+  if (stepId === "child_result") return "child_wtree" in row || "merge_commit" in row;
+  if (stepId === "validation") return "checks" in row && "status" in row;
+  if (stepId === "verification") return "acceptance_trace" in row || "risks" in row;
+  if (stepId === "system_update") return "system_update" in row || "update" in row || "mode" in row;
+  if (stepId === "landing") return "status" in row && "summary" in row;
+  return Object.keys(row).length > 0;
+}
+function findStepPayload(value, stepId, depth = 0) {
+  if (depth > 8 || !value || typeof value !== "object") return {};
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStepPayload(item, stepId, depth + 1);
+      if (payloadMatchesStep(found, stepId)) return found;
+    }
+    return {};
+  }
+  const row = object(value);
+  const direct = decisionPayload(row);
+  if (payloadMatchesStep(direct, stepId)) return direct;
+  for (const key of ["output", "result", "workflow", "action", "value", "answer"]) {
+    if (key in row) {
+      const found = findStepPayload(row[key], stepId, depth + 1);
+      if (payloadMatchesStep(found, stepId)) return found;
+    }
+  }
+  for (const item of Object.values(row)) {
+    const found = findStepPayload(item, stepId, depth + 1);
+    if (payloadMatchesStep(found, stepId)) return found;
+  }
+  return {};
 }
 function tasksAfterPayload(tasks, payload, stepId) {
   if (stepId !== "child_result") return tasks;
@@ -1327,10 +1384,9 @@ const stage = flow.stages.find((item) => item.id === currentStage) ||
   flow.stages.find((item) => item.id === flow.default_stage);
 const taskName = stageTaskNames[stage.id];
 const stageAction = object(state.steps[taskName]?.action);
-const workflowOutput = object(stageAction.result?.output || stageAction.workflow?.output);
-const payload = decisionPayload(workflowOutput);
 const tasks = object(state.steps.read_tasks?.action);
 const stepId = inputStepByStage[stage.id] || stage.step;
+const payload = findStepPayload(stageAction, stepId);
 const transitionTasks = tasksAfterPayload(tasks, payload, stepId);
 const key = transitionKey(stage.id, payload, transitionTasks, resolved, args);
 const transitions = object(stage.transitions);
@@ -1424,7 +1480,7 @@ export function buildLoopshipFastflowFlowWorkflow(
   return {
     document: {
       dsl: "1.0.3",
-      namespace: "loopship-flows",
+      namespace: "service-flows",
       name: flow.id.replace(/_/g, "-"),
       version: "0.1.0",
       summary: `Loopship ${flow.id} flow orchestration for Fastflow-native supervision.`,
@@ -1562,6 +1618,7 @@ function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/catalog.mjs"
   const candidates = [
     resolve(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow"),
     resolve(LOOPSHIP_ROOT, "..", "..", "orgs", "cueintent", "fastflow"),
+    resolve(LOOPSHIP_ROOT, "..", "..", "..", "..", "cueintent", "fastflow"),
     resolve(LOOPSHIP_ROOT, "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
   ];
   for (const candidate of candidates) {
@@ -1862,7 +1919,7 @@ function prepareChildLaunch(
     branch_ref: workspace.branch_ref,
     worktree_path: workspace.worktree_path,
     runtime,
-    commands: {
+    actions: {
       init: command("loopship", [
         "init",
         request,
@@ -1871,7 +1928,7 @@ function prepareChildLaunch(
         "--runtime",
         runtime,
       ]),
-      next: command("loopship", ["resume", "--wtree", childWtree, "--json", "@-"]),
+      resume: command("loopship", ["resume", "--wtree", childWtree, "--json", "@-"]),
     },
   };
 }

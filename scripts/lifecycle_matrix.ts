@@ -123,7 +123,6 @@ function next(
       wtree,
       "--json",
       "@-",
-      "--full",
     ],
     payload,
     fixture.env,
@@ -148,7 +147,6 @@ function latestQuestState(fixture: MatrixFixture, wtree: string): any {
 
 function childResultPayload(taskId: string, childWtree: string, worktreePath: string) {
   return {
-    step: "child_result",
     task_id: taskId,
     child_wtree: childWtree,
     status: "passed",
@@ -186,12 +184,11 @@ function driveScenario(
   scenario: MatrixScenario,
 ): MatrixScenarioResult {
   const { wtree, created } = routeAndCreateQuest(fixture, scenario.prompt);
-  expect(created.step).toBe("plan");
+  expect(created.task.id).toBe("plan");
 
   let questionRoundUsed = false;
   if (scenario.questions?.length) {
     const awaiting = next(fixture, wtree, {
-      step: "plan",
       classification: scenario.classification,
       scope: scenario.scope,
       summary: scenario.summary,
@@ -201,18 +198,16 @@ function driveScenario(
       task_graph: { tasks: [] },
     });
     expectValidSchema(awaiting, "step-output");
-    expect(awaiting.step).toBe("questions");
+    expect(awaiting.task.id).toBe("questions");
     questionRoundUsed = true;
     const backToPlanning = next(fixture, wtree, {
-      step: "questions",
       answers: scenario.preplanAnswers ?? [],
     });
     expectValidSchema(backToPlanning, "step-output");
-    expect(backToPlanning.step).toBe("plan");
+    expect(backToPlanning.task.id).toBe("plan");
   }
 
   const planned = next(fixture, wtree, {
-    step: "plan",
     classification: scenario.classification,
     scope: scenario.scope,
     summary: scenario.summary,
@@ -224,14 +219,13 @@ function driveScenario(
     task_graph: { tasks: scenario.tasks },
   });
   expectValidSchema(planned, "step-output");
-  expect(planned.step).toBe("task_graph");
+  expect(planned.task.id).toBe("task_graph");
 
   const executing = next(fixture, wtree, {
-    step: "task_graph",
     approved: true,
   });
   expectValidSchema(executing, "child-dispatch-output");
-  expect(executing.step).toBe("executing");
+  expect(executing.task.id).toBe("executing");
   const children = Array.isArray((executing as any).children)
     ? ((executing as any).children as any[])
     : [];
@@ -241,8 +235,8 @@ function driveScenario(
   const childWorktrees = children.map((child) => resolve(String(child.worktree_path)));
   const childBranches = children.map((child) => String(child.branch_ref));
   for (const child of children) {
-    expect(child.commands.init.cmd).toBe("loopship");
-    expect(child.commands.init.args).toEqual(
+    expect(child.actions.init.cmd).toBe("loopship");
+    expect(child.actions.init.args).toEqual(
       expect.arrayContaining([
         "init",
         "--wtree",
@@ -268,15 +262,13 @@ function driveScenario(
   }
 
   const validated = next(fixture, wtree, {
-    step: "validation",
     status: "passed",
     checks: [{ name: `${scenario.id}-smoke`, status: "passed" }],
   });
   expectValidSchema(validated, "step-output");
-  expect(validated.step).toBe("verification");
+  expect(validated.task.id).toBe("verification");
 
   const verified = next(fixture, wtree, {
-    step: "verification",
     status: "passed",
     acceptance_trace: scenario.tasks.map((task) => ({
       acceptance: String((task.acceptance as string[])[0] ?? task.title ?? "done"),
@@ -285,10 +277,9 @@ function driveScenario(
     risks: [],
   });
   expectValidSchema(verified, "step-output");
-  expect(verified.step).toBe("system_update");
+  expect(verified.task.id).toBe("system_update");
 
   const landing = next(fixture, wtree, {
-    step: "system_update",
     system_update: {
       schema_version: 1,
       mode: "no_change",
@@ -296,15 +287,14 @@ function driveScenario(
     },
   });
   expectValidSchema(landing, "step-output");
-  expect(landing.step).toBe("landing");
+  expect(landing.task.id).toBe("landing");
 
   const archived = next(fixture, wtree, {
-    step: "landing",
     status: "landed",
     summary: `${scenario.id} complete`,
   });
   expectValidSchema(archived, "archive-output");
-  expect(archived.step).toBe("archived");
+  expect(archived.task.id).toBe("archived");
 
   const finalState = latestQuestState(fixture, wtree);
   const finalTasks = Array.isArray(finalState.tasks) ? finalState.tasks : [];
@@ -322,8 +312,8 @@ function driveScenario(
     ),
     loopship_routed: children.every(
       (child) =>
-        child.commands.init.cmd === "loopship" &&
-        child.commands.next.cmd === "loopship",
+        child.actions.init.cmd === "loopship" &&
+        child.actions.resume.cmd === "loopship",
     ),
     general_task_present: scenario.tasks.some((task) => String(task.type) === "general"),
     question_round_used: questionRoundUsed,

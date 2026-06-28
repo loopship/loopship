@@ -18,7 +18,19 @@ const WORKSPACE_ROOT =
   basename(resolve(PACKAGE_ROOT, "..")) === "worktrees"
     ? resolve(PACKAGE_ROOT, "..", "..", "..")
     : resolve(PACKAGE_ROOT, "..");
-const AI_RULES_ROOT = resolve(process.env.AI_RULES_ROOT ?? join(WORKSPACE_ROOT, "ai-rules"));
+function resolveAiRulesRoot(): string {
+  const candidates = [
+    process.env.AI_RULES_ROOT,
+    "/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules",
+    join(WORKSPACE_ROOT, "ai-rules"),
+    resolve(PACKAGE_ROOT, "..", "..", "..", "personal", "devtools", "ai-rules"),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const found = candidates.find((candidate) =>
+    existsSync(resolve(candidate, "skills", "loopship", "SKILL.md")),
+  );
+  return resolve(found ?? candidates[0]);
+}
+const AI_RULES_ROOT = resolveAiRulesRoot();
 const SKILL_ROOT = resolve(AI_RULES_ROOT, "skills", "loopship");
 
 function assertExists(path: string, label: string): void {

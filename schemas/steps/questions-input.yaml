@@ -4,11 +4,8 @@ title: Loopship V3 Question Answers Input
 type: object
 additionalProperties: false
 required:
-  - step
   - answers
 properties:
-  step:
-    const: questions
   answers:
     type: array
     items:

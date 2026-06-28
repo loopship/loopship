@@ -24,6 +24,8 @@ export type LoopshipSchemaSource = string | SchemaObject | null;
 export const V3_STEP_SCHEMAS = [
   "init-output",
   "next-input",
+  "step-request",
+  "child-dispatch-request",
   "step-output",
   "error-output",
   "plan-input",

@@ -4,7 +4,6 @@ title: Loopship V3 Child Result Input
 type: object
 additionalProperties: false
 required:
-  - step
   - task_id
   - child_wtree
   - status
@@ -18,8 +17,6 @@ allOf:
       required:
         - merge_commit
 properties:
-  step:
-    const: child_result
   task_id:
     type: string
   child_wtree:

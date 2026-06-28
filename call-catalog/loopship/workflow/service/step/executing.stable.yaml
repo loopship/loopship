@@ -14,22 +14,17 @@ input:
   schema:
     document:
       "$schema": "https://json-schema.org/draft/2020-12/schema"
-      "$id": schemas/steps/child-dispatch-output.yaml
-      title: "Loopship V3 Child Dispatch Output"
+      "$id": schemas/steps/child-dispatch-request.yaml
+      title: "Loopship Fastflow Child Dispatch Request Payload"
       type: object
       additionalProperties: false
       required:
-        - step
-        - output_schema
-        - commands
         - children
       properties:
         schema_version:
-          const: 3
+          const: loopship.child-dispatch.request/v1
         kind:
-          const: quest_step
-        schema_path:
-          const: schemas/steps/child-dispatch-output.yaml
+          const: child_dispatch_request
         wtree:
           type: string
         quest_id:
@@ -38,304 +33,104 @@ input:
           type: string
         flow_version:
           type: integer
-        step:
-          oneOf:
-            - const: executing
-            - allOf:
-                - type: object
-                  additionalProperties: false
-                  required:
-                    - id
-                    - instructions
-                  properties:
-                    id:
-                      type: string
-                    instructions:
-                      type: string
-                - type: object
-                  properties:
-                    id:
-                      const: executing
-        state:
+        current_stage:
           type: string
         summary:
           type: string
-        output_schema:
-          oneOf:
-            - oneOf:
-                - type: string
-                - type: object
-                  additionalProperties: false
-                  required:
-                    - schema_path
-                  properties:
-                    schema_path:
-                      type: string
-            - type: object
-              additionalProperties: true
-              required:
-                - "$schema"
-                - "$id"
-              properties:
-                "$schema":
-                  type: string
-                "$id":
-                  type: string
-                title:
-                  type: string
-                type: {}
-                required:
-                  type: array
-                  items:
-                    type: string
-                properties:
-                  type: object
-        allowed_transitions:
-          type: object
-          additionalProperties:
-            type: string
-        context:
-          type: object
-          additionalProperties: false
-          required:
-            - step
-          properties:
-            step:
-              type: object
-              additionalProperties: false
-              required:
-                - schema_version
-                - id
-                - handler
-                - input_step
-                - input_schema
-                - output_schema
-                - result_schema_path
-                - summary
-                - instructions
-              properties:
-                schema_version:
-                  const: 1
-                id:
-                  type: string
-                handler:
-                  type: string
-                input_step:
-                  type:
-                    - string
-                    - "null"
-                input_schema:
-                  oneOf:
-                    - oneOf:
-                        - oneOf:
-                            - type: string
-                            - type: object
-                              additionalProperties: false
-                              required:
-                                - schema_path
-                              properties:
-                                schema_path:
-                                  type: string
-                        - type: object
-                          additionalProperties: true
-                          required:
-                            - "$schema"
-                            - "$id"
-                          properties:
-                            "$schema":
-                              type: string
-                            "$id":
-                              type: string
-                            title:
-                              type: string
-                            type: {}
-                            required:
-                              type: array
-                              items:
-                                type: string
-                            properties:
-                              type: object
-                    - type: "null"
-                output_schema:
-                  oneOf:
-                    - oneOf:
-                        - oneOf:
-                            - type: string
-                            - type: object
-                              additionalProperties: false
-                              required:
-                                - schema_path
-                              properties:
-                                schema_path:
-                                  type: string
-                        - type: object
-                          additionalProperties: true
-                          required:
-                            - "$schema"
-                            - "$id"
-                          properties:
-                            "$schema":
-                              type: string
-                            "$id":
-                              type: string
-                            title:
-                              type: string
-                            type: {}
-                            required:
-                              type: array
-                              items:
-                                type: string
-                            properties:
-                              type: object
-                    - type: "null"
-                result_schema_path:
-                  type: string
-                summary:
-                  type: string
-                instructions:
-                  type: string
-        commands:
-          type: object
-          additionalProperties: false
-          required:
-            - next
-          properties:
-            next:
-              type: object
-              additionalProperties: false
-              required:
-                - cmd
-                - args
-              properties:
-                cmd:
-                  type: string
-                args:
-                  type: array
-                  items:
-                    type: string
-        docs:
-          type: object
-          additionalProperties: false
-          required:
-            - state_yaml
-            - events_jsonl
-            - manifest
-          properties:
-            state_yaml:
-              type: string
-            events_jsonl:
-              type: string
-            manifest:
-              type: string
+        prompt:
+          type: string
+        repo:
+          type: string
+        repoRoot:
+          type: string
+        runtime:
+          type: string
         children:
           type: array
           items:
             type: object
             additionalProperties: false
             required:
-              - task_id
               - title
-              - child_wtree
-              - branch_ref
-              - worktree_path
               - acceptance
-              - commands
-              - result_schema
             properties:
+              id:
+                type: string
               task_id:
                 type: string
               title:
                 type: string
-              child_wtree:
+              name:
                 type: string
-              parent_wtree:
+              type:
+                enum:
+                  - coding
+                  - general
+              status:
                 type: string
-              parent_task_id:
-                type: string
-              parent_context_ref:
-                type: string
+              dependencies:
+                type: array
+                items:
+                  type: string
+              depends_on:
+                type: array
+                items:
+                  type: string
+              scope_files:
+                type: array
+                items:
+                  type: string
+              scope:
+                type: array
+                items:
+                  type: string
+              spec_refs:
+                type: array
+                items:
+                  type: string
+              specs:
+                type: array
+                items:
+                  type: string
+              context_refs:
+                type: array
+                items:
+                  type: string
+              context:
+                type: array
+                items:
+                  type: string
               branch_ref:
                 type: string
               worktree_path:
                 type: string
+              child_wtree:
+                type: string
+              concurrency_group:
+                type: string
               merge_target:
                 type: string
-              merge_target_worktree:
+              merge_lease_id:
+                type: string
+              merge_commit:
+                type: string
+              system_impact_ref:
                 type: string
               acceptance:
-                type: string
-              commands:
-                type: object
-                additionalProperties: false
-                required:
-                  - init
-                  - next
-                properties:
-                  init:
-                    type: object
-                    additionalProperties: false
-                    required:
-                      - cmd
-                      - args
-                    properties:
-                      cmd:
-                        type: string
-                      args:
-                        type: array
-                        items:
-                          type: string
-                  next:
-                    type: object
-                    additionalProperties: false
-                    required:
-                      - cmd
-                      - args
-                    properties:
-                      cmd:
-                        type: string
-                      args:
-                        type: array
-                        items:
-                          type: string
-              result_schema:
                 oneOf:
-                  - oneOf:
-                      - type: string
-                      - type: object
-                        additionalProperties: false
-                        required:
-                          - schema_path
-                        properties:
-                          schema_path:
-                            type: string
-                  - type: object
-                    additionalProperties: true
-                    required:
-                      - "$schema"
-                      - "$id"
-                    properties:
-                      "$schema":
-                        type: string
-                      "$id":
-                        type: string
-                      title:
-                        type: string
-                      type: {}
-                      required:
-                        type: array
-                        items:
-                          type: string
-                      properties:
-                        type: object
-        repo:
-          type: string
-        repoRoot:
-          type: string
+                  - type: string
+                  - type: array
+                    items:
+                      type: string
+              acceptance_criteria:
+                oneOf:
+                  - type: string
+                  - type: array
+                    items:
+                      type: string
         quest:
           type: object
           additionalProperties: true
-        runtime:
-          type: string
         actor:
           type: string
         target_branch:
@@ -439,14 +234,6 @@ input:
               type: string
             system_impact_ref:
               type: string
-            commands:
-              type: object
-              additionalProperties: true
-            result_schema:
-              oneOf:
-                - type: string
-                - type: object
-                  additionalProperties: true
             acceptance:
               oneOf:
                 - type: string
@@ -504,22 +291,17 @@ do:
         schema:
           document:
             "$schema": "https://json-schema.org/draft/2020-12/schema"
-            "$id": schemas/steps/child-dispatch-output.yaml
-            title: "Loopship V3 Child Dispatch Output"
+            "$id": schemas/steps/child-dispatch-request.yaml
+            title: "Loopship Fastflow Child Dispatch Request Payload"
             type: object
             additionalProperties: false
             required:
-              - step
-              - output_schema
-              - commands
               - children
             properties:
               schema_version:
-                const: 3
+                const: loopship.child-dispatch.request/v1
               kind:
-                const: quest_step
-              schema_path:
-                const: schemas/steps/child-dispatch-output.yaml
+                const: child_dispatch_request
               wtree:
                 type: string
               quest_id:
@@ -528,304 +310,104 @@ do:
                 type: string
               flow_version:
                 type: integer
-              step:
-                oneOf:
-                  - const: executing
-                  - allOf:
-                      - type: object
-                        additionalProperties: false
-                        required:
-                          - id
-                          - instructions
-                        properties:
-                          id:
-                            type: string
-                          instructions:
-                            type: string
-                      - type: object
-                        properties:
-                          id:
-                            const: executing
-              state:
+              current_stage:
                 type: string
               summary:
                 type: string
-              output_schema:
-                oneOf:
-                  - oneOf:
-                      - type: string
-                      - type: object
-                        additionalProperties: false
-                        required:
-                          - schema_path
-                        properties:
-                          schema_path:
-                            type: string
-                  - type: object
-                    additionalProperties: true
-                    required:
-                      - "$schema"
-                      - "$id"
-                    properties:
-                      "$schema":
-                        type: string
-                      "$id":
-                        type: string
-                      title:
-                        type: string
-                      type: {}
-                      required:
-                        type: array
-                        items:
-                          type: string
-                      properties:
-                        type: object
-              allowed_transitions:
-                type: object
-                additionalProperties:
-                  type: string
-              context:
-                type: object
-                additionalProperties: false
-                required:
-                  - step
-                properties:
-                  step:
-                    type: object
-                    additionalProperties: false
-                    required:
-                      - schema_version
-                      - id
-                      - handler
-                      - input_step
-                      - input_schema
-                      - output_schema
-                      - result_schema_path
-                      - summary
-                      - instructions
-                    properties:
-                      schema_version:
-                        const: 1
-                      id:
-                        type: string
-                      handler:
-                        type: string
-                      input_step:
-                        type:
-                          - string
-                          - "null"
-                      input_schema:
-                        oneOf:
-                          - oneOf:
-                              - oneOf:
-                                  - type: string
-                                  - type: object
-                                    additionalProperties: false
-                                    required:
-                                      - schema_path
-                                    properties:
-                                      schema_path:
-                                        type: string
-                              - type: object
-                                additionalProperties: true
-                                required:
-                                  - "$schema"
-                                  - "$id"
-                                properties:
-                                  "$schema":
-                                    type: string
-                                  "$id":
-                                    type: string
-                                  title:
-                                    type: string
-                                  type: {}
-                                  required:
-                                    type: array
-                                    items:
-                                      type: string
-                                  properties:
-                                    type: object
-                          - type: "null"
-                      output_schema:
-                        oneOf:
-                          - oneOf:
-                              - oneOf:
-                                  - type: string
-                                  - type: object
-                                    additionalProperties: false
-                                    required:
-                                      - schema_path
-                                    properties:
-                                      schema_path:
-                                        type: string
-                              - type: object
-                                additionalProperties: true
-                                required:
-                                  - "$schema"
-                                  - "$id"
-                                properties:
-                                  "$schema":
-                                    type: string
-                                  "$id":
-                                    type: string
-                                  title:
-                                    type: string
-                                  type: {}
-                                  required:
-                                    type: array
-                                    items:
-                                      type: string
-                                  properties:
-                                    type: object
-                          - type: "null"
-                      result_schema_path:
-                        type: string
-                      summary:
-                        type: string
-                      instructions:
-                        type: string
-              commands:
-                type: object
-                additionalProperties: false
-                required:
-                  - next
-                properties:
-                  next:
-                    type: object
-                    additionalProperties: false
-                    required:
-                      - cmd
-                      - args
-                    properties:
-                      cmd:
-                        type: string
-                      args:
-                        type: array
-                        items:
-                          type: string
-              docs:
-                type: object
-                additionalProperties: false
-                required:
-                  - state_yaml
-                  - events_jsonl
-                  - manifest
-                properties:
-                  state_yaml:
-                    type: string
-                  events_jsonl:
-                    type: string
-                  manifest:
-                    type: string
+              prompt:
+                type: string
+              repo:
+                type: string
+              repoRoot:
+                type: string
+              runtime:
+                type: string
               children:
                 type: array
                 items:
                   type: object
                   additionalProperties: false
                   required:
-                    - task_id
                     - title
-                    - child_wtree
-                    - branch_ref
-                    - worktree_path
                     - acceptance
-                    - commands
-                    - result_schema
                   properties:
+                    id:
+                      type: string
                     task_id:
                       type: string
                     title:
                       type: string
-                    child_wtree:
+                    name:
                       type: string
-                    parent_wtree:
+                    type:
+                      enum:
+                        - coding
+                        - general
+                    status:
                       type: string
-                    parent_task_id:
-                      type: string
-                    parent_context_ref:
-                      type: string
+                    dependencies:
+                      type: array
+                      items:
+                        type: string
+                    depends_on:
+                      type: array
+                      items:
+                        type: string
+                    scope_files:
+                      type: array
+                      items:
+                        type: string
+                    scope:
+                      type: array
+                      items:
+                        type: string
+                    spec_refs:
+                      type: array
+                      items:
+                        type: string
+                    specs:
+                      type: array
+                      items:
+                        type: string
+                    context_refs:
+                      type: array
+                      items:
+                        type: string
+                    context:
+                      type: array
+                      items:
+                        type: string
                     branch_ref:
                       type: string
                     worktree_path:
                       type: string
+                    child_wtree:
+                      type: string
+                    concurrency_group:
+                      type: string
                     merge_target:
                       type: string
-                    merge_target_worktree:
+                    merge_lease_id:
+                      type: string
+                    merge_commit:
+                      type: string
+                    system_impact_ref:
                       type: string
                     acceptance:
-                      type: string
-                    commands:
-                      type: object
-                      additionalProperties: false
-                      required:
-                        - init
-                        - next
-                      properties:
-                        init:
-                          type: object
-                          additionalProperties: false
-                          required:
-                            - cmd
-                            - args
-                          properties:
-                            cmd:
-                              type: string
-                            args:
-                              type: array
-                              items:
-                                type: string
-                        next:
-                          type: object
-                          additionalProperties: false
-                          required:
-                            - cmd
-                            - args
-                          properties:
-                            cmd:
-                              type: string
-                            args:
-                              type: array
-                              items:
-                                type: string
-                    result_schema:
                       oneOf:
-                        - oneOf:
-                            - type: string
-                            - type: object
-                              additionalProperties: false
-                              required:
-                                - schema_path
-                              properties:
-                                schema_path:
-                                  type: string
-                        - type: object
-                          additionalProperties: true
-                          required:
-                            - "$schema"
-                            - "$id"
-                          properties:
-                            "$schema":
-                              type: string
-                            "$id":
-                              type: string
-                            title:
-                              type: string
-                            type: {}
-                            required:
-                              type: array
-                              items:
-                                type: string
-                            properties:
-                              type: object
-              repo:
-                type: string
-              repoRoot:
-                type: string
+                        - type: string
+                        - type: array
+                          items:
+                            type: string
+                    acceptance_criteria:
+                      oneOf:
+                        - type: string
+                        - type: array
+                          items:
+                            type: string
               quest:
                 type: object
                 additionalProperties: true
-              runtime:
-                type: string
               actor:
                 type: string
               target_branch:
@@ -929,14 +511,6 @@ do:
                     type: string
                   system_impact_ref:
                     type: string
-                  commands:
-                    type: object
-                    additionalProperties: true
-                  result_schema:
-                    oneOf:
-                      - type: string
-                      - type: object
-                        additionalProperties: true
                   acceptance:
                     oneOf:
                       - type: string

@@ -122,7 +122,7 @@ do:
         script:
           language: js
           code: |-
-            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":{"kind":"static","value":"answered"}},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":{"kind":"js","code":"if (payload.approved === false) return \"rejected\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"child_approved\"\n  : \"approved\";\n"}},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"executing","step":"child_result","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":{"kind":"js","code":"if (payload.status === \"passed\") return \"passed\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"failed_child\"\n  : \"failed\";\n"}},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":{"kind":"js","code":"return payload.status === \"passed\" ? \"passed\" : \"failed\";\n"}},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":{"kind":"static","value":"updated"}},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":{"kind":"js","code":"return payload.status === \"blocked\" ? \"blocked\" : \"landed\";\n"}},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"archived","step":"archived","transitions":{},"transition_key":{"kind":"static","value":"continue"}}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"executing","trigger":"children[].commands.init","result_step":"child_result","flow_id":"swe"}]};
+            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":null},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":null},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":null},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"executing"},"transition_key":null},{"id":"executing","step":"child_result","transitions":{"complete":"validating","partial":"executing"},"transition_key":null},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":null},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":null},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":null},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":null},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":null},{"id":"archived","step":"archived","transitions":{},"transition_key":null}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"executing","trigger":"children[].actions.init","result_step":"child_result","flow_id":"swe"}]};
             const tasks = state.steps.read_tasks?.action || {};
             const requestedStage = String(args.stage || args.state || tasks.stage || flow.default_stage || "").trim();
             const stage = flow.stages.find((item) => item.id === requestedStage) ||
@@ -225,401 +225,40 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:191ba0d65ba4d7981264112db429cda06eb3e93b5b3b39f48a81606bd88785b9"
+          digest: "sha256:c68e5565e0cfeab19d1bfcbf0a4053a0834f057687473fd38277a95557b85e74"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/step-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: plan
-          state: planning
+          current_stage: planning
           summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
-          output_schema:
-            schema_path: schemas/steps/plan-input.yaml
-          allowed_transitions:
-            questions: awaiting_user_answers
-            planned: plan_review
-          context:
-            step:
-              schema_version: 1
-              id: plan
-              handler: plan
-              input_step: plan
-              input_schema:
-                schema_path: schemas/steps/step-output.yaml
-              output_schema:
-                schema_path: schemas/steps/plan-input.yaml
-              result_schema_path: schemas/steps/step-output.yaml
-              summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
-              instructions: |-
-                # Loopship Plan Step
-                
-                Act as a top-class principal architect, product systems thinker, and
-                delivery planner for Loopship. Treat this instruction block as the plan step's
-                system prompt: do not implement, do not delegate, and do not submit a task
-                graph until the request is converted into either a clarification stop or a
-                decision-complete execution spec.
-                
-                The human is available only during the planning window: the `plan` step and
-                any immediate `questions` round. After this step submits a non-question plan
-                callback, later flow steps may run autonomously according to the active
-                flow; they must not depend on hidden human choices or unstated product
-                decisions.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                ## Universal Planning Contract
-                
-                Plan every request as either a clarification stop or a decision-complete
-                execution spec. This applies to product builds, feature work, bugfixes,
-                refactors, docs, research, operations, audits, data tasks, and any other
-                general non-coding task.
-                
-                The `plan` payload is the canonical source of truth for the active flow
-                continuation. It must make the ask/default/decompose decision explicit
-                through schema fields instead of relying on prose outside
-                `.loopship/runtime/tasks.yaml`.
-                
-                ## Classify First
-                
-                Classify the request before planning:
-                
-                1. `greenfield_app`: new app, product, site, tool, automation, or prototype
-                2. `feature`: addition, behavior change, integration, docs expansion, or
-                   workflow delta to an existing system or quest
-                3. `bugfix`: defect, regression, broken test, incorrect behavior, or
-                   production issue
-                4. `refactor`: cleanup, migration, split, rename, architecture improvement,
-                   or non-behavioral modernization
-                5. `general`: research, review, writing, analysis, ops coordination, planning,
-                   reporting, data preparation, or other non-coding deliverable
-                
-                Use task `type: "coding"` only when the child must edit or verify code-like
-                artifacts. Use task `type: "general"` for non-coding deliverables with clear
-                acceptance evidence.
-                
-                ## Scout-Grill-Converge Loop
-                
-                Loop until the plan is coherent, decisive, and safe for autonomous flow
-                continuation:
-                
-                1. Scout: inspect the repo, quest, runtime, docs, schemas, tests, configs,
-                   interfaces, fixtures, logs, and prior state that are relevant to the
-                   request; scout the repo for relevant assumptions and distinguish what is
-                   known from what is inferred.
-                2. Grill: challenge CMS, contradictions, hidden assumptions, edge cases, and
-                   every material branch of the design tree. Separate discoverable facts from
-                   user preferences and tradeoffs. Ask only questions that change
-                   implementation, verification, risk, acceptance, or scope.
-                3. Converge: collapse discovered facts, answers, defaults, and assumptions
-                   into explicit `scope`, `constraints`, `verification_targets`,
-                   `system_context`, and task-sizing rationale.
-                4. Repeat scout -> grill -> converge whenever a new fact, answer, or
-                   assumption changes the plan boundary.
-                5. Exit with exactly one state: ask a clarification round, record safe
-                   reversible defaults, or decompose into the smallest decision-complete task
-                   graph.
-                
-                ## Repo Scout
-                
-                Before asking or decomposing, scout the source-of-truth context relevant to
-                the request:
-                
-                - repo shape, packages, manifests, scripts, build/test entrypoints, and
-                  runtime constraints
-                - existing architecture, interfaces, schema, data flow, public contracts, and
-                  extension points
-                - current quest state, prior answers, canonical task evidence, and active
-                  lifecycle stage
-                - risk surfaces such as auth, persistence, migrations, external services,
-                  deployment, reliability, performance, privacy, and rollback
-                - relevant assumptions a later worker or step would otherwise have to invent
-                
-                Record discovered facts and assumptions in canonical fields. Do not bury
-                assumptions in prose; make them visible in `scope`, `constraints`,
-                `defaulted_unknowns`, `system_context`, or `verification_targets`.
-                
-                ## Documentation Grill
-                
-                Treat Loopship's durable system knowledge as part of repo truth during scouting.
-                
-                - Read `.loopship/system.yaml` when it exists before grilling
-                  architecture, lifecycle, schema, runtime, planning, or
-                  verification changes.
-                - Read the semantic frontier in this order: root identity and
-                  scope, then `objects[]`, `assertions[]`, `resources[]`, and
-                  `memories[]`.
-                - Select relevant objects, assertions, resources, and memories for
-                  the request, then follow their relation-keyed `links` maps such
-                  as `about: [object:<id>]`, `part_of: [object:<id>]`, and
-                  `supported_by: [resource:<id>#/<json-pointer>]`.
-                - Follow relevant canonical resource-backed docs under
-                  `.loopship/docs/**/*.yaml` before asking questions about durable
-                  system intent. Required minimal docs are schema-based by
-                  `kinds[]`: software=`software-architecture+decision-records`,
-                  workflow=`workflow-spec`, knowledge=`knowledge-report`,
-                  data=`dataset-datasheet`, model=`model-card`,
-                  agent=`agent-system-card`, organization=`business-architecture`,
-                  artifact=`artifact-bom`.
-                - For broad lifecycle, schema, workflow-runner, prompt, runtime, or
-                  system-model changes, read all relevant concrete canonical doc
-                  resources for the touched assertions, objects, resources, or
-                  memories instead of sampling only one.
-                - Summarize the relevant durable system signal in `system_context`:
-                  record `relevant_object_refs`, `relevant_assertion_refs`,
-                  `relevant_resource_refs`, `relevant_memory_refs`, and any
-                  record-shaped `durable_implications` discovered during scouting.
-                - Do not create canonical records or external docs in this step.
-                  Planning scouts and cites them; `system_update` writes them
-                  later if the work is verified.
-                
-                
-                ## Required Flow
-                
-                1. Enter the principal-architect planning role and treat the current step as
-                   the last reliable human-decision boundary before autonomous work.
-                2. Classify the request and run the Repo Scout before asking or decomposing. 3. Run the Documentation Grill before asking or decomposing when
-                   `.loopship/system.yaml` is present or the request touches durable
-                   lifecycle, schema, runtime, workflow, prompt, or system-model
-                   behaviour.
-                
-                4. Run the Plan Gate before any task decomposition.
-                5. Build a relevance-bounded clarification matrix from only unresolved,
-                   materially relevant decisions.
-                6. Choose exactly one next state:
-                   - ask: submit `questions`, keep `task_graph.tasks` empty, and stop
-                   - default: record safe reversible choices in `defaulted_unknowns`
-                   - decompose: submit the smallest decision-complete task graph
-                7. Apply AF to challenge contradictions, hidden assumptions, weak reasoning,
-                   missing edge cases, and unsafe defaults.
-                8. Apply OF to collapse decisions into deterministic scope, constraints,
-                   acceptance, evidence, and task-sizing rationale.
-                9. Submit the schema-valid `plan` payload through the emitted
-                   `commands.next`; the binary owns creation and mutation of the
-                   active worktree's `.loopship/runtime/tasks.yaml`.
-                
-                ## Plan Gate
-                
-                Borrow the useful discipline of an explicit planning pause before action:
-                inspect first, name the decision boundary, then either ask, default, or
-                decompose. Do not let implementation momentum skip this gate.
-                
-                Eliminate unknowns by discovering repo facts before asking the user. If a
-                question can be answered by exploring the codebase, explore instead.
-                
-                Treat unknowns in two lanes:
-                
-                - Discoverable facts are repo or system truth. Search likely source files,
-                  configs, schemas, manifests, entrypoints, docs, logs, fixtures, tests, and
-                  current quest state before asking. Ask only when multiple candidates remain
-                  plausible, no source of truth exists, or the missing fact is actually
-                  product intent.
-                - Durable system assertions are also discoverable truth. Search
-                  `.loopship/system.yaml`, then resolve relevant typed refs before
-                  asking a user to decide an already-recorded invariant.
-                - Preferences and tradeoffs are user intent. Ask early when they materially
-                  change scope, risk, architecture, acceptance, rollout, stakeholder value, or
-                  verification. Provide 2-3 meaningful options and a recommended default.
-                
-                Use a design-tree grill for every materially ambiguous request:
-                
-                - Walk each relevant branch of the design tree before implementation.
-                - Resolve dependencies between decisions in order; do not ask a later
-                  question until its parent decision is known.
-                - For each unresolved question, provide the recommended answer and the reason
-                  it is the safest current default.
-                - In Loopship payloads, group only independent sibling questions into the same
-                  1-3 question round. Ask dependent decisions one at a time across rounds.
-                
-                Cover CMS during the grill. CMS means Critical Missing Scope:
-                
-                - Customer and workflow: who uses this, what job are they completing, and
-                  what is the first successful end-to-end path?
-                - Mechanics and constraints: what surface, stack, files, data model,
-                  integrations, auth, migration, reliability, performance, safety, and
-                  operational limits shape the work?
-                - Success and evidence: what observable checks prove acceptance, what risks
-                  would make the plan unsafe, and what is explicitly out of scope?
-                
-                Convert the gate into canonical fields:
-                
-                - unanswered high-impact items become `questions`
-                - safe reversible choices become `defaulted_unknowns`
-                - chosen boundaries become `scope`, `constraints`, and `verification_targets`
-                - durable system discovery becomes `system_context`
-                - decomposition strategy and task sizing rationale are reflected by the actual `task_graph`
-                
-                Finalize only when the plan payload is decision-complete: each child worker
-                can execute its task without making product, interface, architecture,
-                data-flow, edge-case, migration, rollout, ownership, or verification
-                decisions on its own.
-                
-                ## Question Rounds
-                
-                - Use `request_user_input` only when the runtime exposes it and the remaining
-                  ambiguity is genuinely high impact.
-                - Keep each round to 1-3 short questions, grouped by related ambiguity.
-                - Make each question answerable with 2-3 mutually exclusive choices; put the
-                   recommended choice first and rely on the tool's automatic `Other` choice
-                   instead of inventing a catchall.
-                - Prefer one concise grouped round over serial single-question turns whenever
-                   the next question does not depend on the previous answer.
-                - Prefer explicit low-risk defaults only when no clarification round is
-                  needed and the unresolved choice is reversible and low impact.
-                - In headless or auto-continued CLI runs, if you emit a clarification round,
-                  stop and wait indefinitely for a human answer instead of auto-accepting
-                  defaults after asking.
-                - Question text should grill the missing decision, not survey preferences.
-                  Ask the option that changes implementation, verification, or risk.
-                - Include a recommended answer for each question so the user can accept a
-                  safe default quickly instead of inventing one from scratch.
-                - If asking about a discoverable fact, include the concrete candidates or the
-                  searched source-of-truth gap in the question's impact/default fields.
-                
-                ## Clarification Dimensions
-                
-                Cover each dimension when relevant:
-                
-                - goal and success outcome
-                - users, personas, and stakeholders
-                - primary business cases and workflows
-                - corner cases and failure cases
-                - business rules, policies, and implications
-                - data, state, storage, and migration implications
-                - integrations and external dependencies
-                - security, privacy, compliance, reliability, and performance requirements
-                - UX and product expectations for app or dashboard requests
-                - operational constraints and rollout constraints
-                - verification expectations and acceptance criteria
-                - explicit out-of-scope boundaries
-                - deliverable format, evidence format, and handoff expectations for general
-                  non-coding work
-                
-                ## Request-Type Rules
-                
-                Greenfield app or product requests:
-                
-                - Perform full product-design expansion before task decomposition.
-                - Ask across product, UX, data, operational, and verification dimensions.
-                - Treat prompts like `create a fullstack app`, `build a website`, or `make a
-                  tool` as unresolved product-definition requests.
-                - For those generic prompts, the first plan response must emit a
-                  clarification round through `questions` and keep `task_graph.tasks` empty.
-                - Do not invent domain, stack, persistence, auth, or primary workflow in
-                  `scope` unless the prompt already constrained them or the user answered
-                  them in the current clarification history.
-                
-                Bugfix or regression requests:
-                
-                - Inspect repo and likely repro surface before asking questions.
-                - Limit questioning to unresolved behavior, constraints, expected outcome, and
-                  regression boundaries.
-                
-                Feature or delta requests:
-                
-                - Re-run planning only for the changed dimensions.
-                - Preserve previously settled scope and evidence unless the delta invalidates
-                  them.
-                
-                Refactor or migration requests:
-                
-                - Inspect current boundaries, public interfaces, tests, and compatibility
-                  constraints before decomposing.
-                - Preserve behavior unless the request explicitly asks for behavior changes.
-                - Record migration, rollback, and verification implications when they affect
-                  safety or acceptance.
-                
-                General non-coding requests:
-                
-                - Treat the deliverable as the work product. Define the audience, artifact
-                  shape, source-of-truth inputs, evidence, acceptance criteria, and handoff.
-                - Use `type: "general"` tasks unless implementation edits are required.
-                - Do not invent code work just to fit the SWE flow; use research, review,
-                  writing, audit, data, ops, or planning tasks when that is the real work.
-                
-                ## Task Graph Sizing
-                
-                - Prefer the smallest task graph that can finish deterministically.
-                - Prefer maximal useful independence so multiple child worktrees can run in
-                  parallel when the work is clearly independent and the file scope is
-                  disjoint.
-                - For tiny utilities, one-file tools, and narrow greenfield apps, keep the
-                  graph to 1-2 tasks unless a split is required by file ownership, merge
-                  safety, or materially different acceptance criteria.
-                - For a small prototype or first version, keep the graph to 1-3 concrete
-                  tasks. Do not split scaffolding, implementation, and final verification
-                  into separate child tasks unless the acceptance boundaries genuinely differ.
-                - When the request still requires implementation work, the task graph must
-                  contain at least one concrete task. Do not submit an empty `task_graph`
-                  just because the scope is small.
-                - When the request requires non-coding work, the task graph must contain at
-                  least one concrete `general` task unless a high-impact clarification round
-                  is being emitted.
-                - Do not split setup, implementation, and tests into separate child tasks
-                  when one competent worker can complete them in one bounded pass.
-                - Do not split research, synthesis, and reporting into separate child tasks
-                  unless the evidence sources, audiences, or acceptance criteria differ.
-                - Child tasks are leaf workers. Do not split a child assignment into another
-                  child depth.
-                
-                ## Defaulting Rules
-                
-                - Do not submit executable decomposition while high-impact ambiguity remains.
-                - Generic greenfield product prompts are not low-risk defaults. Ask the first
-                  clarification round before decomposing them into tasks.
-                - If only low-impact details remain unresolved, proceed with explicit
-                  defaults.
-                - Once you ask a clarification round, do not auto-answer it. Wait for the
-                  user's response before continuing any decomposition that depends on it.
-                - Record defaults, assumptions, and unresolved risks through the schema-valid
-                  `plan` payload so they land in canonical `tasks.yaml` state.
-                
-                ## Plan Payload Output
-                
-                The plan phase must produce:
-                
-                - a classification that matches the real work
-                - a refined scope statement
-                - explicit constraints
-                - explicit assumptions and defaults
-                - high-impact unknowns or questions when decomposition is unsafe
-                - verification targets
-                - decomposition inputs for both `general` and `coding` tasks where applicable
-                - `system_context` with `relevant_object_refs`,
-                  `relevant_assertion_refs`, `relevant_resource_refs`,
-                  `relevant_memory_refs`, and `durable_implications`
-                
-                - the smallest viable task graph for the scoped work
-                
-                ## Framework References
-                
-                Use `references/core/analytical-framework.md` as the primary planning rigor source: check contradictions, evidence quality, hidden assumptions, causal validity, alternatives, and bias.
-                
-                Use `references/core/optimization-framework.md` to make the plan operational only after the analysis is coherent: define deterministic scope, defaults, acceptance, decomposition, and verification targets without leaking later-step assumptions into this step. AF/OF improve the reasoning process here, but they are not output fields.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements:
+            - "Classify the request."
+            - "Use repository discovery before asking questions."
+            - "Use AF to surface contradictions, hidden assumptions, weak evidence, and edge cases."
+            - "Use OF to collapse scope, defaults, acceptance, decomposition, and verification targets."
+            - "For greenfield app/product work, ask or explicitly default every high-impact unknown before task graph approval."
       output:
         schema:
           document:
@@ -649,69 +288,35 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:3d9b47b64fc9a1933b6f8f84cdb5a1abbd2cd1705347268c885c896f596f9342"
+          digest: "sha256:3b9b49e2836bc6c30f0b671e25a8278f60042bb28f153d2b3f0c1e56d2336820"
       call: loopship.workflow.service.step.questions
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/step-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: questions
-          state: awaiting_user_answers
+          current_stage: awaiting_user_answers
           summary: "Submit grouped user answers for the current clarification round."
-          output_schema:
-            schema_path: schemas/steps/questions-input.yaml
-          allowed_transitions:
-            answered: planning
-          context:
-            step:
-              schema_version: 1
-              id: questions
-              handler: questions
-              input_step: questions
-              input_schema:
-                schema_path: schemas/steps/step-output.yaml
-              output_schema:
-                schema_path: schemas/steps/questions-input.yaml
-              result_schema_path: schemas/steps/step-output.yaml
-              summary: "Submit grouped user answers for the current clarification round."
-              instructions: |-
-                # Loopship Questions Step
-                
-                Act as a top-class clarification recorder for Loopship. Treat this instruction
-                block as the questions step's system prompt: capture human-provided answers
-                exactly, preserve identifiers, and return only the schema-valid `questions`
-                callback.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                Record answers from the most recent grouped clarification round. Preserve the
-                original question ids, carry forward any previously recorded explicit
-                defaults, and submit answers through the emitted `commands.next` with the `questions` step schema. Do not auto-answer unresolved
-                questions; wait for human-provided answers before submitting this callback.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements: []
       output:
         schema:
           document:
@@ -741,92 +346,35 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:b43ce970d6c78b8fc44b32ea43878871f1d7895b711042b769587d320271b08b"
+          digest: "sha256:7ef0065a1f6015c70a319f9885fd2e6ddae92e561faa6bdcf14796ce82a68c98"
       call: loopship.workflow.service.step.task-graph
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/step-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: task_graph
-          state: plan_review
+          current_stage: plan_review
           summary: "Approve or reject the generated task graph, including a replan reason when rejected."
-          output_schema:
-            schema_path: schemas/steps/task-graph-input.yaml
-          allowed_transitions:
-            approved: task_graph_ready
-            child_approved: validating
-            rejected: planning
-          context:
-            step:
-              schema_version: 1
-              id: task_graph
-              handler: task_graph
-              input_step: task_graph
-              input_schema:
-                schema_path: schemas/steps/step-output.yaml
-              output_schema:
-                schema_path: schemas/steps/task-graph-input.yaml
-              result_schema_path: schemas/steps/step-output.yaml
-              summary: "Approve or reject the generated task graph, including a replan reason when rejected."
-              instructions: |-
-                # Loopship Task Graph Step
-                
-                Act as a top-class task graph reviewer for Loopship. Treat this instruction
-                block as the task graph step's system prompt: approve only deterministic,
-                independent, acceptance-ready task graphs and return only the schema-valid
-                `task_graph` callback.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                Review the plan and task graph for completeness, independence, acceptance,
-                scope references, and missing system doc implications.
-                
-                Approve only when dependencies, scope files, concurrency groups, and child
-                CLI-agent assignment fields are deterministic.
-                Prefer maximal useful independence so multiple ready tasks can run in
-                parallel. Dependent tasks should wait instead of being emitted as partially
-                blocked child work.
-                
-                Reject graphs that are empty while the scoped request still requires
-                implementation work. Small scope should shrink the graph, not remove it.
-                
-                Reject graphs that invent product scope or stack choices that were never
-                answered in the clarification round or recorded as explicit defaults.
-                
-                Reject graphs that over-split tiny work. Setup-only tasks, trivial test-only
-                tasks, and micro-refactors should be folded into the nearest implementation
-                task unless they need separate ownership or materially different acceptance.
-                
-                Reject graphs that would cause a child task to split again. Child quests are
-                leaf workers and should receive one independently completable assignment.
-                
-                Reject small-prototype graphs that split scaffolding, implementation, and
-                verification into separate tasks when one or two concrete implementation
-                tasks would cover the same acceptance.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements: []
       output:
         schema:
           document:
@@ -856,101 +404,20 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:ee249ec7eef2bb22695376b6ceaf66fb84cad21bfffad7b31470087e5453bb65"
+          digest: "sha256:8819d9544d58fc29523b79bba2db97c596d9a67dc902f6426a42ece061de75b1"
       call: loopship.workflow.service.step.executing
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/child-dispatch-output.yaml
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-          quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-          flow_id: swe
-          flow_version: 1
-          step: executing
-          state: task_graph_ready
-          summary: "Start the ready child wtree commands and submit child_result payloads as children finish."
-          output_schema:
-            schema_path: schemas/steps/afn-action-result.yaml
-          allowed_transitions:
-            complete: validating
-            partial: executing
-          context:
-            step:
-              schema_version: 1
-              id: executing
-              handler: executing
-              input_step: executing
-              input_schema:
-                schema_path: schemas/steps/child-dispatch-output.yaml
-              output_schema:
-                schema_path: schemas/steps/afn-action-result.yaml
-              result_schema_path: schemas/steps/child-dispatch-output.yaml
-              summary: "Start the ready child wtree commands and submit child_result payloads as children finish."
-              instructions: |-
-                # Loopship Executing Step
-                
-                Act as a top-class execution coordinator for Loopship. Treat this instruction
-                block as the executing step's system prompt: dispatch ready child work,
-                monitor canonical child evidence, and return only schema-valid
-                `child_result` callbacks.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                Launch all ready child CLI agents whose dependencies, scope files, and
-                concurrency groups allow independent execution. Parallel child worktrees are
-                the default when the graph was split well.
-                
-                Each dispatched task gets one dedicated child CLI agent session, one child
-                quest wtree, one child worktree, and no hidden task split.
-                
-                Launch the emitted `children[].commands.init` command in a separate CLI agent
-                session for that child. The root session stays coordinator-only: dispatch,
-                monitor, and reconcile results, but do not impersonate child execution by
-                doing the child's implementation work inline in the parent session.
-                
-                Preserve the emitted child wtree/worktree boundaries, and submit
-                `child_result` back to the parent only after the child quest reaches a
-                terminal child state.
-                
-                Child quests are leaf workers. They must not create another child depth or
-                delegate again. They should read the parent context file, complete the one
-                assigned task, land into the assigned merge target, and return `merge_commit`.
-                
-                A successful `child_result` must include the merged child commit hash in
-                `merge_commit`. Use the child quest's landing receipt and do not
-                report `status: passed` until the child quest has merged the child branch
-                into the assigned `merge_target`.
-                
-                Child worktree directories are transient execution scaffolds. Never satisfy a
-                merge by committing `worktrees/**` paths into the parent or landing branch;
-                land the actual deliverables in the current quest tree.
-                
-                Prefer maximal safe parallelism over artificial serial execution.
-                Correctness of child boundaries and result submission is mandatory.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
           repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           runtime: "${inputs.runtime || ''}"
           children: "${inputs.children || []}"
+          actor: "${inputs.actor || 'loopship'}"
+          target_branch: "${inputs.target_branch || state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          target_worktree: "${inputs.target_worktree || state.steps.read_tasks.action.landing_target_worktree || ''}"
+          source_branch: "${inputs.source_branch || state.steps.read_tasks.action.coordinator_branch || ''}"
       output:
         schema:
           document:
@@ -980,73 +447,35 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:27ec8bcbefee6d604fc5c656f7e33a1082c5d92a78ace441ec6cbad1f8d9d9ea"
+          digest: "sha256:bcb9234ace000a9a4d99a1e6e8a6e86379c82a79d42812dcd5ad98f910f743dc"
       call: loopship.workflow.service.step.child-result
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/step-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: child_result
-          state: executing
+          current_stage: executing
           summary: "Submit the result of a completed child quest back to the parent flow."
-          output_schema:
-            schema_path: schemas/steps/child-result-input.yaml
-          allowed_transitions:
-            complete: validating
-            partial: executing
-          context:
-            step:
-              schema_version: 1
-              id: child_result
-              handler: child_result
-              input_step: child_result
-              input_schema:
-                schema_path: schemas/steps/step-output.yaml
-              output_schema:
-                schema_path: schemas/steps/child-result-input.yaml
-              result_schema_path: schemas/steps/step-output.yaml
-              summary: "Submit the result of a completed child quest back to the parent flow."
-              instructions: |-
-                # Loopship Child Result Step
-                
-                Act as a top-class parent quest reconciler for Loopship. Treat this
-                instruction block as the child result step's system prompt: inspect canonical
-                child evidence, submit one schema-valid `child_result` callback, and do not
-                perform the child's implementation work inline in the parent session.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                Submit `status: passed` only after the child quest is archived and the
-                child's landed commit is present in the planned merge target. Include the
-                exact `task_id`, `child_wtree`, evidence refs, and `merge_commit`.
-                
-                Submit `status: blocked` or `status: failed` with evidence when the child
-                cannot complete. Do not mark another task, invent a merge commit, or report
-                success from agent prose without canonical child state.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements: []
       output:
         schema:
           document:
@@ -1076,69 +505,35 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:c1b0fe2ee9819012241428b7dceec2dd2522ca62ffeefcab4d96ed515fb570cf"
+          digest: "sha256:656d1854e80abcfcd2dddfdae8b9ccd41e75c51b1c10e02ce9b32066ea48cd09"
       call: loopship.workflow.service.step.validation
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/step-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: validation
-          state: validating
+          current_stage: validating
           summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
-          output_schema:
-            schema_path: schemas/steps/validation-input.yaml
-          allowed_transitions:
-            passed: verification_pending
-            failed: task_graph_ready
-            failed_child: validating
-          context:
-            step:
-              schema_version: 1
-              id: validation
-              handler: validation
-              input_step: validation
-              input_schema:
-                schema_path: schemas/steps/step-output.yaml
-              output_schema:
-                schema_path: schemas/steps/validation-input.yaml
-              result_schema_path: schemas/steps/step-output.yaml
-              summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
-              instructions: |-
-                # Loopship Validation Step
-                
-                Act as a top-class deterministic validation engineer for Loopship. Treat this
-                instruction block as the validation step's system prompt: run objective
-                checks, report their evidence, and return only the schema-valid `validation`
-                callback.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                Run deterministic checks only: schemas, DAG, tests, build, lint/typecheck,
-                manifest checks, and live behavior refs when applicable.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements: []
       output:
         schema:
           document:
@@ -1168,67 +563,35 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:3dd506fafcc1101cdc7652a5519d0331022a77fbe8acb3e4154e7be59714b1b9"
+          digest: "sha256:c4f63378c2c3eab5b551795ffb6d9c8f45499d9c15cfd6678e1acec31a335e92"
       call: loopship.workflow.service.step.verification
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/step-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: verification
-          state: verification_pending
+          current_stage: verification_pending
           summary: "Submit acceptance trace, PR-style risk review, and residual risks."
-          output_schema:
-            schema_path: schemas/steps/verification-input.yaml
-          allowed_transitions:
-            passed: system_update_pending
-            failed: validating
-          context:
-            step:
-              schema_version: 1
-              id: verification
-              handler: verification
-              input_step: verification
-              input_schema:
-                schema_path: schemas/steps/step-output.yaml
-              output_schema:
-                schema_path: schemas/steps/verification-input.yaml
-              result_schema_path: schemas/steps/step-output.yaml
-              summary: "Submit acceptance trace, PR-style risk review, and residual risks."
-              instructions: |-
-                # Loopship Verification Step
-                
-                Act as a top-class acceptance and risk reviewer for Loopship. Treat this
-                instruction block as the verification step's system prompt: trace acceptance,
-                review residual risk, and return only the schema-valid `verification`
-                callback.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                Perform acceptance trace, risk review, behavior coverage, and evidence review.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements: []
       output:
         schema:
           document:
@@ -1258,12 +621,11 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:a4dc63812c594feb80891baeae1c070fe5cf5636717f35366ac8129453013eb3"
+          digest: "sha256:01642934a42a4cb3b540974517c37f26d6a4e20467097ae7b2df590318577de1"
       call: loopship.workflow.service.step.system-update
       with:
         version: 0.1.0
         input:
-          step: "${inputs.step || \"system_update\"}"
           system_update: "${inputs.system_update || inputs.update || { schema_version: 1, mode: 'no_change', summary: '' }}"
           repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
@@ -1302,12 +664,11 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:c7255067580a7dbb87830b6707fc13914eeed29f1ae7ba9a54396ef7b98221fe"
+          digest: "sha256:903dfd2927a13aed9355a4579bb40e72354561ad565eeeb54df9faddbf5a858a"
       call: loopship.workflow.service.step.landing
       with:
         version: 0.1.0
         input:
-          step: "${inputs.step || \"landing\"}"
           status: "${inputs.status || 'landed'}"
           summary: "${inputs.summary || ''}"
           repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
@@ -1347,401 +708,40 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:191ba0d65ba4d7981264112db429cda06eb3e93b5b3b39f48a81606bd88785b9"
+          digest: "sha256:c68e5565e0cfeab19d1bfcbf0a4053a0834f057687473fd38277a95557b85e74"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/step-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: plan
-          state: replanning
+          current_stage: replanning
           summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
-          output_schema:
-            schema_path: schemas/steps/plan-input.yaml
-          allowed_transitions:
-            planned: plan_review
-            questions: awaiting_user_answers
-          context:
-            step:
-              schema_version: 1
-              id: plan
-              handler: plan
-              input_step: plan
-              input_schema:
-                schema_path: schemas/steps/step-output.yaml
-              output_schema:
-                schema_path: schemas/steps/plan-input.yaml
-              result_schema_path: schemas/steps/step-output.yaml
-              summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
-              instructions: |-
-                # Loopship Plan Step
-                
-                Act as a top-class principal architect, product systems thinker, and
-                delivery planner for Loopship. Treat this instruction block as the plan step's
-                system prompt: do not implement, do not delegate, and do not submit a task
-                graph until the request is converted into either a clarification stop or a
-                decision-complete execution spec.
-                
-                The human is available only during the planning window: the `plan` step and
-                any immediate `questions` round. After this step submits a non-question plan
-                callback, later flow steps may run autonomously according to the active
-                flow; they must not depend on hidden human choices or unstated product
-                decisions.
-                
-                ## Step-Local Callback Contract
-                
-                This step is reusable across flows. The orchestrator owns flow transitions
-                and decides which step, if any, follows this callback. Produce only the JSON
-                payload that matches this step's current `output_schema`, then submit it
-                through `commands.next`; do not shape output for a guessed successor.
-                
-                ## Universal Planning Contract
-                
-                Plan every request as either a clarification stop or a decision-complete
-                execution spec. This applies to product builds, feature work, bugfixes,
-                refactors, docs, research, operations, audits, data tasks, and any other
-                general non-coding task.
-                
-                The `plan` payload is the canonical source of truth for the active flow
-                continuation. It must make the ask/default/decompose decision explicit
-                through schema fields instead of relying on prose outside
-                `.loopship/runtime/tasks.yaml`.
-                
-                ## Classify First
-                
-                Classify the request before planning:
-                
-                1. `greenfield_app`: new app, product, site, tool, automation, or prototype
-                2. `feature`: addition, behavior change, integration, docs expansion, or
-                   workflow delta to an existing system or quest
-                3. `bugfix`: defect, regression, broken test, incorrect behavior, or
-                   production issue
-                4. `refactor`: cleanup, migration, split, rename, architecture improvement,
-                   or non-behavioral modernization
-                5. `general`: research, review, writing, analysis, ops coordination, planning,
-                   reporting, data preparation, or other non-coding deliverable
-                
-                Use task `type: "coding"` only when the child must edit or verify code-like
-                artifacts. Use task `type: "general"` for non-coding deliverables with clear
-                acceptance evidence.
-                
-                ## Scout-Grill-Converge Loop
-                
-                Loop until the plan is coherent, decisive, and safe for autonomous flow
-                continuation:
-                
-                1. Scout: inspect the repo, quest, runtime, docs, schemas, tests, configs,
-                   interfaces, fixtures, logs, and prior state that are relevant to the
-                   request; scout the repo for relevant assumptions and distinguish what is
-                   known from what is inferred.
-                2. Grill: challenge CMS, contradictions, hidden assumptions, edge cases, and
-                   every material branch of the design tree. Separate discoverable facts from
-                   user preferences and tradeoffs. Ask only questions that change
-                   implementation, verification, risk, acceptance, or scope.
-                3. Converge: collapse discovered facts, answers, defaults, and assumptions
-                   into explicit `scope`, `constraints`, `verification_targets`,
-                   `system_context`, and task-sizing rationale.
-                4. Repeat scout -> grill -> converge whenever a new fact, answer, or
-                   assumption changes the plan boundary.
-                5. Exit with exactly one state: ask a clarification round, record safe
-                   reversible defaults, or decompose into the smallest decision-complete task
-                   graph.
-                
-                ## Repo Scout
-                
-                Before asking or decomposing, scout the source-of-truth context relevant to
-                the request:
-                
-                - repo shape, packages, manifests, scripts, build/test entrypoints, and
-                  runtime constraints
-                - existing architecture, interfaces, schema, data flow, public contracts, and
-                  extension points
-                - current quest state, prior answers, canonical task evidence, and active
-                  lifecycle stage
-                - risk surfaces such as auth, persistence, migrations, external services,
-                  deployment, reliability, performance, privacy, and rollback
-                - relevant assumptions a later worker or step would otherwise have to invent
-                
-                Record discovered facts and assumptions in canonical fields. Do not bury
-                assumptions in prose; make them visible in `scope`, `constraints`,
-                `defaulted_unknowns`, `system_context`, or `verification_targets`.
-                
-                ## Documentation Grill
-                
-                Treat Loopship's durable system knowledge as part of repo truth during scouting.
-                
-                - Read `.loopship/system.yaml` when it exists before grilling
-                  architecture, lifecycle, schema, runtime, planning, or
-                  verification changes.
-                - Read the semantic frontier in this order: root identity and
-                  scope, then `objects[]`, `assertions[]`, `resources[]`, and
-                  `memories[]`.
-                - Select relevant objects, assertions, resources, and memories for
-                  the request, then follow their relation-keyed `links` maps such
-                  as `about: [object:<id>]`, `part_of: [object:<id>]`, and
-                  `supported_by: [resource:<id>#/<json-pointer>]`.
-                - Follow relevant canonical resource-backed docs under
-                  `.loopship/docs/**/*.yaml` before asking questions about durable
-                  system intent. Required minimal docs are schema-based by
-                  `kinds[]`: software=`software-architecture+decision-records`,
-                  workflow=`workflow-spec`, knowledge=`knowledge-report`,
-                  data=`dataset-datasheet`, model=`model-card`,
-                  agent=`agent-system-card`, organization=`business-architecture`,
-                  artifact=`artifact-bom`.
-                - For broad lifecycle, schema, workflow-runner, prompt, runtime, or
-                  system-model changes, read all relevant concrete canonical doc
-                  resources for the touched assertions, objects, resources, or
-                  memories instead of sampling only one.
-                - Summarize the relevant durable system signal in `system_context`:
-                  record `relevant_object_refs`, `relevant_assertion_refs`,
-                  `relevant_resource_refs`, `relevant_memory_refs`, and any
-                  record-shaped `durable_implications` discovered during scouting.
-                - Do not create canonical records or external docs in this step.
-                  Planning scouts and cites them; `system_update` writes them
-                  later if the work is verified.
-                
-                
-                ## Required Flow
-                
-                1. Enter the principal-architect planning role and treat the current step as
-                   the last reliable human-decision boundary before autonomous work.
-                2. Classify the request and run the Repo Scout before asking or decomposing. 3. Run the Documentation Grill before asking or decomposing when
-                   `.loopship/system.yaml` is present or the request touches durable
-                   lifecycle, schema, runtime, workflow, prompt, or system-model
-                   behaviour.
-                
-                4. Run the Plan Gate before any task decomposition.
-                5. Build a relevance-bounded clarification matrix from only unresolved,
-                   materially relevant decisions.
-                6. Choose exactly one next state:
-                   - ask: submit `questions`, keep `task_graph.tasks` empty, and stop
-                   - default: record safe reversible choices in `defaulted_unknowns`
-                   - decompose: submit the smallest decision-complete task graph
-                7. Apply AF to challenge contradictions, hidden assumptions, weak reasoning,
-                   missing edge cases, and unsafe defaults.
-                8. Apply OF to collapse decisions into deterministic scope, constraints,
-                   acceptance, evidence, and task-sizing rationale.
-                9. Submit the schema-valid `plan` payload through the emitted
-                   `commands.next`; the binary owns creation and mutation of the
-                   active worktree's `.loopship/runtime/tasks.yaml`.
-                
-                ## Plan Gate
-                
-                Borrow the useful discipline of an explicit planning pause before action:
-                inspect first, name the decision boundary, then either ask, default, or
-                decompose. Do not let implementation momentum skip this gate.
-                
-                Eliminate unknowns by discovering repo facts before asking the user. If a
-                question can be answered by exploring the codebase, explore instead.
-                
-                Treat unknowns in two lanes:
-                
-                - Discoverable facts are repo or system truth. Search likely source files,
-                  configs, schemas, manifests, entrypoints, docs, logs, fixtures, tests, and
-                  current quest state before asking. Ask only when multiple candidates remain
-                  plausible, no source of truth exists, or the missing fact is actually
-                  product intent.
-                - Durable system assertions are also discoverable truth. Search
-                  `.loopship/system.yaml`, then resolve relevant typed refs before
-                  asking a user to decide an already-recorded invariant.
-                - Preferences and tradeoffs are user intent. Ask early when they materially
-                  change scope, risk, architecture, acceptance, rollout, stakeholder value, or
-                  verification. Provide 2-3 meaningful options and a recommended default.
-                
-                Use a design-tree grill for every materially ambiguous request:
-                
-                - Walk each relevant branch of the design tree before implementation.
-                - Resolve dependencies between decisions in order; do not ask a later
-                  question until its parent decision is known.
-                - For each unresolved question, provide the recommended answer and the reason
-                  it is the safest current default.
-                - In Loopship payloads, group only independent sibling questions into the same
-                  1-3 question round. Ask dependent decisions one at a time across rounds.
-                
-                Cover CMS during the grill. CMS means Critical Missing Scope:
-                
-                - Customer and workflow: who uses this, what job are they completing, and
-                  what is the first successful end-to-end path?
-                - Mechanics and constraints: what surface, stack, files, data model,
-                  integrations, auth, migration, reliability, performance, safety, and
-                  operational limits shape the work?
-                - Success and evidence: what observable checks prove acceptance, what risks
-                  would make the plan unsafe, and what is explicitly out of scope?
-                
-                Convert the gate into canonical fields:
-                
-                - unanswered high-impact items become `questions`
-                - safe reversible choices become `defaulted_unknowns`
-                - chosen boundaries become `scope`, `constraints`, and `verification_targets`
-                - durable system discovery becomes `system_context`
-                - decomposition strategy and task sizing rationale are reflected by the actual `task_graph`
-                
-                Finalize only when the plan payload is decision-complete: each child worker
-                can execute its task without making product, interface, architecture,
-                data-flow, edge-case, migration, rollout, ownership, or verification
-                decisions on its own.
-                
-                ## Question Rounds
-                
-                - Use `request_user_input` only when the runtime exposes it and the remaining
-                  ambiguity is genuinely high impact.
-                - Keep each round to 1-3 short questions, grouped by related ambiguity.
-                - Make each question answerable with 2-3 mutually exclusive choices; put the
-                   recommended choice first and rely on the tool's automatic `Other` choice
-                   instead of inventing a catchall.
-                - Prefer one concise grouped round over serial single-question turns whenever
-                   the next question does not depend on the previous answer.
-                - Prefer explicit low-risk defaults only when no clarification round is
-                  needed and the unresolved choice is reversible and low impact.
-                - In headless or auto-continued CLI runs, if you emit a clarification round,
-                  stop and wait indefinitely for a human answer instead of auto-accepting
-                  defaults after asking.
-                - Question text should grill the missing decision, not survey preferences.
-                  Ask the option that changes implementation, verification, or risk.
-                - Include a recommended answer for each question so the user can accept a
-                  safe default quickly instead of inventing one from scratch.
-                - If asking about a discoverable fact, include the concrete candidates or the
-                  searched source-of-truth gap in the question's impact/default fields.
-                
-                ## Clarification Dimensions
-                
-                Cover each dimension when relevant:
-                
-                - goal and success outcome
-                - users, personas, and stakeholders
-                - primary business cases and workflows
-                - corner cases and failure cases
-                - business rules, policies, and implications
-                - data, state, storage, and migration implications
-                - integrations and external dependencies
-                - security, privacy, compliance, reliability, and performance requirements
-                - UX and product expectations for app or dashboard requests
-                - operational constraints and rollout constraints
-                - verification expectations and acceptance criteria
-                - explicit out-of-scope boundaries
-                - deliverable format, evidence format, and handoff expectations for general
-                  non-coding work
-                
-                ## Request-Type Rules
-                
-                Greenfield app or product requests:
-                
-                - Perform full product-design expansion before task decomposition.
-                - Ask across product, UX, data, operational, and verification dimensions.
-                - Treat prompts like `create a fullstack app`, `build a website`, or `make a
-                  tool` as unresolved product-definition requests.
-                - For those generic prompts, the first plan response must emit a
-                  clarification round through `questions` and keep `task_graph.tasks` empty.
-                - Do not invent domain, stack, persistence, auth, or primary workflow in
-                  `scope` unless the prompt already constrained them or the user answered
-                  them in the current clarification history.
-                
-                Bugfix or regression requests:
-                
-                - Inspect repo and likely repro surface before asking questions.
-                - Limit questioning to unresolved behavior, constraints, expected outcome, and
-                  regression boundaries.
-                
-                Feature or delta requests:
-                
-                - Re-run planning only for the changed dimensions.
-                - Preserve previously settled scope and evidence unless the delta invalidates
-                  them.
-                
-                Refactor or migration requests:
-                
-                - Inspect current boundaries, public interfaces, tests, and compatibility
-                  constraints before decomposing.
-                - Preserve behavior unless the request explicitly asks for behavior changes.
-                - Record migration, rollback, and verification implications when they affect
-                  safety or acceptance.
-                
-                General non-coding requests:
-                
-                - Treat the deliverable as the work product. Define the audience, artifact
-                  shape, source-of-truth inputs, evidence, acceptance criteria, and handoff.
-                - Use `type: "general"` tasks unless implementation edits are required.
-                - Do not invent code work just to fit the SWE flow; use research, review,
-                  writing, audit, data, ops, or planning tasks when that is the real work.
-                
-                ## Task Graph Sizing
-                
-                - Prefer the smallest task graph that can finish deterministically.
-                - Prefer maximal useful independence so multiple child worktrees can run in
-                  parallel when the work is clearly independent and the file scope is
-                  disjoint.
-                - For tiny utilities, one-file tools, and narrow greenfield apps, keep the
-                  graph to 1-2 tasks unless a split is required by file ownership, merge
-                  safety, or materially different acceptance criteria.
-                - For a small prototype or first version, keep the graph to 1-3 concrete
-                  tasks. Do not split scaffolding, implementation, and final verification
-                  into separate child tasks unless the acceptance boundaries genuinely differ.
-                - When the request still requires implementation work, the task graph must
-                  contain at least one concrete task. Do not submit an empty `task_graph`
-                  just because the scope is small.
-                - When the request requires non-coding work, the task graph must contain at
-                  least one concrete `general` task unless a high-impact clarification round
-                  is being emitted.
-                - Do not split setup, implementation, and tests into separate child tasks
-                  when one competent worker can complete them in one bounded pass.
-                - Do not split research, synthesis, and reporting into separate child tasks
-                  unless the evidence sources, audiences, or acceptance criteria differ.
-                - Child tasks are leaf workers. Do not split a child assignment into another
-                  child depth.
-                
-                ## Defaulting Rules
-                
-                - Do not submit executable decomposition while high-impact ambiguity remains.
-                - Generic greenfield product prompts are not low-risk defaults. Ask the first
-                  clarification round before decomposing them into tasks.
-                - If only low-impact details remain unresolved, proceed with explicit
-                  defaults.
-                - Once you ask a clarification round, do not auto-answer it. Wait for the
-                  user's response before continuing any decomposition that depends on it.
-                - Record defaults, assumptions, and unresolved risks through the schema-valid
-                  `plan` payload so they land in canonical `tasks.yaml` state.
-                
-                ## Plan Payload Output
-                
-                The plan phase must produce:
-                
-                - a classification that matches the real work
-                - a refined scope statement
-                - explicit constraints
-                - explicit assumptions and defaults
-                - high-impact unknowns or questions when decomposition is unsafe
-                - verification targets
-                - decomposition inputs for both `general` and `coding` tasks where applicable
-                - `system_context` with `relevant_object_refs`,
-                  `relevant_assertion_refs`, `relevant_resource_refs`,
-                  `relevant_memory_refs`, and `durable_implications`
-                
-                - the smallest viable task graph for the scoped work
-                
-                ## Framework References
-                
-                Use `references/core/analytical-framework.md` as the primary planning rigor source: check contradictions, evidence quality, hidden assumptions, causal validity, alternatives, and bias.
-                
-                Use `references/core/optimization-framework.md` to make the plan operational only after the analysis is coherent: define deterministic scope, defaults, acceptance, decomposition, and verification targets without leaking later-step assumptions into this step. AF/OF improve the reasoning process here, but they are not output fields.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements:
+            - "Classify the request."
+            - "Use repository discovery before asking questions."
+            - "Use AF to surface contradictions, hidden assumptions, weak evidence, and edge cases."
+            - "Use OF to collapse scope, defaults, acceptance, decomposition, and verification targets."
+            - "For greenfield app/product work, ask or explicitly default every high-impact unknown before task graph approval."
       output:
         schema:
           document:
@@ -1771,60 +771,35 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:3df0649634f709c1002a22db2c987cd49acc97acf5282de7f2d1e628b22aca1b"
+          digest: "sha256:0b48de73a5680250f4d0610d922421d4d5e858ec72d137df23d36489c8678e5e"
       call: loopship.workflow.service.step.archived
       with:
         version: 0.1.0
         input:
-          schema_version: 3
-          kind: quest_step
-          schema_path: schemas/steps/archive-output.yaml
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           flow_id: swe
           flow_version: 1
-          step: archived
-          state: archived
+          current_stage: archived
           summary: "Report final quest state only."
-          output_schema: null
-          allowed_transitions: {}
-          context:
-            step:
-              schema_version: 1
-              id: archived
-              handler: archived
-              input_step: null
-              input_schema:
-                schema_path: schemas/steps/archive-output.yaml
-              output_schema: null
-              result_schema_path: schemas/steps/archive-output.yaml
-              summary: "Report final quest state only."
-              instructions: |-
-                # Loopship Archived Step
-                
-                Act as a top-class quest closure reporter for Loopship. Treat this instruction
-                block as the archived step's system prompt: report final state only and do
-                not mutate `.loopship/**` directly.
-                
-                ## Terminal Output Contract
-                
-                This step is reusable across flows. The orchestrator owns terminal flow
-                state; `output_schema` is null here, so do not invent a next payload or
-                assume another step follows. Report only the final quest state required by
-                this step's `output_schema`.
-          commands:
-            next:
-              cmd: loopship
-              args:
-                - resume
-                - --wtree
-                - "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-                - --json
-                - "@-"
-          docs:
-            state_yaml: .loopship/runtime/tasks.yaml
-            events_jsonl: .loopship/runtime/events.jsonl
-            manifest: .loopship/runtime/manifest.yaml
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          runtime: "${inputs.runtime || ''}"
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
+          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements: []
       output:
         schema:
           document:
@@ -1855,7 +830,7 @@ do:
         script:
           language: js
           code: |-
-            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":{"kind":"static","value":"answered"}},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":{"kind":"js","code":"if (payload.approved === false) return \"rejected\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"child_approved\"\n  : \"approved\";\n"}},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"executing","step":"child_result","transitions":{"complete":"validating","partial":"executing"},"transition_key":{"kind":"js","code":"const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];\nconst done = new Set([\"child_merged\", \"child_archived\", \"done\", \"merged\"]);\nconst terminal = items.length > 0 && items.every((task) => {\n  if (!done.has(String(task.status || \"\"))) return false;\n  if ([\"child_archived\", \"child_merged\"].includes(String(task.status || \"\"))) {\n    return Boolean(String(task.merge_commit || \"\").trim());\n  }\n  return true;\n});\nreturn terminal ? \"complete\" : \"partial\";\n"}},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":{"kind":"js","code":"if (payload.status === \"passed\") return \"passed\";\nreturn String(tasks.prompt || \"\").trim().toLowerCase().startsWith(\"loopship: execute child task \")\n  ? \"failed_child\"\n  : \"failed\";\n"}},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":{"kind":"js","code":"return payload.status === \"passed\" ? \"passed\" : \"failed\";\n"}},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":{"kind":"static","value":"updated"}},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":{"kind":"js","code":"return payload.status === \"blocked\" ? \"blocked\" : \"landed\";\n"}},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":{"kind":"js","code":"return Array.isArray(payload.questions) && payload.questions.length ? \"questions\" : \"planned\";\n"}},{"id":"archived","step":"archived","transitions":{},"transition_key":{"kind":"static","value":"continue"}}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"executing","trigger":"children[].commands.init","result_step":"child_result","flow_id":"swe"}]};
+            const flow = {"id":"swe","default_stage":"planning","stages":[{"id":"planning","step":"plan","transitions":{"questions":"awaiting_user_answers","planned":"plan_review"},"transition_key":null},{"id":"awaiting_user_answers","step":"questions","transitions":{"answered":"planning"},"transition_key":null},{"id":"plan_review","step":"task_graph","transitions":{"approved":"task_graph_ready","child_approved":"validating","rejected":"planning"},"transition_key":null},{"id":"task_graph_ready","step":"executing","transitions":{"complete":"validating","partial":"executing"},"transition_key":null},{"id":"executing","step":"child_result","transitions":{"complete":"validating","partial":"executing"},"transition_key":null},{"id":"validating","step":"validation","transitions":{"passed":"verification_pending","failed":"task_graph_ready","failed_child":"validating"},"transition_key":null},{"id":"verification_pending","step":"verification","transitions":{"passed":"system_update_pending","failed":"validating"},"transition_key":null},{"id":"system_update_pending","step":"system_update","transitions":{"updated":"landing_ready"},"transition_key":null},{"id":"landing_ready","step":"landing","transitions":{"landed":"archived","blocked":"landing_ready"},"transition_key":null},{"id":"replanning","step":"plan","transitions":{"planned":"plan_review","questions":"awaiting_user_answers"},"transition_key":null},{"id":"archived","step":"archived","transitions":{},"transition_key":null}],"subflows":[{"id":"replanning","type":"in_flow_detour","starts_at":"replanning","returns_to":"plan_review","trigger":"replan"},{"id":"add_task","type":"in_flow_detour","starts_at":"replanning","returns_to":"task_graph_ready","trigger":"add_task"},{"id":"child_task","type":"spawned_quest","starts_at":"task_graph_ready","returns_to":"executing","trigger":"children[].actions.init","result_step":"child_result","flow_id":"swe"}]};
             const stageTaskNames = {"planning":"stage_planning","awaiting_user_answers":"stage_awaiting_user_answers","plan_review":"stage_plan_review","task_graph_ready":"stage_task_graph_ready","executing":"stage_executing","validating":"stage_validating","verification_pending":"stage_verification_pending","system_update_pending":"stage_system_update_pending","landing_ready":"stage_landing_ready","replanning":"stage_replanning","archived":"stage_archived"};
             const inputStepByStage = {"planning":"plan","awaiting_user_answers":"questions","plan_review":"task_graph","task_graph_ready":"executing","executing":"child_result","validating":"validation","verification_pending":"verification","system_update_pending":"system_update","landing_ready":"landing","replanning":"plan","archived":"archived"};
             function object(value) {
@@ -1945,6 +920,44 @@ do:
               if (Object.keys(decision).length) return decision;
               if (Object.prototype.hasOwnProperty.call(out, "decision")) return out.decision;
               return out;
+            }
+            function payloadMatchesStep(payload, stepId) {
+              const row = object(payload);
+              if (stepId === "plan") {
+                return "classification" in row || "questions" in row || "task_graph" in row;
+              }
+              if (stepId === "questions") return "answers" in row;
+              if (stepId === "task_graph") return "approved" in row || "rejected" in row || "replan_reason" in row;
+              if (stepId === "child_result") return "child_wtree" in row || "merge_commit" in row;
+              if (stepId === "validation") return "checks" in row && "status" in row;
+              if (stepId === "verification") return "acceptance_trace" in row || "risks" in row;
+              if (stepId === "system_update") return "system_update" in row || "update" in row || "mode" in row;
+              if (stepId === "landing") return "status" in row && "summary" in row;
+              return Object.keys(row).length > 0;
+            }
+            function findStepPayload(value, stepId, depth = 0) {
+              if (depth > 8 || !value || typeof value !== "object") return {};
+              if (Array.isArray(value)) {
+                for (const item of value) {
+                  const found = findStepPayload(item, stepId, depth + 1);
+                  if (payloadMatchesStep(found, stepId)) return found;
+                }
+                return {};
+              }
+              const row = object(value);
+              const direct = decisionPayload(row);
+              if (payloadMatchesStep(direct, stepId)) return direct;
+              for (const key of ["output", "result", "workflow", "action", "value", "answer"]) {
+                if (key in row) {
+                  const found = findStepPayload(row[key], stepId, depth + 1);
+                  if (payloadMatchesStep(found, stepId)) return found;
+                }
+              }
+              for (const item of Object.values(row)) {
+                const found = findStepPayload(item, stepId, depth + 1);
+                if (payloadMatchesStep(found, stepId)) return found;
+              }
+              return {};
             }
             function tasksAfterPayload(tasks, payload, stepId) {
               if (stepId !== "child_result") return tasks;
@@ -2109,70 +1122,59 @@ do:
               }
               return { event: "step_submitted", stage: targetStage, step: stepId };
             }
+            function terminalTaskState(tasks) {
+              const statuses = array(object(tasks).tasks)
+                .map((task) => String(object(task).status || "child_received"))
+                .filter(Boolean);
+              if (!statuses.length) return "unknown";
+              const done = new Set(["child_merged", "child_archived", "done", "merged"]);
+              const stalled = new Set(["blocked", "deferred", "failed"]);
+              if (statuses.every((status) => done.has(status))) return "all_done";
+              if (statuses.every((status) => stalled.has(status))) return "all_stalled";
+              return "continue";
+            }
+            function defaultTransitionKey(stageId, payload, tasks, resolved, args) {
+              const transitions = object(object(resolved).transitions);
+              if ("questions" in transitions && array(object(payload).questions).length) return "questions";
+              if ("planned" in transitions && ("task_graph" in object(payload) || "classification" in object(payload))) return "planned";
+              if ("answered" in transitions && "answers" in object(payload)) return "answered";
+              if ("rejected" in transitions && (object(payload).approved === false || object(payload).rejected === true)) return "rejected";
+              if ("approved" in transitions && object(payload).approved === true) return "approved";
+              if ("complete" in transitions || "partial" in transitions) {
+                const terminal = terminalTaskState(tasks);
+                if (terminal === "all_done" && "complete" in transitions) return "complete";
+                if (terminal === "all_stalled" && "failed_child" in transitions) return "failed_child";
+                if ("partial" in transitions) return "partial";
+              }
+              const status = String(object(payload).status || object(args).status || "").trim();
+              if (status && status in transitions) return status;
+              if ("updated" in transitions && ("system_update" in object(payload) || "update" in object(payload) || "mode" in object(payload))) return "updated";
+              return "continue";
+            }
             function transitionKey(stageId, payload, tasks, resolved, args) {
               switch (stageId) {
-                case "planning": {
-                  return Array.isArray(payload.questions) && payload.questions.length ? "questions" : "planned";
-            
-                }
+                case "planning":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
                 case "awaiting_user_answers":
-                  return "answered";
-                case "plan_review": {
-                  if (payload.approved === false) return "rejected";
-                  return String(tasks.prompt || "").trim().toLowerCase().startsWith("loopship: execute child task ")
-                    ? "child_approved"
-                    : "approved";
-            
-                }
-                case "task_graph_ready": {
-                  const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];
-                  const done = new Set(["child_merged", "child_archived", "done", "merged"]);
-                  const terminal = items.length > 0 && items.every((task) => {
-                    if (!done.has(String(task.status || ""))) return false;
-                    if (["child_archived", "child_merged"].includes(String(task.status || ""))) {
-                      return Boolean(String(task.merge_commit || "").trim());
-                    }
-                    return true;
-                  });
-                  return terminal ? "complete" : "partial";
-            
-                }
-                case "executing": {
-                  const items = Array.isArray(tasks.tasks) ? tasks.tasks : [];
-                  const done = new Set(["child_merged", "child_archived", "done", "merged"]);
-                  const terminal = items.length > 0 && items.every((task) => {
-                    if (!done.has(String(task.status || ""))) return false;
-                    if (["child_archived", "child_merged"].includes(String(task.status || ""))) {
-                      return Boolean(String(task.merge_commit || "").trim());
-                    }
-                    return true;
-                  });
-                  return terminal ? "complete" : "partial";
-            
-                }
-                case "validating": {
-                  if (payload.status === "passed") return "passed";
-                  return String(tasks.prompt || "").trim().toLowerCase().startsWith("loopship: execute child task ")
-                    ? "failed_child"
-                    : "failed";
-            
-                }
-                case "verification_pending": {
-                  return payload.status === "passed" ? "passed" : "failed";
-            
-                }
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
+                case "plan_review":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
+                case "task_graph_ready":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
+                case "executing":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
+                case "validating":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
+                case "verification_pending":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
                 case "system_update_pending":
-                  return "updated";
-                case "landing_ready": {
-                  return payload.status === "blocked" ? "blocked" : "landed";
-            
-                }
-                case "replanning": {
-                  return Array.isArray(payload.questions) && payload.questions.length ? "questions" : "planned";
-            
-                }
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
+                case "landing_ready":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
+                case "replanning":
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
                 case "archived":
-                  return "continue";
+                  return defaultTransitionKey(stageId, payload, tasks, resolved, args);
                 default:
                   return "continue";
               }
@@ -2183,10 +1185,9 @@ do:
               flow.stages.find((item) => item.id === flow.default_stage);
             const taskName = stageTaskNames[stage.id];
             const stageAction = object(state.steps[taskName]?.action);
-            const workflowOutput = object(stageAction.result?.output || stageAction.workflow?.output);
-            const payload = decisionPayload(workflowOutput);
             const tasks = object(state.steps.read_tasks?.action);
             const stepId = inputStepByStage[stage.id] || stage.step;
+            const payload = findStepPayload(stageAction, stepId);
             const transitionTasks = tasksAfterPayload(tasks, payload, stepId);
             const key = transitionKey(stage.id, payload, transitionTasks, resolved, args);
             const transitions = object(stage.transitions);

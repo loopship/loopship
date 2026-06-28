@@ -1,0 +1,67 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/step-request.yaml
+title: Loopship Fastflow Step Request Payload
+type: object
+additionalProperties: false
+properties:
+  schema_version:
+    const: loopship.step.request/v1
+  kind:
+    const: quest_step_request
+  wtree:
+    type: string
+  quest_id:
+    type: string
+  flow_id:
+    type: string
+  flow_version:
+    type: integer
+  current_stage:
+    type: string
+  summary:
+    type: string
+  prompt:
+    type: string
+  repo:
+    type: string
+  repoRoot:
+    type: string
+  runtime:
+    type: string
+  tasks:
+    type: array
+    items:
+      $ref: common.yaml#/$defs/task_graph_task
+  question_rounds:
+    type: array
+    items:
+      type: object
+      additionalProperties: true
+  plan_detail:
+    type: object
+    additionalProperties: true
+  validation_receipt:
+    type: object
+    additionalProperties: true
+  verification_receipt:
+    type: object
+    additionalProperties: true
+  events:
+    type: array
+    items:
+      type: object
+      additionalProperties: true
+  parent_wtree:
+    type: string
+  coordinator_branch:
+    type: string
+  coordinator_worktree:
+    type: string
+  landing_target_branch:
+    type: string
+  landing_target_worktree:
+    type: string
+  requirements:
+    type: array
+    items:
+      type: string

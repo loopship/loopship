@@ -107,9 +107,9 @@ type DoctorArgs = {
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const NEXT_PAYLOAD_INSTRUCTION =
-  "This step is reusable across flows. The orchestrator owns flow transitions and decides which step, if any, follows this callback. Follow the instructions above, then construct one JSON payload matching output_schema and send it to commands.next.";
+  "This step is reusable across flows. The Fastflow orchestrator owns flow transitions and continuation state. Follow the instructions above, then return exactly one JSON payload matching this step's answer schema; do not include command strings, successor-state scaffolding, or fields for a guessed next step.";
 const TERMINAL_OUTPUT_INSTRUCTION =
-  "This terminal step is reusable across flows. The orchestrator owns terminal flow state. output_schema is null, so report the terminal output and do not invent a next payload.";
+  "This terminal step is reusable across flows. The Fastflow orchestrator owns terminal flow state, so report the terminal output and do not include command strings or successor-state scaffolding.";
 const MAX_EMBEDDED_SCHEMA_BYTES = 64 * 1024;
 function usage(): void {
   console.log(`loopship
@@ -758,6 +758,18 @@ function tokenCommand(cmd: string, args: string[]): Record<string, unknown> {
   return { cmd, args };
 }
 
+function resumeContinuation(
+  wtree: string,
+  command: typeof compactCommand,
+): Record<string, unknown> {
+  return {
+    kind: "fastflow.resume",
+    transport: "loopship",
+    wtree,
+    command: command("loopship", ["resume", "--wtree", wtree, "--json", "@-"]),
+  };
+}
+
 function simpleHookCommand(binPath: string, runtime: string): string {
   return [shellQuote(binPath), "hook", "--runtime", runtime].join(" ");
 }
@@ -937,7 +949,6 @@ function v3InitRoute(input: {
   const flow = loadFlowDefinition(input.flowId);
   const compactSchema = process.env.LOOPSHIP_COMPACT_INIT_SCHEMA === "1";
   const createQuestInput = {
-    step: "select_quest",
     action: "create_quest",
     wtree,
     flow_id: flow.id,
@@ -961,7 +972,7 @@ function v3InitRoute(input: {
         "--json",
         JSON.stringify(createQuestInput),
       ]),
-      output_schema: compactSchema
+      resume_input_schema: compactSchema
         ? { schema_path: v3SchemaPath("next-input") }
         : boundedSchema(v3SchemaPath("next-input")),
       input: createQuestInput,
@@ -1100,7 +1111,7 @@ function readyChildrenForV3(
       merge_target: mergeTarget,
       merge_target_worktree: coordinatorWorktreePath(repoRoot, wtree),
       acceptance: task.acceptance,
-      commands: {
+      actions: {
         init: command("loopship", [
           "init",
           request,
@@ -1111,7 +1122,7 @@ function readyChildrenForV3(
           "--flow",
           flowId,
         ]),
-        next: command("loopship", [
+        resume: command("loopship", [
           "resume",
           "--wtree",
           childWtree,
@@ -1119,9 +1130,6 @@ function readyChildrenForV3(
           "@-",
         ]),
       },
-      result_schema: full
-        ? v3SchemaRef("child-result-input")
-        : "child-result-input",
     };
   });
 }
@@ -1163,22 +1171,6 @@ function boundedSchema(schemaSource: LoopshipSchemaSource): unknown {
   return embedded;
 }
 
-function stepContextData(
-  stepDef: ReturnType<typeof flowStep>,
-): Record<string, unknown> {
-  return {
-    schema_version: stepDef.schema_version,
-    id: stepDef.id,
-    handler: stepDef.handler,
-    input_step: stepDef.input_step,
-    input_schema: boundedSchema(stepDef.input_schema),
-    output_schema: boundedSchema(stepDef.output_schema),
-    result_schema_path: stepDef.result_schema,
-    summary: stepDef.summary,
-    instructions: stepInstructions(stepDef),
-  };
-}
-
 function v3StepOutput(input: {
   repoRoot: string;
   files: QuestFiles;
@@ -1190,21 +1182,17 @@ function v3StepOutput(input: {
   const stepDef = flowStep(flow, stage);
   const step = stepDef.id;
   const schema = outputSchemaForStage(stage, flow);
-  const nextArgs = [
-    "resume",
-    "--wtree",
-    input.files.wtree,
-    "--json",
-    "@-",
-  ];
+  const command = input.full ? compactCommand : tokenCommand;
   if (!input.full) {
     const compactOutput: Record<string, unknown> = {
-      step: compactStepData(stepDef),
-      output_schema: boundedSchema(stepDef.output_schema),
-      commands: {
-        next: tokenCommand("loopship", nextArgs),
-      },
+      task: compactStepData(stepDef),
     };
+    if (stepDef.output_schema) {
+      compactOutput.answer_schema = boundedSchema(stepDef.output_schema);
+      compactOutput.continuation = resumeContinuation(input.files.wtree, command);
+    } else {
+      compactOutput.terminal = true;
+    }
     if (step === "executing") {
       compactOutput.children = readyChildrenForV3(
         input.repoRoot,
@@ -1229,29 +1217,23 @@ function v3StepOutput(input: {
     kind: "quest_step",
     schema_path: schema,
     wtree: input.files.wtree,
+    quest_id: input.files.wtree,
     flow_id: flow.id,
     flow_version: flow.version,
-    step,
-    state: stage,
+    current_stage: stage,
     summary: v3StepSummary(stage, flow),
-    output_schema: boundedSchema(stepDef.output_schema),
-    commands: {
-      next: tokenCommand("loopship", nextArgs),
-    },
+    task: compactStepData(stepDef),
   };
+  if (stepDef.output_schema) {
+    output.answer_schema = boundedSchema(stepDef.output_schema);
+    output.continuation = resumeContinuation(input.files.wtree, command);
+  } else {
+    output.terminal = true;
+  }
   if (input.full) {
-    output.quest_id = input.files.wtree;
-    output.allowed_transitions = flowStage(flow, stage).transitions;
-    output.context = {
-      step: stepContextData(stepDef),
-    };
-    output.commands = {
-      next: compactCommand("loopship", nextArgs),
-    };
-    output.docs = {
-      state_yaml: input.files.tasks,
-      events_jsonl: input.files.events,
-      manifest: input.files.manifest,
+    output.task = {
+      ...compactStepData(stepDef),
+      summary: stepDef.summary,
     };
   }
   if (step === "plan") {
@@ -1274,7 +1256,9 @@ function v3StepOutput(input: {
     );
   }
   if (step === "archived") {
-    output.output_schema = null;
+    output.terminal = true;
+    delete output.answer_schema;
+    delete output.continuation;
     if (String(input.state.landed_commit ?? "").trim()) {
       output.landing = {
         source_branch: String(input.state.coordinator_branch ?? ""),
@@ -1320,6 +1304,7 @@ function assertStep(
   input: Record<string, any>,
   expected: string,
 ): string | null {
+  if (input.step == null || input.step === "") return null;
   if (String(input.step ?? "") !== expected) {
     return `expected step "${expected}", got "${String(input.step ?? "(empty)")}"`;
   }
@@ -1896,16 +1881,6 @@ export async function runFastflowResume(argv: string[]): Promise<number> {
   try {
     const existing = questByWtree(context.repoRoot, wtree);
     if (!existing) {
-      const stepError = assertStep(payload, "select_quest");
-      if (stepError) {
-        questResponse(
-          v3Error("quest does not exist; create it with select_quest input", {
-            wtree,
-            expected_output_schema: dereferencedV3Schema("next-input"),
-          }),
-        );
-        return 1;
-      }
       const schemaErrors = validateV3Input(payload, "next-input");
       if (schemaErrors.length) {
         questResponse(
@@ -2188,10 +2163,13 @@ export function runHook(argv: string[]): number {
     loopship: true,
     command: "fastflow.resume",
     wtree: activeQuest.files.wtree,
-    step: stageToV3Step(stage, loadStateFlow(activeQuest.state)),
+    current_stage: stage,
+    task: {
+      id: stageToV3Step(stage, loadStateFlow(activeQuest.state)),
+    },
     stop_reason: "budget_exhausted",
     summary:
-      "Continuation budget exhausted. Continue manually with the latest emitted commands.next payload.",
+      "Continuation budget exhausted. Continue manually with the emitted Fastflow resume continuation.",
   });
   if (budgetExhausted) chain.budget_prompted = true;
   else chain.continuation_count = budgetUsed + 1;

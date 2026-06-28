@@ -4,12 +4,9 @@ title: Loopship V3 Landing Input
 type: object
 additionalProperties: false
 required:
-  - step
   - status
   - summary
 properties:
-  step:
-    const: landing
   status:
     enum:
       - landed

@@ -80,7 +80,6 @@ function main(): number {
         "--full",
       ],
       {
-        step: "select_quest",
         action: "create_quest",
         wtree,
         request: "loopship: verify deterministic v3",
@@ -88,7 +87,7 @@ function main(): number {
     );
     if (create.status !== 0) fail(create.stderr || create.stdout);
     const created = parseJson(create.stdout);
-    if (created.step !== "plan")
+    if (created.task?.id !== "plan")
       fail(`create should return plan: ${create.stdout}`);
     if ("session_id" in created || "expected_update" in created) {
       fail(`v3 output leaked v2 fields: ${create.stdout}`);
@@ -228,7 +227,6 @@ function main(): number {
       repo,
       ["resume", "--wtree", wtree, "--json", "@-", "--full"],
       {
-        step: "plan",
         classification: "greenfield_app",
         scope: "Verify deterministic v3 flow",
         summary: "Ask one required clarification before task decomposition.",
@@ -253,7 +251,7 @@ function main(): number {
     );
     if (validPlan.status !== 0) fail(validPlan.stderr || validPlan.stdout);
     const planned = parseJson(validPlan.stdout);
-    if (planned.step !== "questions") {
+    if (planned.task?.id !== "questions") {
       fail(`valid plan should return questions: ${validPlan.stdout}`);
     }
     const hookStateAfterPlan = readJsonFile(hookStatePath);
@@ -279,7 +277,13 @@ function main(): number {
     const bad = runLoopship(
       repo,
       ["resume", "--wtree", wtree, "--json", "@-"],
-      { step: "child_result" },
+      {
+        task_id: "wrong",
+        child_wtree: "wrong",
+        status: "passed",
+        evidence: [],
+        merge_commit: "wrong",
+      },
     );
     if (bad.status === 0) fail("wrong-step input must fail");
 

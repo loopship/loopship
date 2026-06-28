@@ -124,78 +124,22 @@ $defs:
         type: array
         items:
           type: string
-  step_commands:
+  resume_continuation:
     type: object
     additionalProperties: false
     required:
-      - next
+      - kind
+      - transport
+      - wtree
     properties:
-      next:
+      kind:
+        const: fastflow.resume
+      transport:
+        const: loopship
+      wtree:
+        type: string
+      command:
         $ref: "#/$defs/command"
-  docs:
-    type: object
-    additionalProperties: false
-    required:
-      - state_yaml
-      - events_jsonl
-      - manifest
-    properties:
-      state_yaml:
-        type: string
-      events_jsonl:
-        type: string
-      manifest:
-        type: string
-  transitions:
-    type: object
-    additionalProperties:
-      type: string
-  step_data:
-    type: object
-    additionalProperties: false
-    required:
-      - schema_version
-      - id
-      - handler
-      - input_step
-      - input_schema
-      - output_schema
-      - result_schema_path
-      - summary
-      - instructions
-    properties:
-      schema_version:
-        const: 1
-      id:
-        type: string
-      handler:
-        type: string
-      input_step:
-        type:
-          - string
-          - "null"
-      input_schema:
-        oneOf:
-          - $ref: "#/$defs/schema_ref_or_embedded"
-          - type: "null"
-      output_schema:
-        oneOf:
-          - $ref: "#/$defs/schema_ref_or_embedded"
-          - type: "null"
-      result_schema_path:
-        type: string
-      summary:
-        type: string
-      instructions:
-        type: string
-  step_context:
-    type: object
-    additionalProperties: false
-    required:
-      - step
-    properties:
-      step:
-        $ref: "#/$defs/step_data"
   compact_step:
     type: object
     additionalProperties: false
@@ -381,8 +325,7 @@ $defs:
       - branch_ref
       - worktree_path
       - acceptance
-      - commands
-      - result_schema
+      - actions
     properties:
       task_id:
         type: string
@@ -406,16 +349,14 @@ $defs:
         type: string
       acceptance:
         type: string
-      commands:
+      actions:
         type: object
         additionalProperties: false
         required:
           - init
-          - next
+          - resume
         properties:
           init:
             $ref: "#/$defs/command"
-          next:
+          resume:
             $ref: "#/$defs/command"
-      result_schema:
-        $ref: "#/$defs/schema_ref_or_embedded"

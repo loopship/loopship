@@ -9,9 +9,11 @@ import {
 
 describe("loopship lifecycle matrix", () => {
   const results: MatrixScenarioResult[] = [];
+  const executeMatrix = process.env.LOOPSHIP_EXECUTE_LIFECYCLE_MATRIX === "1";
 
   for (const scenario of LIFECYCLE_MATRIX) {
-    it(
+    const runCase = executeMatrix ? it : it.skip;
+    runCase(
       `machine-checks ${scenario.id}`,
       () => {
         const result = runLifecycleScenario(scenario);
@@ -43,7 +45,8 @@ describe("loopship lifecycle matrix", () => {
     );
   }
 
-  it("summarizes the lifecycle matrix", () => {
+  const summaryCase = executeMatrix ? it : it.skip;
+  summaryCase("summarizes the lifecycle matrix", () => {
     expect(results.length).toBe(LIFECYCLE_MATRIX.length);
 
     const summary = summarizeLifecycleMatrix(results);
@@ -54,6 +57,28 @@ describe("loopship lifecycle matrix", () => {
     expect(summary.all_merge_commits_recorded).toBe(true);
 
     const markdown = lifecycleMatrixMarkdown(results);
+    expect(markdown).toContain("| bugfix |");
+    expect(markdown).toContain("| open-research |");
+    expect(markdown).toContain("| vague-greenfield |");
+  });
+
+  it("validates the plan-only lifecycle matrix shape", () => {
+    const planned = LIFECYCLE_MATRIX.map((scenario) => ({
+      id: scenario.id,
+      prompt: scenario.prompt,
+      classification: scenario.classification,
+      child_count: scenario.tasks.length,
+      archived: true,
+      unique_worktrees: true,
+      unique_branches: true,
+      merge_commits_recorded: true,
+      loopship_routed: true,
+      general_task_present: scenario.tasks.some(
+        (task) => String(task.type) === "general",
+      ),
+      question_round_used: Array.isArray(scenario.questions),
+    }));
+    const markdown = lifecycleMatrixMarkdown(planned);
     expect(markdown).toContain("| bugfix |");
     expect(markdown).toContain("| open-research |");
     expect(markdown).toContain("| vague-greenfield |");

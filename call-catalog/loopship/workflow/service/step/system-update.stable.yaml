@@ -19,11 +19,8 @@ input:
       type: object
       additionalProperties: false
       required:
-        - step
         - system_update
       properties:
-        step:
-          const: system_update
         system_update:
           "$schema": "https://json-schema.org/draft/2020-12/schema"
           "$id": "loopship://schemas/system-update.yaml"
@@ -7684,14 +7681,6 @@ input:
               type: string
             system_impact_ref:
               type: string
-            commands:
-              type: object
-              additionalProperties: true
-            result_schema:
-              oneOf:
-                - type: string
-                - type: object
-                  additionalProperties: true
             acceptance:
               oneOf:
                 - type: string
@@ -7754,11 +7743,8 @@ do:
             type: object
             additionalProperties: false
             required:
-              - step
               - system_update
             properties:
-              step:
-                const: system_update
               system_update:
                 "$schema": "https://json-schema.org/draft/2020-12/schema"
                 "$id": "loopship://schemas/system-update.yaml"
@@ -15419,14 +15405,6 @@ do:
                     type: string
                   system_impact_ref:
                     type: string
-                  commands:
-                    type: object
-                    additionalProperties: true
-                  result_schema:
-                    oneOf:
-                      - type: string
-                      - type: object
-                        additionalProperties: true
                   acceptance:
                     oneOf:
                       - type: string

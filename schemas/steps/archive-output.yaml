@@ -4,9 +4,8 @@ title: Loopship V3 Archive Output
 type: object
 additionalProperties: false
 required:
-  - step
-  - output_schema
-  - commands
+  - task
+  - terminal
 properties:
   schema_version:
     const: 3
@@ -22,29 +21,19 @@ properties:
     type: string
   flow_version:
     type: integer
-  step:
-    oneOf:
-      - const: archived
-      - allOf:
-          - $ref: common.yaml#/$defs/compact_step
-          - type: object
-            properties:
-              id:
-                const: archived
-  state:
+  current_stage:
     type: string
   summary:
     type: string
-  output_schema:
-    type: "null"
-  allowed_transitions:
-    $ref: common.yaml#/$defs/transitions
-  context:
-    $ref: common.yaml#/$defs/step_context
-  commands:
-    $ref: common.yaml#/$defs/step_commands
-  docs:
-    $ref: common.yaml#/$defs/docs
+  task:
+    allOf:
+      - $ref: common.yaml#/$defs/compact_step
+      - type: object
+        properties:
+          id:
+            const: archived
+  terminal:
+    const: true
   landing:
     type: object
     additionalProperties: false

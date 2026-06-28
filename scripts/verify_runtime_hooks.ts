@@ -52,14 +52,11 @@ function assertHookContinuation(
   if (hook.status !== 0) fail(hook.stderr || hook.stdout);
   const parsed = parseJson(hook.stdout);
   const reason = parseJson(String(parsed.reason ?? ""));
-  const step =
-    typeof reason.step === "string"
-      ? reason.step
-      : String(reason.step?.id ?? "");
+  const task = String(reason.task?.id ?? "");
   if (
     parsed.decision !== "block" ||
     reason.command !== "fastflow.resume" ||
-    step !== "plan"
+    task !== "plan"
   ) {
     fail(`${label} must wrap Fastflow resume output: ${hook.stdout}`);
   }
@@ -142,7 +139,6 @@ function main(): number {
       repo,
       ["resume", "--wtree", wtree, "--json", "@-"],
       {
-        step: "select_quest",
         action: "create_quest",
         wtree,
         request: "loopship: hook check",
@@ -154,7 +150,6 @@ function main(): number {
       repo,
       ["resume", "--wtree", otherWtree, "--json", "@-"],
       {
-        step: "select_quest",
         action: "create_quest",
         wtree: otherWtree,
         request: "loopship: other hook check",
@@ -227,30 +222,40 @@ function main(): number {
       "flow_id" in reason ||
       "flow_version" in reason ||
       "state" in reason ||
+      "step" in reason ||
       "summary" in reason ||
       "context" in reason ||
       "docs" in reason ||
-      "allowed_transitions" in reason
+      "allowed_transitions" in reason ||
+      "commands" in reason ||
+      "output_schema" in reason
     ) {
       fail(`hook resume output must stay compact: ${hook.stdout}`);
     }
     if (
-      reason.step &&
-      typeof reason.step === "object" &&
-      "summary" in reason.step
+      reason.task &&
+      typeof reason.task === "object" &&
+      "summary" in reason.task
     ) {
-      fail(`hook resume step must omit summary: ${hook.stdout}`);
+      fail(`hook resume task must omit summary: ${hook.stdout}`);
     }
     if (
-      !reason.output_schema ||
-      typeof reason.output_schema !== "object" ||
-      reason.output_schema.$id !==
+      !reason.answer_schema ||
+      typeof reason.answer_schema !== "object" ||
+      reason.answer_schema.$id !==
         "schemas/steps/plan-input.yaml"
     ) {
-      fail(`hook resume output must embed output schema: ${hook.stdout}`);
+      fail(`hook resume output must embed answer schema: ${hook.stdout}`);
     }
     if ("input_schema" in reason) {
-      fail(`hook resume output must use output_schema: ${hook.stdout}`);
+      fail(`hook resume output must use answer_schema: ${hook.stdout}`);
+    }
+    if (
+      !reason.continuation ||
+      reason.continuation.kind !== "fastflow.resume" ||
+      reason.continuation.transport !== "loopship"
+    ) {
+      fail(`hook resume output must include Fastflow continuation: ${hook.stdout}`);
     }
 
     const duplicate = runLoopship(repo, ["hook", "--runtime", "codex"], {

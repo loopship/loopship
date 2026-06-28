@@ -4,10 +4,7 @@ title: Loopship V3 System Update Input
 type: object
 additionalProperties: false
 required:
-  - step
   - system_update
 properties:
-  step:
-    const: system_update
   system_update:
     $ref: loopship://schemas/system-update.yaml

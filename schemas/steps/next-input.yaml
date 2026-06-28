@@ -5,13 +5,10 @@ oneOf:
   - type: object
     additionalProperties: false
     required:
-      - step
       - action
       - wtree
       - request
     properties:
-      step:
-        const: select_quest
       action:
         const: create_quest
       wtree:

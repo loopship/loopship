@@ -39,19 +39,6 @@ const embeddedChildResultSchema = {
   type: "object",
 };
 
-const embeddedStepOutputEnvelope = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "schemas/steps/step-output.yaml",
-  title: "Loopship V3 Step Output",
-  type: "object",
-};
-
-const docs = {
-  state_yaml: "/tmp/tasks.yaml",
-  events_jsonl: "/tmp/events.jsonl",
-  manifest: "/tmp/manifest.yaml",
-};
-
 const emptySystemContext = {
   relevant_object_refs: [],
   relevant_assertion_refs: [],
@@ -257,26 +244,19 @@ const baseStepOutput = {
   quest_id: "demo",
   flow_id: "swe",
   flow_version: 1,
-  step: "plan",
-  state: "planning",
+  current_stage: "planning",
   summary: "Plan the work",
-  output_schema: embeddedPlanInputSchema,
-  allowed_transitions: { planned: "plan_review" },
-  context: {
-    step: {
-      schema_version: 1,
-      id: "plan",
-      handler: "plan",
-      input_step: "plan",
-      input_schema: embeddedStepOutputEnvelope,
-      output_schema: embeddedPlanInputSchema,
-      result_schema_path: "schemas/steps/step-output.yaml",
-      summary: "Plan the work",
-      instructions: "# Loopship Plan Step\n\nPlan with clarification details.",
-    },
+  task: {
+    id: "plan",
+    instructions: "# Loopship Plan Step\n\nPlan with clarification details.",
   },
-  commands: { next: command },
-  docs,
+  answer_schema: embeddedPlanInputSchema,
+  continuation: {
+    kind: "fastflow.resume",
+    transport: "loopship",
+    wtree: "demo",
+    command,
+  },
 };
 
 const validPayloads: Record<string, Record<string, unknown>> = {
@@ -292,14 +272,13 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     new_quest: {
       suggested_wtree: "demo",
       command,
-      output_schema: {
+      resume_input_schema: {
         $schema: "https://json-schema.org/draft/2020-12/schema",
         $id: "schemas/steps/next-input.yaml",
         title: "Loopship V3 Next Input",
         type: "object",
       },
       input: {
-        step: "select_quest",
         action: "create_quest",
         wtree: "demo",
         flow_id: "swe",
@@ -308,7 +287,6 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     },
   },
   "next-input": {
-    step: "select_quest",
     action: "create_quest",
     wtree: "demo",
     flow_id: "swe",
@@ -326,7 +304,6 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     errors: ["/extra is not allowed"],
   },
   "plan-input": {
-    step: "plan",
     classification: "feature",
     scope: "demo",
     system_context: emptySystemContext,
@@ -336,28 +313,51 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     },
   },
   "questions-input": {
-    step: "questions",
     answers: [{ question_id: "q1", answer: "yes" }],
   },
-  "task-graph-input": { step: "task_graph", approved: true },
+  "task-graph-input": { approved: true },
+  "step-request": {
+    schema_version: "loopship.step.request/v1",
+    kind: "quest_step_request",
+    wtree: "demo",
+    quest_id: "demo",
+    flow_id: "swe",
+    flow_version: 1,
+    current_stage: "planning",
+    summary: "Plan the work",
+    prompt: "loopship: demo",
+    tasks: [],
+    question_rounds: [],
+    events: [],
+  },
+  "child-dispatch-request": {
+    schema_version: "loopship.child-dispatch.request/v1",
+    kind: "child_dispatch_request",
+    wtree: "demo",
+    quest_id: "demo",
+    flow_id: "swe",
+    flow_version: 1,
+    current_stage: "task_graph_ready",
+    summary: "Dispatch children",
+    children: [
+      {
+        task_id: "t001",
+        title: "Build",
+        child_wtree: "demo-t001",
+        branch_ref: "codex/demo-t001",
+        worktree_path: "/tmp/worktree",
+        acceptance: "works",
+      },
+    ],
+  },
   "child-dispatch-output": {
     ...baseStepOutput,
     schema_path: "schemas/steps/child-dispatch-output.yaml",
-    step: "executing",
-    state: "executing",
-    output_schema: embeddedChildResultSchema,
-    context: {
-      step: {
-        schema_version: 1,
-        id: "executing",
-        handler: "child_result",
-        input_step: "child_result",
-        input_schema: embeddedStepOutputEnvelope,
-        output_schema: embeddedChildResultSchema,
-        result_schema_path: "schemas/steps/child-dispatch-output.yaml",
-        summary: "Dispatch children",
-        instructions: "# Loopship Executing Step\n\nDispatch child work.",
-      },
+    current_stage: "executing",
+    answer_schema: embeddedChildResultSchema,
+    task: {
+      id: "executing",
+      instructions: "# Loopship Executing Step\n\nDispatch child work.",
     },
     children: [
       {
@@ -367,13 +367,11 @@ const validPayloads: Record<string, Record<string, unknown>> = {
         branch_ref: "codex/demo-t001",
         worktree_path: "/tmp/worktree",
         acceptance: "works",
-        commands: { init: command, next: command },
-        result_schema: schemaRef,
+        actions: { init: command, resume: command },
       },
     ],
   },
   "child-result-input": {
-    step: "child_result",
     task_id: "T001",
     child_wtree: "demo-t001",
     status: "passed",
@@ -381,18 +379,15 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     merge_commit: "abc123",
   },
   "validation-input": {
-    step: "validation",
     status: "passed",
     checks: [{ name: "test", status: "passed" }],
   },
   "verification-input": {
-    step: "verification",
     status: "passed",
     acceptance_trace: [{ acceptance: "works", status: "passed" }],
     risks: [{ risk: "none", severity: "low" }],
   },
   "system-update-input": {
-    step: "system_update",
     system_update: {
       schema_version: 1,
       mode: "replace",
@@ -605,36 +600,30 @@ const validPayloads: Record<string, Record<string, unknown>> = {
     },
   },
   "landing-input": {
-    step: "landing",
     status: "landed",
     summary: "done",
   },
   "archive-output": {
-    ...baseStepOutput,
+    schema_version: 3,
+    kind: "quest_step",
     schema_path: "schemas/steps/archive-output.yaml",
-    step: "archived",
-    state: "archived",
-    output_schema: null,
-    allowed_transitions: {},
+    wtree: "demo",
+    quest_id: "demo",
+    flow_id: "swe",
+    flow_version: 1,
+    current_stage: "archived",
+    summary: "Archived",
+    terminal: true,
+    task: {
+      id: "archived",
+      instructions: "# Loopship Archived Step\n\nReport final state.",
+    },
     landing: {
       source_branch: "build-demo",
       target_branch: "main",
       target_worktree: "/tmp/main-worktree",
       landed_commit: "abc123",
       strategy: "fast-forward",
-    },
-    context: {
-      step: {
-        schema_version: 1,
-        id: "archived",
-        handler: "archived",
-        input_step: null,
-        input_schema: embeddedStepOutputEnvelope,
-        output_schema: null,
-        result_schema_path: "schemas/steps/archive-output.yaml",
-        summary: "Archived",
-        instructions: "# Loopship Archived Step\n\nReport final state.",
-      },
     },
   },
   "hook-output": {
@@ -743,14 +732,13 @@ describe("loopship strict v3 step schemas", () => {
   it("requires replan_reason when rejecting task graph approval", () => {
     expect(
       validateV3Input(
-        { step: "task_graph", approved: false },
+        { approved: false },
         "task-graph-input",
       ),
     ).not.toEqual([]);
     expect(
       validateV3Input(
         {
-          step: "task_graph",
           approved: false,
           replan_reason: "scope changed",
         },
@@ -790,7 +778,6 @@ describe("loopship strict v3 step schemas", () => {
     expect(
       validateV3Input(
         {
-          step: "system_update",
           system_update: {
             schema_version: 1,
             mode: "replace",
@@ -804,7 +791,6 @@ describe("loopship strict v3 step schemas", () => {
     expect(
       validateV3Input(
         {
-          step: "system_update",
           system_update: {
             ...baseUpdate,
             external_docs: [
@@ -832,7 +818,6 @@ describe("loopship strict v3 step schemas", () => {
     expect(
       validateV3Input(
         {
-          step: "system_update",
           system_update: {
             ...baseUpdate,
             external_docs: [
@@ -860,7 +845,6 @@ describe("loopship strict v3 step schemas", () => {
     expect(
       validateV3Input(
         {
-          step: "system_update",
           system_update: {
             ...baseUpdate,
             external_docs: [
@@ -923,7 +907,6 @@ describe("loopship strict v3 step schemas", () => {
     expect(
       validateV3Input(
         {
-          step: "system_update",
           system_update: {
             ...baseUpdate,
             external_docs: [
@@ -962,24 +945,21 @@ describe("loopship bundled flow definitions", () => {
     expect(flow.steps_by_id.child_result.input_step).toBe("child_result");
     for (const step of Object.values(flow.steps_by_id)) {
       if (step.instructions.includes("## Terminal Output Contract")) {
-        expect(step.instructions).toContain("`output_schema` is null");
         expect(step.instructions).toContain(
-          "do not invent a next payload",
+          "Fastflow orchestrator owns terminal flow state",
         );
       } else if (step.output_schema && step.call === "fastflow.afn.core.request.input") {
         expect(step.instructions).toContain("## Step-Local Callback Contract");
         expect(step.instructions).toContain(
-          "orchestrator owns flow transitions",
+          "Fastflow orchestrator owns flow transitions",
         );
-        expect(step.instructions).toContain("current `output_schema`");
         expect(step.instructions).toContain(
-          "do not shape output for a guessed successor",
+          "matching this step's answer schema",
         );
       } else if (!step.output_schema) {
         expect(step.instructions).toContain("## Terminal Output Contract");
-        expect(step.instructions).toContain("`output_schema` is null");
         expect(step.instructions).toContain(
-          "do not invent a next payload",
+          "Fastflow orchestrator owns terminal flow state",
         );
       }
     }
@@ -1023,7 +1003,11 @@ describe("loopship bundled flow definitions", () => {
     expect(flow.steps_by_id.executing.instructions).toContain(
       "Start the ready child wtree commands",
     );
-    expect(flow.subflows).toEqual([]);
+    expect(flow.subflows.map((subflow) => subflow.id)).toEqual([
+      "replanning",
+      "add_task",
+      "child_task",
+    ]);
     expect(flow.stages_by_id.task_graph_ready.step).toBe("executing");
     expect(flow.stages_by_id.executing.step).toBe("child_result");
   });
@@ -1043,11 +1027,11 @@ describe("loopship bundled flow definitions", () => {
         stringifyYaml(
             makeStepWorkflow({
               taskName: "bad",
-            inputSchemaRef: join(root, "missing-schema.yaml"),
-              outputSchemaRef: join(
-                process.cwd(),
-                "schemas/steps/step-output.yaml",
+            inputSchemaRef: join(
+              process.cwd(),
+              "schemas/steps/step-request.yaml",
             ),
+            outputSchemaRef: join(root, "missing-schema.yaml"),
           }),
         ),
         "utf8",
@@ -1165,7 +1149,7 @@ describe("loopship bundled flow definitions", () => {
               type: "spawned_quest",
               starts_at: "task_graph_ready",
               returns_to: "task_graph_ready",
-              trigger: "children[].commands.init",
+              trigger: "children[].actions.init",
               result_step: "validation",
               flow_id: "demo",
             },
@@ -1186,7 +1170,7 @@ describe("loopship bundled flow definitions", () => {
               type: "spawned_quest",
               starts_at: "task_graph_ready",
               returns_to: "task_graph_ready",
-              trigger: "children[].commands.init",
+              trigger: "children[].actions.init",
               result_step: "executing",
               flow_id: "missing_flow",
             },

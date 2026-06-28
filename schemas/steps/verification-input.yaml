@@ -4,13 +4,10 @@ title: Loopship V3 Verification Input
 type: object
 additionalProperties: false
 required:
-  - step
   - status
   - acceptance_trace
   - risks
 properties:
-  step:
-    const: verification
   status:
     enum:
       - passed

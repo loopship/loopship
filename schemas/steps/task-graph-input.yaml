@@ -4,11 +4,8 @@ title: Loopship V3 Task Graph Input
 type: object
 additionalProperties: false
 required:
-  - step
   - approved
 properties:
-  step:
-    const: task_graph
   approved:
     type: boolean
   replan_reason:
