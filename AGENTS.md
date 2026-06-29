@@ -22,7 +22,7 @@
 
 # Coding Baseline
 
-- **Minimal diff**: aim for the smallest code change that satisfies the goal; avoid unnecessary refactors, reformats, or scope creep in the same changeset.
+- Default to the `mre` skill: build for the current proven need; choose the highest safe rung: no change, deletion, reuse, platform/stdlib, installed dependency, new code, then new dependency.
 - Keep edits scoped and follow repo idioms.
 - Prefer TDD/BDD: write or update tests before (or alongside) the implementation for behavior changes. Apply SOLID only when it reduces churn.
 - **Integration tests must use isolated live environments** (sandboxed databases, test accounts, ephemeral services). Never run integration tests against a production runtime or data store.
