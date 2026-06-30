@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 2
-      digest: "sha256:9a001cfa1e46961a06c4efc4156fd2560d9855819c7c82e58fbe08d9f454457a"
-      summary: "Pin SWE flow to promoted native landing workflow"
+      release: 3
+      digest: "sha256:7fa9787cf682e6a9313e0d8353406edf2faf07ea39a00188ecdd6038a466c978"
+      summary: "Refactor SWE flow to native stage-local SWF branches"
       inputs:
         required: []
         optional: []
@@ -19,3 +19,13 @@ workflows:
         - loopship.workflow.service.step.task-graph
         - loopship.workflow.service.step.validation
         - loopship.workflow.service.step.verification
+stable_attestation:
+  signature: |-
+    -----BEGIN PGP SIGNATURE-----
+    
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakPyyxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuyWAEAqigO3uQ5IucvuU3TQ9He
+    1Ol9ZBqeS9R33pQV8WjrbRUBALwOomd6Y9slpGrmffRyz6Zm+8FPe1uyB0w/vmdG
+    MS8E
+    =ngje
+    -----END PGP SIGNATURE-----
