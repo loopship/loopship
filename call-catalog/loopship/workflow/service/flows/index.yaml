@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 1
-      digest: "sha256:b8299c0ca70a39c9905430d17df5d94a5a405fc299ac57b3b65ece9189343aee"
-      summary: "Loopship swe flow orchestration for Fastflow-native supervision."
+      release: 2
+      digest: "sha256:9a001cfa1e46961a06c4efc4156fd2560d9855819c7c82e58fbe08d9f454457a"
+      summary: "Pin SWE flow to promoted native landing workflow"
       inputs:
         required: []
         optional: []
