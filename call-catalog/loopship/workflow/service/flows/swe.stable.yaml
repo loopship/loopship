@@ -413,7 +413,7 @@ do:
           repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           runtime: "${inputs.runtime || ''}"
-          children: "${inputs.children || []}"
+          children: "${inputs.children || state.steps.read_tasks.action.tasks || []}"
           actor: "${inputs.actor || 'loopship'}"
           target_branch: "${inputs.target_branch || state.steps.read_tasks.action.landing_target_branch || 'main'}"
           target_worktree: "${inputs.target_worktree || state.steps.read_tasks.action.landing_target_worktree || ''}"
@@ -664,7 +664,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:903dfd2927a13aed9355a4579bb40e72354561ad565eeeb54df9faddbf5a858a"
+          digest: "sha256:8395f7172340fed270fec6198990b7d0cdf42533ad1802381522ddf88053dd54"
       call: loopship.workflow.service.step.landing
       with:
         version: 0.1.0
