@@ -1,18 +1,3 @@
 schemaVersion: fastflow/call-catalog-manifest/v3
 pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml"
-prefixes:
-  loopship:
-    afn:
-      service:
-        child:
-          tags: "child, worktree, quest, prepare"
-        landing:
-          tags: "landing, git, merge, apply"
-        system:
-          tags: "system, docs, signature, apply"
-    workflow:
-      service:
-        flows:
-          tags: "flow, swe, flows"
-        step:
-          tags: "step, archived, child_result, executing, landing, plan, questions, system_update, task_graph, validation, verification, child-result, child, result, system-update, system, update, task-graph, task, graph"
+prefixes: {}
