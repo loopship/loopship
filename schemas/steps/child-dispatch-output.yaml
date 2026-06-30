@@ -6,7 +6,6 @@ additionalProperties: false
 required:
   - task
   - answer_schema
-  - continuation
   - children
 properties:
   schema_version:
@@ -36,8 +35,6 @@ properties:
             const: executing
   answer_schema:
     $ref: common.yaml#/$defs/schema_ref_or_embedded
-  continuation:
-    $ref: common.yaml#/$defs/resume_continuation
   children:
     type: array
     items:

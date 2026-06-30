@@ -1,102 +1,45 @@
 #!/usr/bin/env bun
 
+import * as child_process from "node:child_process";
 import {
   existsSync,
-  mkdirSync,
   realpathSync,
-  readdirSync,
   rmSync,
-  unlinkSync,
-  writeFileSync,
 } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   expandHome,
-  hashText,
   readJson,
   readStdinJson,
   readText,
   resolveCwd,
-  runCommand,
   shellQuote,
   tsShellCommand,
   writeJson,
-  writeText,
-  AUTO_CONTINUE_BUDGET,
 } from "./loopship_utils.ts";
 import type { Runtime } from "./loopship_utils.ts";
 import {
-  appendJsonl,
-  coordinatorWorktreePath,
   createLoopshipShim,
-  createQuest,
-  ensureCoordinatorWorkspace,
-  ensureTaskWorkspace,
   ensureGlobalSkillFiles,
-  ensureGitRootCommit,
-  landingTargetWorktreePath,
-  LOOPSHIP_ROOT_MANIFEST_FILE,
-  parseTasksYaml,
-  taskAssignmentBranchRef,
-  taskAssignmentChildWtree,
-  taskAssignmentWorktreePath,
-  type QuestFiles,
-  type QuestTask,
-  questFiles,
-  questWorkspaceRoot,
   resolveGlobalLoopshipBinPath,
-  normalizeName,
-  verifyQuestManifest,
-  verifyRootManifest,
-  writeQuestManifest,
 } from "./loopship_core.ts";
-import {
-  DEFAULT_FLOW_ID,
-  DEFAULT_FLOW_VERSION,
-  flowStage,
-  flowStep,
-  loadFlowDefinition,
-  type LoadedLoopshipFlow,
-} from "./loopship_flow.ts";
-import {
-  dereferencedSchemaSource,
-  dereferencedV3Schema,
-  type LoopshipSchemaSource,
-  validateSchemaSource,
-  validateV3Input,
-  v3SchemaPath,
-  v3SchemaRef,
-} from "./loopship_schema.ts";
 import { runLoopshipCmdproto } from "./loopship_cmdproto.ts";
 import { runHandbook } from "./loopship_handbook.ts";
 import { runStepperCli } from "./loopship_stepper.ts";
+import {
+  resolveLoopshipFlowId,
+  resumeLoopshipFastflowWorkflow,
+  runLoopshipFastflowWorkflow,
+} from "./loopship_fastflow.ts";
 
 type Command =
   | "init"
   | "doctor"
-  | "resume"
   | "hook"
   | "stepper"
   | "cmdproto"
   | "handbook";
-
-type ParentQuestAssignment = {
-  parent_wtree: string;
-  task_id: string;
-  parent_context_ref: string;
-  landing_target_branch: string;
-  landing_target_worktree: string;
-  merge_lease_id: string;
-};
-
-type GitLandingReceipt = {
-  source_branch: string;
-  target_branch: string;
-  target_worktree: string;
-  landed_commit: string;
-  strategy: "already-up-to-date" | "fast-forward" | "merge-commit";
-};
 
 type DoctorArgs = {
   repo: string;
@@ -106,20 +49,15 @@ type DoctorArgs = {
 };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const NEXT_PAYLOAD_INSTRUCTION =
-  "This step is reusable across flows. The Fastflow orchestrator owns flow transitions and continuation state. Follow the instructions above, then return exactly one JSON payload matching this step's answer schema; do not include command strings, successor-state scaffolding, or fields for a guessed next step.";
-const TERMINAL_OUTPUT_INSTRUCTION =
-  "This terminal step is reusable across flows. The Fastflow orchestrator owns terminal flow state, so report the terminal output and do not include command strings or successor-state scaffolding.";
-const MAX_EMBEDDED_SCHEMA_BYTES = 64 * 1024;
 function usage(): void {
   console.log(`loopship
 
 Usage:
-  loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow swe] [--wtree <name>]
+  loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow <id>] [--wtree <name>]
   loopship hook --runtime <codex|gemini|copilot>
   loopship stepper init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
-  loopship stepper step --wtree <name> --json <json|@file|@->
-  loopship stepper hook [--runtime <codex|gemini|copilot>] [--json <json|@file|@->]
+  loopship stepper step --json <fastflow-resume-json|@file|@->
+  loopship stepper hook [--json <fastflow-resume-json|@file|@->]
   loopship doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
   loopship handbook [--repo <path>] [--raw|--duplicates|--fix-duplicates] [--json] [--min-chars <n>]
   loopship cmdproto --help [--json]
@@ -131,7 +69,7 @@ function parseCommand(argv: string[]): Command {
   const cmd = argv[0] as Command | undefined;
   if (
     !cmd ||
-    !["init", "doctor", "resume", "hook", "stepper", "cmdproto", "handbook"].includes(cmd)
+    !["init", "doctor", "hook", "stepper", "cmdproto", "handbook"].includes(cmd)
   ) {
     usage();
     process.exit(1);
@@ -222,86 +160,10 @@ function resolveRepoContext(input?: {
   throw new Error("cannot resolve loopship context");
 }
 
-const GENERIC_GREENFIELD_TOKENS = new Set([
-  "app",
-  "application",
-  "website",
-  "site",
-  "dashboard",
-  "tool",
-  "platform",
-  "service",
-  "product",
-  "system",
-  "portal",
-  "api",
-  "project",
-  "prototype",
-  "mvp",
-  "fullstack",
-  "frontend",
-  "backend",
-  "web",
-  "mobile",
-  "desktop",
-  "create",
-  "build",
-  "make",
-  "develop",
-  "start",
-  "ship",
-  "new",
-  "simple",
-]);
-
-const PROMPT_STOPWORDS = new Set([
-  "a",
-  "an",
-  "the",
-  "for",
-  "to",
-  "with",
-  "and",
-  "or",
-  "of",
-  "in",
-  "on",
-  "from",
-  "me",
-  "us",
-  "some",
-  "please",
-]);
-
-function normalizePromptText(value: unknown): string {
-  return String(value ?? "")
-    .toLowerCase()
-    .replace(/^loopship:\s*/, "")
-    .replace(/\bfull\s+stack\b/g, "fullstack")
-    .replace(/\bfront\s+end\b/g, "frontend")
-    .replace(/\bback\s+end\b/g, "backend")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function looksLikeVagueGreenfieldPrompt(prompt: unknown): boolean {
-  const normalized = normalizePromptText(prompt);
-  if (!normalized) return false;
-  const informative = normalized
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((token) => !PROMPT_STOPWORDS.has(token));
-  if (!informative.length) return false;
-  if (!informative.some((token) => GENERIC_GREENFIELD_TOKENS.has(token))) {
-    return false;
-  }
-  return informative.every((token) => GENERIC_GREENFIELD_TOKENS.has(token));
-}
-
 function parseInitArgs(argv: string[]): {
   repo: string;
   wtree: string | null;
-  flowId: string;
+  flowId: string | null;
   objective: string;
   force: boolean;
   runtime: DoctorArgs["runtime"];
@@ -309,7 +171,7 @@ function parseInitArgs(argv: string[]): {
 } {
   let repo: string | null = null;
   let wtree: string | null = null;
-  let flowId = DEFAULT_FLOW_ID;
+  let flowId: string | null = null;
   let force = false;
   let runtime: DoctorArgs["runtime"] = "all";
   let skillHome: string | null = null;
@@ -343,7 +205,7 @@ function parseInitArgs(argv: string[]): {
   return {
     repo: context.repoRoot,
     wtree,
-    flowId: flowId.trim() || DEFAULT_FLOW_ID,
+    flowId: flowId?.trim() || null,
     objective,
     force,
     runtime,
@@ -373,45 +235,6 @@ function parseDoctorArgs(argv: string[]): DoctorArgs {
     fix,
     hookScript: hookScript ? resolve(expandHome(hookScript)) : null,
   };
-}
-
-function hookOutput(
-  runtime: Runtime,
-  shouldContinue: boolean,
-  reason: string,
-  eventName: string,
-): Record<string, unknown> {
-  if (!shouldContinue) return {};
-  if (runtime === "gemini") {
-    return { decision: "deny", reason, suppressOutput: true };
-  }
-  if (runtime === "copilot" && eventName === "Stop") {
-    return {
-      decision: "block",
-      reason,
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        decision: "block",
-        reason,
-      },
-    };
-  }
-  return { decision: "block", reason };
-}
-
-import * as child_process from "node:child_process";
-
-function resolveAbsoluteGitDir(repoRoot: string): string | null {
-  try {
-    const stdout = child_process.execSync("git rev-parse --absolute-git-dir", {
-      cwd: repoRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return stdout.trim();
-  } catch {
-    return null;
-  }
 }
 
 function installCodexHook(repoRoot: string, cmd: string): string {
@@ -448,7 +271,7 @@ function installCodexHook(repoRoot: string, cmd: string): string {
         type: "command",
         command: cmd,
         timeout: 30,
-        statusMessage: "loopship: evaluating continuation",
+        statusMessage: "loopship: evaluating hook",
       },
     ],
   });
@@ -619,65 +442,8 @@ export function runDoctor(argv: string[]): number {
   return 0;
 }
 
-const CHILD_DONE_STATUSES = new Set([
-  "child_merged",
-  "child_archived",
-  "done",
-  "merged",
-]);
-const CHILD_STALLED_STATUSES = new Set(["blocked", "deferred", "failed"]);
-
-function inferRepoRuntime(repoRoot: string): DoctorArgs["runtime"] {
-  const runtimes: Runtime[] = [];
-  if (existsSync(resolve(repoRoot, ".codex", "hooks.json"))) {
-    runtimes.push("codex");
-  }
-  if (existsSync(resolve(repoRoot, ".gemini", "settings.json"))) {
-    runtimes.push("gemini");
-  }
-  if (existsSync(resolve(repoRoot, ".github", "hooks", "loopship.json"))) {
-    runtimes.push("copilot");
-  }
-  if (runtimes.length === 1) return runtimes[0];
-  return "all";
-}
-
-function readyChildTasks(state: Partial<{ tasks: QuestTask[] }>): QuestTask[] {
-  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
-  const done = new Set(
-    tasks
-      .filter((task) => CHILD_DONE_STATUSES.has(String(task.status)))
-      .map((task) => task.id),
-  );
-  const selected: QuestTask[] = [];
-  const usedGroups = new Set<string>();
-  const usedScopes = new Set<string>();
-  for (const task of tasks) {
-    const status = String(task.status || "child_received");
-    if (!["child_received", "pending", "ready"].includes(status)) continue;
-    if (!task.dependencies.every((id) => done.has(id))) continue;
-    const group = task.concurrency_group.trim();
-    if (group && usedGroups.has(group)) continue;
-    const scopes = task.scope_files
-      .map((scope) => scope.trim())
-      .filter(Boolean);
-    if (scopes.some((scope) => usedScopes.has(scope))) continue;
-    selected.push(task);
-    if (group) usedGroups.add(group);
-    for (const scope of scopes) usedScopes.add(scope);
-  }
-  return selected;
-}
-
 function questResponse(payload: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
-}
-
-function questNextResponse(
-  payload: Record<string, unknown>,
-  full: boolean,
-): void {
-  process.stdout.write(`${JSON.stringify(payload, null, full ? 2 : 0)}\n`);
 }
 
 function readJsonArg(json: string | null): Record<string, any> {
@@ -693,83 +459,6 @@ function readJsonArg(json: string | null): Record<string, any> {
   return parsed && typeof parsed === "object" ? parsed : {};
 }
 
-function flowIdForState(state: Partial<{ [key: string]: any }>): string {
-  return String(state.flow_id ?? DEFAULT_FLOW_ID).trim() || DEFAULT_FLOW_ID;
-}
-
-function flowVersionForState(state: Partial<{ [key: string]: any }>): number {
-  const version = Number(state.flow_version ?? DEFAULT_FLOW_VERSION);
-  return Number.isInteger(version) && version > 0
-    ? version
-    : DEFAULT_FLOW_VERSION;
-}
-
-function loadStateFlow(
-  state: Partial<{ [key: string]: any }>,
-): LoadedLoopshipFlow {
-  return loadFlowDefinition(flowIdForState(state));
-}
-
-function stageToV3Step(stage: string, flow = loadFlowDefinition()): string {
-  return flowStep(flow, stage).id;
-}
-
-function stageForFastflowStep(
-  flow: LoadedLoopshipFlow,
-  currentStage: string,
-  stepId: string,
-): string {
-  const current = flowStage(flow, currentStage);
-  if (flow.steps_by_id[current.step]?.id === stepId) return current.id;
-  const exact = flow.stages.find((stage) => flow.steps_by_id[stage.step]?.id === stepId);
-  if (exact) return exact.id;
-  const matchingInput = flow.stages.find((stage) => {
-    const step = flow.steps_by_id[stage.step];
-    return (step.input_step ?? step.id) === stepId;
-  });
-  return matchingInput?.id ?? current.id;
-}
-
-function inputSchemaForStage(
-  stage: string,
-  flow = loadFlowDefinition(),
-): LoopshipSchemaSource {
-  const step = flowStep(flow, stage);
-  if (step.call.startsWith("loopship.afn.")) return step.input_schema;
-  return step.output_schema;
-}
-
-function outputSchemaForStage(
-  stage: string,
-  flow = loadFlowDefinition(),
-): string {
-  return flowStep(flow, stage).result_schema;
-}
-
-function v3StepSummary(stage: string, flow = loadFlowDefinition()): string {
-  return flowStep(flow, stage).summary;
-}
-
-function compactCommand(cmd: string, args: string[]): Record<string, unknown> {
-  return { cmd, args };
-}
-
-function tokenCommand(cmd: string, args: string[]): Record<string, unknown> {
-  return { cmd, args };
-}
-
-function resumeContinuation(
-  wtree: string,
-  command: typeof compactCommand,
-): Record<string, unknown> {
-  return {
-    kind: "fastflow.resume",
-    transport: "loopship",
-    wtree,
-    command: command("loopship", ["resume", "--wtree", wtree, "--json", "@-"]),
-  };
-}
-
 function simpleHookCommand(binPath: string, runtime: string): string {
   return [shellQuote(binPath), "hook", "--runtime", runtime].join(" ");
 }
@@ -778,139 +467,6 @@ function readHookJsonArg(json: string | null): Record<string, any> {
   if (json) return readJsonArg(json);
   if (process.stdin.isTTY) return {};
   return readStdinJson() as Record<string, any>;
-}
-
-function questByWtree(
-  repoRoot: string,
-  wtree: string,
-): { files: QuestFiles; state: Partial<{ [key: string]: any }> } | null {
-  const files = questFiles(repoRoot, wtree);
-  if (!existsSync(files.tasks)) return null;
-  return { files, state: parseTasksYaml(readText(files.tasks)) };
-}
-
-function allQuestWtrees(repoRoot: string): string[] {
-  const wtrees = new Set<string>();
-  const worktreesDir = resolve(repoRoot, "worktrees");
-  if (!existsSync(worktreesDir)) return [];
-  for (const entry of readdirSync(worktreesDir)) {
-    if (!validWtreeName(entry)) continue;
-    if (existsSync(questFiles(repoRoot, entry).tasks)) {
-      wtrees.add(entry);
-    }
-  }
-  return [...wtrees].sort();
-}
-
-function findParentQuestAssignment(
-  repoRoot: string,
-  childWtree: string,
-): ParentQuestAssignment | null {
-  for (const parentWtree of allQuestWtrees(repoRoot)) {
-    const parentQuest = questByWtree(repoRoot, parentWtree);
-    const parentTasks = Array.isArray(parentQuest?.state.tasks)
-      ? (parentQuest!.state.tasks as QuestTask[])
-      : [];
-    const matched = parentTasks.find(
-      (task) =>
-        String(task.child_wtree ?? "").trim() === childWtree ||
-        taskAssignmentChildWtree(parentWtree, String(task.id)) === childWtree ||
-        `${parentWtree}-${task.id}` === childWtree,
-    );
-    if (!matched) continue;
-    return {
-      parent_wtree: parentWtree,
-      task_id: matched.id,
-      parent_context_ref: String(parentQuest?.files.tasks ?? ""),
-      landing_target_branch: String(
-        matched.merge_target || parentQuest?.state.coordinator_branch || "main",
-      ),
-      landing_target_worktree: String(
-        parentQuest?.state.coordinator_worktree ??
-          landingTargetWorktreePath(
-            repoRoot,
-            String(matched.merge_target || "main"),
-          ),
-      ),
-      merge_lease_id: String(matched.merge_lease_id ?? ""),
-    };
-  }
-  return null;
-}
-
-function requestTokens(value: string): Set<string> {
-  return new Set(
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .split(/\s+/)
-      .filter((token) => token.length > 2 && token !== "loopship"),
-  );
-}
-
-function rankQuestCandidates(
-  repoRoot: string,
-  request: string,
-): Array<Record<string, unknown>> {
-  const tokens = requestTokens(request);
-  return allQuestWtrees(repoRoot)
-    .map((wtree) => {
-      const quest = questByWtree(repoRoot, wtree);
-      const prompt = String(quest?.state.prompt ?? "");
-      const haystack = requestTokens(`${wtree} ${prompt}`);
-      let score = 0;
-      for (const token of tokens) {
-        if (haystack.has(token)) score += 1;
-      }
-      return {
-        wtree,
-        score,
-        description: prompt || wtree,
-        state: String(quest?.state.stage ?? "unknown"),
-        current_step: stageToV3Step(
-          String(quest?.state.stage ?? "planning"),
-          loadStateFlow(quest?.state ?? {}),
-        ),
-        flow_id: flowIdForState(quest?.state ?? {}),
-        flow_version: flowVersionForState(quest?.state ?? {}),
-        worktree_path: String(quest?.state.coordinator_worktree ?? ""),
-        command: compactCommand("loopship", [
-          "resume",
-          "--wtree",
-          wtree,
-          "--json",
-          "@-",
-        ]),
-      };
-    })
-    .sort((left, right) => {
-      const score = Number(right.score ?? 0) - Number(left.score ?? 0);
-      return score || String(left.wtree).localeCompare(String(right.wtree));
-    });
-}
-
-function suggestedWtree(request: string): string {
-  return normalizeName(request.replace(/^loopship:\s*/i, "") || "quest");
-}
-
-function validWtreeName(value: string): boolean {
-  const text = value.trim();
-  return (
-    text.length > 0 &&
-    text === basename(text) &&
-    text !== "." &&
-    text !== ".." &&
-    !text.includes("/") &&
-    !text.includes("\\")
-  );
-}
-
-function requireWtreeName(value: string, label = "wtree"): string {
-  const text = value.trim();
-  if (!validWtreeName(text)) {
-    throw new Error(`${label} must be a base worktree name`);
-  }
-  return text;
 }
 
 function ensureV3Runtime(input: {
@@ -934,773 +490,6 @@ function ensureV3Runtime(input: {
   if (input.runtime === "copilot" || input.runtime === "all") {
     installCopilotHook(input.repoRoot, buildHookCommand("copilot"));
   }
-}
-
-function v3InitRoute(input: {
-  repoRoot: string;
-  runtime: DoctorArgs["runtime"];
-  request: string;
-  flowId: string;
-  wtree?: string | null;
-}): Record<string, unknown> {
-  const wtree = requireWtreeName(
-    String(input.wtree ?? "").trim() || suggestedWtree(input.request),
-  );
-  const flow = loadFlowDefinition(input.flowId);
-  const compactSchema = process.env.LOOPSHIP_COMPACT_INIT_SCHEMA === "1";
-  const createQuestInput = {
-    action: "create_quest",
-    wtree,
-    flow_id: flow.id,
-    request: input.request,
-  };
-  return {
-    schema_version: 3,
-    kind: "init_route",
-    schema_path: v3SchemaPath("init-output"),
-    request: input.request,
-    runtime: input.runtime,
-    flow_id: flow.id,
-    flow_version: flow.version,
-    candidates: rankQuestCandidates(input.repoRoot, input.request),
-    new_quest: {
-      suggested_wtree: wtree,
-      command: compactCommand("loopship", [
-        "resume",
-        "--wtree",
-        wtree,
-        "--json",
-        JSON.stringify(createQuestInput),
-      ]),
-      resume_input_schema: compactSchema
-        ? { schema_path: v3SchemaPath("next-input") }
-        : boundedSchema(v3SchemaPath("next-input")),
-      input: createQuestInput,
-    },
-  };
-}
-
-function lockPath(repoRoot: string, wtree: string): string {
-  return questFiles(repoRoot, wtree).lock;
-}
-
-function pidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error: any) {
-    return error?.code === "EPERM";
-  }
-}
-
-type WtreeLock =
-  | { ok: true; path: string; token: string }
-  | { ok: false; response: Record<string, unknown> };
-
-function acquireWtreeLock(repoRoot: string, wtree: string): WtreeLock {
-  const path = lockPath(repoRoot, wtree);
-  mkdirSync(dirname(path), { recursive: true });
-  const token = `${process.pid}-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
-  const body = {
-    schema_version: 3,
-    wtree,
-    pid: process.pid,
-    token,
-    created_at: new Date().toISOString(),
-  };
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`, {
-        encoding: "utf8",
-        flag: "wx",
-      });
-      return { ok: true, path, token };
-    } catch (error: any) {
-      if (error?.code !== "EEXIST") throw error;
-      const existing = readJson(path) as Record<string, any> | null;
-      const pid = Number(existing?.pid ?? 0);
-      if (!pidAlive(pid)) {
-        rmSync(path, { force: true });
-        continue;
-      }
-      return {
-        ok: false,
-        response: {
-          schema_version: 3,
-          kind: "lock_error",
-          schema_path: v3SchemaPath("lock-error"),
-          wtree,
-          lock: {
-            path,
-            pid,
-            retry: compactCommand("loopship", [
-              "resume",
-              "--wtree",
-              wtree,
-              "--json",
-              "@-",
-            ]),
-          },
-        },
-      };
-    }
-  }
-  return {
-    ok: false,
-    response: {
-      schema_version: 3,
-      kind: "lock_error",
-      schema_path: v3SchemaPath("lock-error"),
-      wtree,
-      lock: { path, pid: null, retry: "stale lock could not be reaped" },
-    },
-  };
-}
-
-function releaseWtreeLock(lock: WtreeLock): void {
-  if (!lock.ok) return;
-  try {
-    const current = readJson(lock.path) as Record<string, any> | null;
-    if (current?.token === lock.token) unlinkSync(lock.path);
-  } catch {
-    // Best effort release; stale locks are reaped on the next command.
-  }
-}
-
-function readyChildrenForV3(
-  repoRoot: string,
-  wtree: string,
-  state: Partial<{ tasks: QuestTask[] }>,
-  full = false,
-): Array<Record<string, unknown>> {
-  const command = full ? compactCommand : tokenCommand;
-  const flowId = flowIdForState(state as Partial<{ [key: string]: any }>);
-  const runtime = inferRepoRuntime(repoRoot);
-  return readyChildTasks(state).map((task) => {
-    const childWtree =
-      String(task.child_wtree || "").trim() ||
-      taskAssignmentChildWtree(wtree, String(task.id));
-    const workspace = ensureTaskWorkspace(
-      repoRoot,
-      String(task.branch_ref || taskAssignmentBranchRef(wtree, String(task.id))),
-      String(
-        task.worktree_path ||
-          taskAssignmentWorktreePath(repoRoot, wtree, String(task.id)),
-      ),
-    );
-    const mergeTarget = String(task.merge_target || wtree);
-    const parentContextRef = resolve(
-      coordinatorWorktreePath(repoRoot, wtree),
-      ".loopship",
-      "runtime",
-      "tasks.yaml",
-    );
-    const request = `loopship: execute child task ${task.id}: ${task.title}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${mergeTarget} and return the merge_commit.`;
-    return {
-      task_id: task.id,
-      title: task.title,
-      child_wtree: childWtree,
-      parent_wtree: wtree,
-      parent_task_id: task.id,
-      parent_context_ref: parentContextRef,
-      branch_ref: workspace.branch_ref,
-      worktree_path: workspace.worktree_path,
-      merge_target: mergeTarget,
-      merge_target_worktree: coordinatorWorktreePath(repoRoot, wtree),
-      acceptance: task.acceptance,
-      actions: {
-        init: command("loopship", [
-          "init",
-          request,
-          "--wtree",
-          childWtree,
-          "--runtime",
-          runtime,
-          "--flow",
-          flowId,
-        ]),
-        resume: command("loopship", [
-          "resume",
-          "--wtree",
-          childWtree,
-          "--json",
-          "@-",
-        ]),
-      },
-    };
-  });
-}
-
-function compactStepData(
-  stepDef: ReturnType<typeof flowStep>,
-): Record<string, string> {
-  return {
-    id: stepDef.id,
-    instructions: stepInstructions(stepDef),
-  };
-}
-
-function stepInstructions(stepDef: ReturnType<typeof flowStep>): string {
-  const callbackInstruction = stepDef.output_schema
-    ? NEXT_PAYLOAD_INSTRUCTION
-    : TERMINAL_OUTPUT_INSTRUCTION;
-  return `${stepDef.instructions.trimEnd()}\n\n${callbackInstruction}`;
-}
-
-function schemaRefForSource(schemaSource: LoopshipSchemaSource): unknown {
-  if (schemaSource == null) return null;
-  if (typeof schemaSource === "string") return { schema_path: schemaSource };
-  const schemaId = schemaSource.$id;
-  return typeof schemaId === "string" && schemaId.trim()
-    ? { schema_path: schemaId }
-    : schemaSource;
-}
-
-function boundedSchema(schemaSource: LoopshipSchemaSource): unknown {
-  const embedded = dereferencedSchemaSource(schemaSource);
-  if (embedded == null) return null;
-  if (
-    typeof schemaSource === "string" &&
-    JSON.stringify(embedded).length > MAX_EMBEDDED_SCHEMA_BYTES
-  ) {
-    return schemaRefForSource(schemaSource);
-  }
-  return embedded;
-}
-
-function v3StepOutput(input: {
-  repoRoot: string;
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  full?: boolean;
-}): Record<string, unknown> {
-  const stage = String(input.state.stage ?? "planning");
-  const flow = loadStateFlow(input.state);
-  const stepDef = flowStep(flow, stage);
-  const step = stepDef.id;
-  const schema = outputSchemaForStage(stage, flow);
-  const command = input.full ? compactCommand : tokenCommand;
-  if (!input.full) {
-    const compactOutput: Record<string, unknown> = {
-      task: compactStepData(stepDef),
-    };
-    if (stepDef.output_schema) {
-      compactOutput.answer_schema = boundedSchema(stepDef.output_schema);
-      compactOutput.continuation = resumeContinuation(input.files.wtree, command);
-    } else {
-      compactOutput.terminal = true;
-    }
-    if (step === "executing") {
-      compactOutput.children = readyChildrenForV3(
-        input.repoRoot,
-        input.files.wtree,
-        input.state,
-      );
-    }
-    if (step === "archived") {
-      compactOutput.terminal = true;
-      delete compactOutput.answer_schema;
-      delete compactOutput.continuation;
-    }
-    if (step === "archived" && String(input.state.landed_commit ?? "").trim()) {
-      compactOutput.landing = {
-        source_branch: String(input.state.coordinator_branch ?? ""),
-        target_branch: String(input.state.landing_target_branch ?? ""),
-        target_worktree: String(input.state.landing_target_worktree ?? ""),
-        landed_commit: String(input.state.landed_commit ?? ""),
-        strategy: String(input.state.landing_strategy ?? ""),
-      };
-    }
-    return compactOutput;
-  }
-
-  const output: Record<string, unknown> = {
-    schema_version: 3,
-    kind: "quest_step",
-    schema_path: schema,
-    wtree: input.files.wtree,
-    quest_id: input.files.wtree,
-    flow_id: flow.id,
-    flow_version: flow.version,
-    current_stage: stage,
-    summary: v3StepSummary(stage, flow),
-    task: compactStepData(stepDef),
-  };
-  if (stepDef.output_schema) {
-    output.answer_schema = boundedSchema(stepDef.output_schema);
-    output.continuation = resumeContinuation(input.files.wtree, command);
-  } else {
-    output.terminal = true;
-  }
-  if (input.full) {
-    output.task = {
-      ...compactStepData(stepDef),
-      summary: stepDef.summary,
-    };
-  }
-  if (step === "plan") {
-    if (input.full) {
-      output.requirements = [
-        "Classify the request.",
-        "Use repository discovery before asking questions.",
-        "Use AF to surface contradictions, hidden assumptions, weak evidence, and edge cases.",
-        "Use OF to collapse scope, defaults, acceptance, decomposition, and verification targets.",
-        "For greenfield app/product work, ask or explicitly default every high-impact unknown before task graph approval.",
-      ];
-    }
-  }
-  if (step === "executing") {
-    output.children = readyChildrenForV3(
-      input.repoRoot,
-      input.files.wtree,
-      input.state,
-      input.full === true,
-    );
-  }
-  if (step === "archived") {
-    output.terminal = true;
-    delete output.answer_schema;
-    delete output.continuation;
-    if (String(input.state.landed_commit ?? "").trim()) {
-      output.landing = {
-        source_branch: String(input.state.coordinator_branch ?? ""),
-        target_branch: String(input.state.landing_target_branch ?? ""),
-        target_worktree: String(input.state.landing_target_worktree ?? ""),
-        landed_commit: String(input.state.landed_commit ?? ""),
-        strategy: String(input.state.landing_strategy ?? ""),
-      };
-    }
-  }
-  return output;
-}
-
-function v3Error(
-  message: string,
-  extra: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    schema_version: 3,
-    kind: "error",
-    schema_path: v3SchemaPath("error-output"),
-    error: message,
-    ...extra,
-  };
-}
-
-function isChildExecutionQuestPrompt(prompt: unknown): boolean {
-  const normalized = String(prompt ?? "")
-    .trim()
-    .toLowerCase();
-  return (
-    normalized.startsWith("loopship: execute child task ") ||
-    normalized.startsWith("execute child task ")
-  );
-}
-
-function stageInputStep(stage: string, flow = loadFlowDefinition()): string {
-  const step = flowStep(flow, stage);
-  return step.input_step ?? step.id;
-}
-
-function assertStep(
-  input: Record<string, any>,
-  expected: string,
-): string | null {
-  if (input.step == null || input.step === "") return null;
-  if (String(input.step ?? "") !== expected) {
-    return `expected step "${expected}", got "${String(input.step ?? "(empty)")}"`;
-  }
-  return null;
-}
-
-function writeV3Manifest(files: QuestFiles, requestId: string): void {
-  writeQuestManifest(files, requestId, "loopship resume");
-}
-
-type LoopshipResumeResult = {
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-};
-
-function applyLoopshipResumePayload(input: {
-  files: QuestFiles;
-  expected: string;
-  requestId: string;
-  fastflowTransition: Record<string, any> | null;
-}): LoopshipResumeResult {
-  const nativeTransition = requireFastflowFlowTransition({
-    expected: input.expected,
-    result: input.fastflowTransition,
-  });
-  const refreshed = parseTasksYaml(readText(input.files.tasks));
-  const actualStage = String(refreshed.stage ?? "").trim();
-  const expectedStage = String(nativeTransition.stage_after ?? "").trim();
-  if (actualStage !== expectedStage) {
-    throw new Error(
-      `Loopship workflow-data stage '${actualStage}' does not match Fastflow flow stage '${expectedStage}'`,
-    );
-  }
-  writeV3Manifest(input.files, input.requestId);
-  return { files: input.files, state: refreshed };
-}
-
-function requireFastflowFlowTransition(input: {
-  expected: string;
-  result: Record<string, any> | null;
-}): Record<string, any> {
-  const result = normalizeFastflowExecutionResult(input.result);
-  if (!result) {
-    throw new Error(
-      `missing Fastflow transition for Loopship step '${input.expected}'`,
-    );
-  }
-  const output = result.output;
-  if (!output || typeof output !== "object" || Array.isArray(output)) {
-    throw new Error(
-      `Fastflow transition for Loopship step '${input.expected}' did not return an object output`,
-    );
-  }
-  if (output.schema_version !== "loopship.flow-transition/v1") {
-    throw new Error(
-      `Fastflow transition for Loopship step '${input.expected}' returned unsupported schema_version '${String(output.schema_version ?? "")}'`,
-    );
-  }
-  if (String(output.step ?? "") !== input.expected) {
-    throw new Error(
-      `Fastflow flow resumed step '${String(output.step ?? "")}' but Loopship expected '${input.expected}'`,
-    );
-  }
-  const expectedStage = String(output.stage_after ?? "").trim();
-  if (!expectedStage) {
-    throw new Error(
-      `Fastflow transition for Loopship step '${input.expected}' did not return stage_after`,
-    );
-  }
-  return output as Record<string, any>;
-}
-
-function assertFastflowPersistedStage(input: {
-  result: Record<string, any> | null;
-  state: Partial<{ [key: string]: any }>;
-}): void {
-  const result = normalizeFastflowExecutionResult(input.result);
-  if (!result) return;
-  const output = result.output;
-  if (!output || typeof output !== "object" || Array.isArray(output)) return;
-  if (output.schema_version !== "loopship.flow-transition/v1") return;
-  const expectedStage = String(output.stage_after ?? "").trim();
-  if (!expectedStage) return;
-  const actualStage = String(input.state.stage ?? "").trim();
-  if (actualStage !== expectedStage) {
-    throw new Error(
-      `Loopship persisted stage '${actualStage}' but Fastflow flow derived '${expectedStage}'`,
-    );
-  }
-}
-
-function normalizeFastflowExecutionResult(
-  result: Record<string, any> | null,
-): Record<string, any> | null {
-  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
-  let current: Record<string, any> = result;
-  for (let depth = 0; depth < 4; depth += 1) {
-    if (current.output && typeof current.output === "object" && !Array.isArray(current.output)) {
-      return current;
-    }
-    const wrapped = current.result;
-    if (!wrapped || typeof wrapped !== "object" || Array.isArray(wrapped)) break;
-    current = wrapped as Record<string, any>;
-  }
-  const transition = findFastflowFlowTransition(result);
-  if (transition) return { ...current, output: transition };
-  return current;
-}
-
-function findFastflowFlowTransition(value: unknown): Record<string, any> | null {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findFastflowFlowTransition(item);
-      if (found) return found;
-    }
-    return null;
-  }
-  const object = value as Record<string, any>;
-  if (object.schema_version === "loopship.flow-transition/v1") {
-    return object;
-  }
-  for (const item of Object.values(object)) {
-    const found = findFastflowFlowTransition(item);
-    if (found) return found;
-  }
-  return null;
-}
-
-type HookChainState = {
-  continuation_count?: number;
-  handled_keys?: Record<string, string>;
-  budget_prompted?: boolean;
-};
-
-type HookRuntimeState = {
-  schema_version: 1;
-  chains: Record<string, HookChainState>;
-  fastflow_sessions?: Record<string, Record<string, unknown>>;
-};
-
-function hookEventName(
-  payload: Record<string, any> | null | undefined,
-): string {
-  return String(
-    payload?.hook_event_name ??
-      payload?.hookEventName ??
-      payload?.event_name ??
-      payload?.eventName ??
-      "",
-  );
-}
-
-function loadHookRuntimeState(files: QuestFiles): HookRuntimeState {
-  const parsed = readJson(files.hook_state);
-  if (!parsed || typeof parsed !== "object") {
-    return { schema_version: 1, chains: {} };
-  }
-  const chains =
-    parsed.chains && typeof parsed.chains === "object"
-      ? (parsed.chains as Record<string, HookChainState>)
-      : {};
-  const fastflowSessions =
-    parsed.fastflow_sessions && typeof parsed.fastflow_sessions === "object"
-      ? (parsed.fastflow_sessions as Record<string, Record<string, unknown>>)
-      : {};
-  return { schema_version: 1, chains, fastflow_sessions: fastflowSessions };
-}
-
-function saveHookRuntimeState(files: QuestFiles, state: HookRuntimeState): void {
-  writeJson(files.hook_state, state);
-}
-
-function fastflowSessionKey(stepId: string): string {
-  return `step:${stepId}`;
-}
-
-async function isFastflowHandoffStep(stepId: string): Promise<boolean> {
-  const { isLoopshipFastflowHandoffStep } = await import("./loopship_fastflow.ts");
-  return isLoopshipFastflowHandoffStep(stepId);
-}
-
-async function startNativeFastflowStepSession(input: {
-  repoRoot: string;
-  files: QuestFiles;
-  state: Partial<{ [key: string]: any }>;
-  stepDoc: Record<string, unknown>;
-}): Promise<void> {
-  const flow = loadStateFlow(input.state);
-  const stepId = stageToV3Step(String(input.state.stage ?? flow.default_stage), flow);
-  if (!(await isFastflowHandoffStep(stepId))) return;
-  const { startLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
-  const session = await startLoopshipFastflowStepSession({
-    repoRoot: input.repoRoot,
-    workspaceRoot: questWorkspaceRoot(input.files),
-    stepId,
-    stageId: String(input.state.stage ?? flow.default_stage),
-    flowId: flow.id,
-    inputs: input.stepDoc,
-  });
-  if (!session) return;
-  const runtime = loadHookRuntimeState(input.files);
-  const sessions = (runtime.fastflow_sessions ??= {});
-  sessions[fastflowSessionKey(stepId)] = session;
-  saveHookRuntimeState(input.files, runtime);
-  appendJsonl(input.files.events, {
-    event: "fastflow_session_started",
-    quest_id: input.files.wtree,
-    step_id: stepId,
-    workflow_ref: session.workflow_ref,
-  });
-  writeQuestManifest(input.files, `fastflow-session-${stepId}`, "loopship fastflow session");
-}
-
-async function resumeNativeFastflowStepSession(input: {
-  repoRoot: string;
-  files: QuestFiles;
-  stepId: string;
-  payload: Record<string, unknown>;
-}): Promise<Record<string, any> | null> {
-  if (!(await isFastflowHandoffStep(input.stepId))) {
-    const {
-      isLoopshipFastflowGeneratedStep,
-      runLoopshipFastflowStepOnce,
-    } = await import("./loopship_fastflow.ts");
-    if (!isLoopshipFastflowGeneratedStep(input.stepId)) return null;
-    const state = parseTasksYaml(readText(input.files.tasks));
-    const flow = loadStateFlow(state);
-    const currentStage = String(state.stage ?? flow.default_stage);
-    return (await runLoopshipFastflowStepOnce({
-      repoRoot: input.repoRoot,
-      workspaceRoot: questWorkspaceRoot(input.files),
-      stepId: input.stepId,
-      stageId: stageForFastflowStep(flow, currentStage, input.stepId),
-      flowId: flow.id,
-      inputs: {
-        ...input.payload,
-        repo: input.repoRoot,
-        wtree: input.files.wtree,
-      },
-    })) as Record<string, any>;
-  }
-  const runtime = loadHookRuntimeState(input.files);
-  const key = fastflowSessionKey(input.stepId);
-  let session = runtime.fastflow_sessions?.[key];
-  if (!session) {
-    const state = parseTasksYaml(readText(input.files.tasks));
-    const stepDoc = v3StepOutput({
-      repoRoot: input.repoRoot,
-      files: input.files,
-      state,
-      full: true,
-    });
-    const { startLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
-    const flow = loadStateFlow(state);
-    const currentStage = String(state.stage ?? flow.default_stage);
-    const created = await startLoopshipFastflowStepSession({
-      repoRoot: input.repoRoot,
-      workspaceRoot: questWorkspaceRoot(input.files),
-      stepId: input.stepId,
-      stageId: stageForFastflowStep(flow, currentStage, input.stepId),
-      flowId: flow.id,
-      inputs: stepDoc,
-    });
-    if (!created) {
-      throw new Error(`missing Fastflow session for Loopship step '${input.stepId}'`);
-    }
-    const sessions = (runtime.fastflow_sessions ??= {});
-    sessions[key] = created;
-    session = created;
-    saveHookRuntimeState(input.files, runtime);
-    appendJsonl(input.files.events, {
-      event: "fastflow_session_started",
-      quest_id: input.files.wtree,
-      step_id: input.stepId,
-      workflow_ref: created.workflow_ref,
-      lazy: true,
-    });
-  }
-  const { resumeLoopshipFastflowStepSession } = await import("./loopship_fastflow.ts");
-  const resumed = await resumeLoopshipFastflowStepSession({
-    repoRoot: input.repoRoot,
-    workspaceRoot: questWorkspaceRoot(input.files),
-    session: session as any,
-    decision: input.payload,
-  });
-  delete runtime.fastflow_sessions?.[key];
-  saveHookRuntimeState(input.files, runtime);
-  appendJsonl(input.files.events, {
-    event: "fastflow_session_resumed",
-    quest_id: input.files.wtree,
-    step_id: input.stepId,
-    workflow_ref: String(session.workflow_ref ?? ""),
-  });
-  writeQuestManifest(input.files, `fastflow-resume-${input.stepId}`, "loopship fastflow resume");
-  return resumed;
-}
-
-function hookChainKey(
-  runtime: Runtime,
-  contextRoot: string,
-  wtree: string,
-): string {
-  return hashText([runtime, contextRoot, wtree].join("\n"));
-}
-
-function rememberHookKey(chain: HookChainState, key: string): void {
-  const handled = (chain.handled_keys ??= {});
-  handled[key] = new Date().toISOString();
-  const entries = Object.entries(handled).sort((a, b) =>
-    a[1].localeCompare(b[1]),
-  );
-  for (const [oldKey] of entries.slice(0, Math.max(0, entries.length - 128))) {
-    delete handled[oldKey];
-  }
-}
-
-function questHookSnapshotFiles(files: QuestFiles): string[] {
-  return [files.tasks, files.events].sort();
-}
-
-function questHookSnapshotFingerprint(files: QuestFiles): string {
-  const eventText = readText(files.events)
-    .split(/\r?\n/)
-    .filter((line) => {
-      if (!line.trim()) return false;
-      try {
-        const record = JSON.parse(line) as Record<string, any>;
-        return String(record.event ?? "") !== "hook_decision";
-      } catch {
-        return true;
-      }
-    })
-    .join("\n");
-  return hashText(
-    [
-      `${files.tasks}:${hashText(readText(files.tasks))}`,
-      `${files.events}:${hashText(eventText)}`,
-    ].join("\n"),
-  );
-}
-
-function latestHookStopState(files: QuestFiles): {
-  iteration: string;
-  stopReason: string;
-} {
-  let iteration = "0";
-  let stopReason = "none";
-  for (const line of readText(files.events).split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const record = JSON.parse(line) as Record<string, any>;
-      if (String(record.event ?? "") === "hook_decision") continue;
-      const nextIteration = record.iteration ?? record.iteration_id;
-      if (nextIteration != null) iteration = String(nextIteration);
-      const nextStopReason = record.stop_reason;
-      if (nextStopReason != null) {
-        stopReason = String(nextStopReason).trim().toLowerCase() || "none";
-      }
-    } catch {
-      continue;
-    }
-  }
-  return { iteration, stopReason };
-}
-
-function taskTerminalState(
-  state: Partial<{ tasks: QuestTask[] }>,
-): "unknown" | "all_done" | "all_stalled" | "continue" {
-  const statuses = (Array.isArray(state.tasks) ? state.tasks : [])
-    .map((task) => String(task.status || "child_received"))
-    .filter(Boolean);
-  if (!statuses.length) return "unknown";
-  if (statuses.every((status) => CHILD_DONE_STATUSES.has(status)))
-    return "all_done";
-  if (statuses.every((status) => CHILD_STALLED_STATUSES.has(status))) {
-    return "all_stalled";
-  }
-  return "continue";
-}
-
-function shouldHookContinue(input: {
-  stopReason: string;
-  taskState: "unknown" | "all_done" | "all_stalled" | "continue";
-}): boolean {
-  if (input.stopReason === "none") return input.taskState !== "all_stalled";
-  if (input.stopReason === "all_done") return input.taskState !== "all_done";
-  if (input.stopReason === "all_blocked_or_deferred") {
-    return input.taskState !== "all_stalled";
-  }
-  return false;
 }
 
 function parseQuestRepoArg(argv: string[]): {
@@ -1738,318 +527,22 @@ function parseQuestRepoArg(argv: string[]): {
   return { repo, wtree, runtime, json, full, rest };
 }
 
-function createV3Quest(input: {
-  repoRoot: string;
-  wtree: string;
-  request: string;
-  resolutionSource: string;
-  flowId: string;
-}): { files: QuestFiles; state: Partial<{ [key: string]: any }> } {
-  ensureGitRootCommit(input.repoRoot);
-  const flow = loadFlowDefinition(input.flowId);
-  const workspace = ensureCoordinatorWorkspace(input.repoRoot, input.wtree);
-  const parentAssignment = isChildExecutionQuestPrompt(input.request)
-    ? findParentQuestAssignment(input.repoRoot, input.wtree)
-    : null;
-  const landingTargetBranch = parentAssignment
-    ? parentAssignment.landing_target_branch
-    : "main";
-  const landingTargetWorktree = parentAssignment
-    ? parentAssignment.landing_target_worktree
-    : landingTargetWorktreePath(input.repoRoot, landingTargetBranch);
-  const { files, state } = createQuest({
-    repoRoot: input.repoRoot,
-    wtree: input.wtree,
-    prompt: input.request,
-    resolutionSource: input.resolutionSource,
-    workspace,
-    flowId: flow.id,
-    flowVersion: flow.version,
-    parentWtree: parentAssignment?.parent_wtree ?? "",
-    parentTaskId: parentAssignment?.task_id ?? "",
-    parentContextRef: parentAssignment?.parent_context_ref ?? "",
-    landingTargetBranch,
-    landingTargetWorktree,
-  });
-  return { files, state };
-}
-
-type HookWtreeResolution =
-  | { ok: true; wtree: string; source: string; cwd: string }
-  | { ok: false; reason: string; cwd: string };
-
-function stringField(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function wtreeFromPathUnderWorktrees(
-  repoRoot: string,
-  cwd: string,
-): string | null {
-  const worktreesRoot = resolve(repoRoot, "worktrees");
-  const resolvedCwd = resolve(expandHome(cwd));
-  const pathRelative = relative(worktreesRoot, resolvedCwd);
-  if (!pathRelative || pathRelative.startsWith("..") || isAbsolute(pathRelative)) {
-    return null;
-  }
-  const candidate = pathRelative.split(/[\\/]/)[0] ?? "";
-  return validWtreeName(candidate) ? candidate : null;
-}
-
-function deriveHookWtreeFromCwd(repoRoot: string, cwd: string): {
-  wtree: string | null;
-  reason: string | null;
-} {
-  const direct = wtreeFromPathUnderWorktrees(repoRoot, cwd);
-  const gitTop = gitRootFrom(resolve(expandHome(cwd)));
-  const gitDerived = gitTop ? wtreeFromPathUnderWorktrees(repoRoot, gitTop) : null;
-  if (direct && gitDerived && direct !== gitDerived) {
-    return { wtree: null, reason: "hook cwd and git worktree signals conflict" };
-  }
-  return { wtree: direct ?? gitDerived, reason: null };
-}
-
-function questExistsForWtree(repoRoot: string, wtree: string): boolean {
-  return validWtreeName(wtree) && existsSync(questFiles(repoRoot, wtree).tasks);
-}
-
-function resolveHookWtree(input: {
-  repoRoot: string;
-  explicitWtree?: string | null;
-  payload: Record<string, any>;
-  contextPayload: Record<string, any>;
-  processCwd?: string;
-}): HookWtreeResolution {
-  const cwd =
-    stringField(input.contextPayload.cwd) ||
-    stringField(input.payload.cwd) ||
-    resolve(input.processCwd ?? process.cwd());
-  const explicit =
-    stringField(input.explicitWtree) ||
-    stringField(input.payload.wtree) ||
-    stringField(input.payload.loopship_wtree);
-  if (explicit && !validWtreeName(explicit)) {
-    return { ok: false, reason: "explicit wtree is not a base name", cwd };
-  }
-
-  const derived = deriveHookWtreeFromCwd(input.repoRoot, cwd);
-  if (derived.reason) return { ok: false, reason: derived.reason, cwd };
-  const cwdWtree = derived.wtree;
-  if (explicit && cwdWtree && explicit !== cwdWtree) {
-    return {
-      ok: false,
-      reason: "explicit wtree and hook cwd resolve to different quests",
-      cwd,
-    };
-  }
-
-  const selected = explicit || cwdWtree;
-  if (!selected) {
-    return { ok: false, reason: "hook did not resolve a worktree", cwd };
-  }
-  if (!questExistsForWtree(input.repoRoot, selected)) {
-    return { ok: false, reason: "hook worktree has no quest state", cwd };
-  }
+function nativeResumeRequest(value: Record<string, any>): Record<string, unknown> | null {
+  const source =
+    value.fastflow && typeof value.fastflow === "object" && !Array.isArray(value.fastflow)
+      ? (value.fastflow as Record<string, any>)
+      : value.resume && typeof value.resume === "object" && !Array.isArray(value.resume)
+        ? (value.resume as Record<string, any>)
+        : value;
+  const sessionId = String(source.sessionId ?? source.session_id ?? "").trim();
+  if (!sessionId) return null;
   return {
-    ok: true,
-    wtree: selected,
-    source: explicit ? "explicit" : "cwd",
-    cwd,
+    ...source,
+    sessionId,
   };
 }
 
-export async function runFastflowResume(argv: string[]): Promise<number> {
-  const args = parseQuestRepoArg(argv);
-  const payload = readJsonArg(args.json);
-  const context = resolveRepoContext({
-    repo: args.repo,
-    payload,
-  });
-  let wtree: string;
-  try {
-    wtree = requireWtreeName(String(args.wtree ?? payload.wtree ?? "").trim());
-  } catch (error) {
-    questResponse(
-      v3Error(
-        error instanceof Error
-          ? error.message
-          : "resume requires --wtree <base-worktree-name>",
-      ),
-    );
-    return 1;
-  }
-  const lock = acquireWtreeLock(context.repoRoot, wtree);
-  if (!lock.ok) {
-    questResponse(lock.response);
-    return 2;
-  }
-  try {
-    const existing = questByWtree(context.repoRoot, wtree);
-    if (!existing) {
-      const schemaErrors = validateV3Input(payload, "next-input");
-      if (schemaErrors.length) {
-        questResponse(
-          v3Error("output schema validation failed", {
-            wtree,
-            schema: v3SchemaRef("next-input"),
-            errors: schemaErrors,
-          }),
-        );
-        return 1;
-      }
-      if (String(payload.action ?? "") !== "create_quest") {
-        questResponse(
-          v3Error("select_quest action must be create_quest", { wtree }),
-        );
-        return 1;
-      }
-      if (payload.wtree && String(payload.wtree) !== wtree) {
-        questResponse(v3Error("payload wtree does not match --wtree", { wtree }));
-        return 1;
-      }
-      const request = String(payload.request ?? "").trim();
-      if (!request) {
-        questResponse(v3Error("create_quest requires request", { wtree }));
-        return 1;
-      }
-      const flowId = String(payload.flow_id ?? DEFAULT_FLOW_ID).trim();
-      const created = createV3Quest({
-        repoRoot: context.repoRoot,
-        wtree,
-        request,
-        resolutionSource: context.source,
-        flowId: flowId || DEFAULT_FLOW_ID,
-      });
-      const output = v3StepOutput({
-        repoRoot: context.repoRoot,
-        files: created.files,
-        state: created.state,
-        full: args.full,
-      });
-      await startNativeFastflowStepSession({
-        repoRoot: context.repoRoot,
-        files: created.files,
-        state: created.state,
-        stepDoc: output,
-      });
-      questResponse(output);
-      return 0;
-    }
-
-    const rootSignaturePath = resolve(
-      questWorkspaceRoot(existing.files),
-      LOOPSHIP_ROOT_MANIFEST_FILE,
-    );
-    if (existsSync(rootSignaturePath)) {
-      const rootSignature = verifyRootManifest(questWorkspaceRoot(existing.files));
-      if (!rootSignature.ok) {
-        questResponse(
-          v3Error("root signature verification failed", {
-            errors: rootSignature.errors,
-          }),
-        );
-        return 2;
-      }
-    }
-    const manifestCheck = verifyQuestManifest(existing.files);
-    if (!manifestCheck.ok) {
-      questResponse(
-        v3Error("quest manifest verification failed", {
-          wtree,
-          errors: manifestCheck.errors,
-        }),
-      );
-      return 2;
-    }
-
-    let state = existing.state;
-    let responseFiles = existing.files;
-    const hasInput = Object.keys(payload).length > 0;
-    if (hasInput) {
-      const flow = loadStateFlow(state);
-      const currentStage = String(state.stage ?? flow.default_stage);
-      const expected = stageInputStep(currentStage, flow);
-      const stepError = assertStep(payload, expected);
-      if (stepError) {
-        questResponse(v3Error(stepError, { wtree, state: state.stage }));
-        return 1;
-      }
-      const schemaSource = inputSchemaForStage(currentStage, flow);
-      if (!schemaSource) {
-        questResponse(
-          v3Error("current step does not accept an output payload", { wtree }),
-        );
-        return 1;
-      }
-      const schemaErrors = validateSchemaSource(payload, schemaSource);
-      if (schemaErrors.length) {
-        questResponse(
-          v3Error("output schema validation failed", {
-            wtree,
-            state: state.stage,
-            schema:
-              typeof schemaSource === "string"
-                ? { schema_path: schemaSource }
-                : schemaSource,
-            errors: schemaErrors,
-          }),
-        );
-        return 1;
-      }
-      const fastflowTransition = await resumeNativeFastflowStepSession({
-        repoRoot: context.repoRoot,
-        files: existing.files,
-        stepId: expected,
-        payload,
-      });
-      const requestId = `next-${wtree}-${Date.now().toString(36)}`;
-      try {
-        const applied = applyLoopshipResumePayload({
-          files: existing.files,
-          requestId,
-          expected,
-          fastflowTransition,
-        });
-        state = applied.state;
-        responseFiles = applied.files;
-        assertFastflowPersistedStage({
-          result: fastflowTransition,
-          state,
-        });
-      } catch (error) {
-        questResponse(
-          v3Error(error instanceof Error ? error.message : String(error), {
-            wtree,
-            state: state.stage,
-          }),
-        );
-        return 1;
-      }
-    }
-
-    const refreshed = parseTasksYaml(readText(responseFiles.tasks));
-    const output = v3StepOutput({
-      repoRoot: context.repoRoot,
-      files: responseFiles,
-      state: refreshed,
-      full: args.full,
-    });
-    if (hasInput) {
-      await startNativeFastflowStepSession({
-        repoRoot: context.repoRoot,
-        files: responseFiles,
-        state: refreshed,
-        stepDoc: output,
-      });
-    }
-    questResponse(output);
-    return 0;
-  } finally {
-    releaseWtreeLock(lock);
-  }
-}
-
-export function runHook(argv: string[]): number {
+export async function runHook(argv: string[]): Promise<number> {
   const args = parseQuestRepoArg(argv);
   const raw = readHookJsonArg(args.json);
   const envelopeLike = raw.command === "hook";
@@ -2059,154 +552,25 @@ export function runHook(argv: string[]): number {
     ...(envelopeLike ? raw.metadata : {}),
     ...payload,
   };
-  const runtime = String(
-    args.runtime ??
-      contextPayload.runtime ??
-      (envelopeLike ? raw.context?.runtime : null) ??
-      "codex",
-  ) as Runtime;
-  let context: { repoRoot: string; source: string };
-  try {
-    const hookCwd = resolveCwd(contextPayload);
-    context = resolveRepoContext({
-      repo: args.repo,
-      payload: contextPayload,
-      cwd: hookCwd,
-    });
-  } catch {
+  const request = nativeResumeRequest(payload);
+  if (!request) {
     process.stdout.write("{}");
     return 0;
   }
-  const resolved = resolveHookWtree({
+  const context = resolveRepoContext({
+    repo: args.repo,
+    payload: contextPayload,
+    cwd: resolveCwd(contextPayload),
+  });
+  const result = await resumeLoopshipFastflowWorkflow({
     repoRoot: context.repoRoot,
-    explicitWtree: args.wtree,
-    payload,
-    contextPayload,
+    request,
   });
-  if (!resolved.ok) {
-    process.stdout.write("{}");
-    return 0;
-  }
-  const activeQuest = {
-    files: questFiles(context.repoRoot, resolved.wtree),
-    state: parseTasksYaml(readText(questFiles(context.repoRoot, resolved.wtree).tasks)),
-  };
-  const manifestCheck = verifyQuestManifest(activeQuest.files);
-  if (!manifestCheck.ok) {
-    process.stdout.write("{}");
-    return 0;
-  }
-  const stage = String(activeQuest.state.stage ?? "planning");
-  const eventName = hookEventName(payload);
-  const snapshot = questHookSnapshotFingerprint(activeQuest.files);
-  const latestStop = latestHookStopState(activeQuest.files);
-  const chainState = loadHookRuntimeState(activeQuest.files);
-  const chainKey = hookChainKey(
-    runtime,
-    context.repoRoot,
-    activeQuest.files.wtree,
-  );
-  const chain = (chainState.chains[chainKey] ??= {});
-  const duplicateKey = [
-    runtime,
-    eventName,
-    context.repoRoot,
-    activeQuest.files.wtree,
-    latestStop.iteration,
-    snapshot,
-  ].join("\n");
-  if (chain.handled_keys?.[duplicateKey]) {
-    process.stdout.write("{}");
-    return 0;
-  }
-  const taskState = taskTerminalState(activeQuest.state);
-  const canContinue =
-    stage !== "archived" &&
-    shouldHookContinue({
-      stopReason: latestStop.stopReason,
-      taskState,
-    });
-  if (!canContinue) {
-    chain.continuation_count = 0;
-    chain.budget_prompted = false;
-    rememberHookKey(chain, duplicateKey);
-    saveHookRuntimeState(activeQuest.files, chainState);
-    appendJsonl(activeQuest.files.events, {
-      event: "hook_decision",
-      runtime,
-      hook_event_name: eventName || null,
-      stage,
-      iteration: latestStop.iteration,
-      stop_reason: latestStop.stopReason,
-      task_state: taskState,
-      decision: null,
-    });
-    writeQuestManifest(activeQuest.files, "hook", "loopship hook");
-    process.stdout.write("{}");
-    return 0;
-  }
-  const budgetUsed = Number(chain.continuation_count ?? 0);
-  const budgetExhausted =
-    budgetUsed >= AUTO_CONTINUE_BUDGET || chain.budget_prompted === true;
-  if (budgetExhausted && chain.budget_prompted) {
-    rememberHookKey(chain, duplicateKey);
-    saveHookRuntimeState(activeQuest.files, chainState);
-    process.stdout.write("{}");
-    return 0;
-  }
-  const stepDoc = v3StepOutput({
-    repoRoot: context.repoRoot,
-    files: activeQuest.files,
-    state: activeQuest.state,
-  });
-  const reason = JSON.stringify({
-    loopship: true,
-    command: "fastflow.resume",
-    ...stepDoc,
-  });
-  const budgetReason = JSON.stringify({
-    loopship: true,
-    command: "fastflow.resume",
-    wtree: activeQuest.files.wtree,
-    current_stage: stage,
-    task: {
-      id: stageToV3Step(stage, loadStateFlow(activeQuest.state)),
-    },
-    stop_reason: "budget_exhausted",
-    summary:
-      "Continuation budget exhausted. Continue manually with the emitted Fastflow resume continuation.",
-  });
-  if (budgetExhausted) chain.budget_prompted = true;
-  else chain.continuation_count = budgetUsed + 1;
-  rememberHookKey(chain, duplicateKey);
-  saveHookRuntimeState(activeQuest.files, chainState);
-  appendJsonl(activeQuest.files.events, {
-    event: "hook_decision",
-    runtime,
-    hook_event_name: eventName || null,
-    stage,
-    iteration: latestStop.iteration,
-    stop_reason: latestStop.stopReason,
-    task_state: taskState,
-    decision: budgetExhausted ? "budget_exhausted" : "continue",
-    continuation_count: chain.continuation_count ?? budgetUsed,
-    snapshot_fingerprint: snapshot,
-  });
-  writeQuestManifest(activeQuest.files, "hook", "loopship hook");
-  process.stdout.write(
-    JSON.stringify(
-      hookOutput(
-        runtime,
-        true,
-        budgetExhausted ? budgetReason : reason,
-        eventName,
-      ),
-    ),
-  );
+  questResponse(result);
   return 0;
 }
 
-export function runInit(argv: string[]): number {
+export async function runInit(argv: string[]): Promise<number> {
   const args = parseInitArgs(argv);
   if (args.objective) {
     ensureV3Runtime({
@@ -2214,15 +578,20 @@ export function runInit(argv: string[]): number {
       runtime: args.runtime,
       skillHome: args.skillHome,
     });
-    questResponse(
-      v3InitRoute({
-        repoRoot: args.repo,
-        runtime: args.runtime,
+    const flowId = resolveLoopshipFlowId(args.flowId);
+    const result = await runLoopshipFastflowWorkflow({
+      repoRoot: args.repo,
+      flowId,
+      inputs: {
         request: args.objective,
-        flowId: args.flowId,
-        wtree: args.wtree,
-      }),
-    );
+        runtime: args.runtime,
+        repo: args.repo,
+        repoRoot: args.repo,
+        ...(args.wtree ? { wtree: args.wtree } : {}),
+      },
+      progressMode: "compact",
+    });
+    questResponse(result);
     return 0;
   }
   const doctorStatus = runDoctor([
@@ -2258,10 +627,9 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   }
   const cmd = parseCommand(argv);
   const rest = argv.slice(1);
-  if (cmd === "init") return runInit(rest);
-  if (cmd === "hook") return runHook(rest);
-  if (cmd === "resume") return await runFastflowResume(rest);
-  if (cmd === "stepper") return runStepperCli(rest);
+  if (cmd === "init") return await runInit(rest);
+  if (cmd === "hook") return await runHook(rest);
+  if (cmd === "stepper") return await runStepperCli(rest);
   if (cmd === "handbook") return runHandbook(rest);
   if (cmd === "cmdproto") return runLoopshipCmdproto(rest);
   return runDoctor(rest);

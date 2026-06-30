@@ -13,6 +13,7 @@ calls:
         - target_branch
         - target_worktree
         - source_branch
+        - next_stage
         - request_id
         - dry_run
       schema:
@@ -60,6 +61,8 @@ calls:
           target_worktree:
             type: string
           source_branch:
+            type: string
+          next_stage:
             type: string
           request_id:
             type: string

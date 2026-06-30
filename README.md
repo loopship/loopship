@@ -9,7 +9,7 @@ npx @omar391/loopship init "loopship: build the app" --runtime codex
 node index.ts init "loopship: build the app" --runtime codex --flow swe
 node index.ts hook --runtime codex
 node index.ts stepper init "loopship: build me a python app" --runtime codex --flow swe
-node index.ts stepper step --wtree build-me-a-python-app --json @request.json
+node index.ts stepper step --json @fastflow-resume.json
 node index.ts stepper hook --runtime codex
 node index.ts doctor --fix
 node index.ts handbook
@@ -23,9 +23,9 @@ node index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
 The launcher skill lives in
 `/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules/skills/loopship/SKILL.md`.
 Lifecycle, prompts, schemas, state, manifests, child subagent flow, and next
-actions are owned by this `loopship` package through Fastflow-native generated
-workflows, the Loopship Fastflow consumer adapter, YAML/JSONL workflow-data
-operations, and `schemas/steps`.
+actions are owned by Fastflow workflows and workflow-data operations. Loopship
+is the consumer layer: CLI parsing, repo/runtime bootstrap, Fastflow app
+configuration, and Loopship AFN adapter registration.
 
 The reusable Fastflow consumer facade is exported at `@omar391/loopship/fastflow`.
 The legacy workflow runner is validation tooling only and is not exported as a
@@ -35,11 +35,10 @@ package API.
 mirrors the current public command paths through `cmdproto execjson <path> <payload>`,
 while still delegating to `loopship init`, `loopship hook`, `loopship doctor`,
 and `loopship handbook` command logic. Local guided stepping remains CLI-only via
-`loopship stepper`.
-The hidden `resume` command is an internal continuation bridge emitted by
-Loopship route and hook responses; it is not a public cmdproto or documented
-automation ABI. Fastflow-native generated workflows, the Loopship Fastflow
-consumer adapter, and JSON Schema payload contracts are the lifecycle contract.
+`loopship stepper` and emits native Fastflow run/resume responses.
+The old hidden `resume` continuation bridge has been removed.
+Fastflow workflow run/resume responses, the Loopship Fastflow consumer adapter,
+and JSON Schema payload contracts are the lifecycle contract.
 
 `loopship handbook` renders a standalone generated Markdown handbook from
 `.loopship/system.yaml` and canonical document resources. By default it writes to a
@@ -58,9 +57,13 @@ workflow source tree.
 
 For mocked runtime lifecycle stepping, `loopship stepper` supports:
 
-- `loopship stepper init "loopship: <request>" --repo <repo> --flow swe --runtime codex`: start guided lifecycle stepping and emit the first selected-flow step
-- `loopship stepper step --wtree <name> --repo <repo> --json @-`: submit the next step payload and stop at the next selected-flow step
-- `loopship stepper hook --repo <repo> --runtime codex --json @-`: explicitly exercise runtime hook passthrough behavior
+- `loopship stepper init "loopship: <request>" --repo <repo> --flow <id> --runtime codex`: run the configured Fastflow workflow with `superviseStep: true`
+- `loopship stepper step --repo <repo> --json @-`: resume a native Fastflow pause using `sessionId`, optional `nonce`, and the pause-specific `decision` or supervisor decision fields
+- `loopship stepper hook --repo <repo> --json @-`: explicitly exercise native Fastflow resume passthrough behavior
+
+Fastflow owns the stepper `nextAction` resume command and decision payload.
+Loopship only contributes concise supervisor guidance through Fastflow app
+configuration; it does not render continuation commands.
 
 Routine verification keeps lifecycle checks focused and bounded:
 

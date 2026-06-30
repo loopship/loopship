@@ -309,3 +309,13 @@ workflows:
           - landing_target_worktree
           - requirements
       requires: []
+stable_attestation:
+  signature: |-
+    -----BEGIN PGP SIGNATURE-----
+
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakP0OBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGu9JwEAh40EMDz81XoOlB9KF9Ia
+    +aimw5wraFHqk8AYxt1f1oABAMmnA810XIdHdXMuP1ua6+pCDh4WN4WaDcq5jGxr
+    j50D
+    =5Iim
+    -----END PGP SIGNATURE-----

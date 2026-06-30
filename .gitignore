@@ -57,3 +57,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # generated cmdproto artifacts
 /assets/cmdproto/*.binpb
+
+# rooted Fastflow workflow edits; stable artifacts are promotion outputs
+*.dev.yaml

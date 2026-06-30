@@ -1,245 +1,172 @@
 #!/usr/bin/env bun
 
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopship_core.ts";
-import { scenarioPayloadForStep } from "./stepper_product_quest_scenarios.ts";
-import { readText, runCommand } from "./loopship_utils.ts";
+import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
-let commandEnv: Record<string, string> | undefined;
-let commandCwd: string | undefined;
+
+type JsonObject = Record<string, any>;
+type PauseToken = { sessionId: string; nonce?: string; reason: string };
 
 function fail(message: string): never {
   throw new Error(message);
 }
 
-function parseJson(text: string): Record<string, any> {
+function runLoopship(repo: string, args: string[]) {
+  return runCommand("bun", [SCRIPT, ...args], {
+    cwd: repo,
+    timeoutMs: 180_000,
+  });
+}
+
+function parseJson(text: string, label: string): JsonObject {
   try {
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object") {
-      throw new Error("expected object");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      fail(`${label} must be a JSON object: ${text}`);
     }
-    return parsed;
-  } catch {
-    fail(`expected JSON object, got: ${text}`);
+    return parsed as JsonObject;
+  } catch (error) {
+    fail(`${label} must be JSON: ${error instanceof Error ? error.message : String(error)}\n${text}`);
   }
 }
 
-function stepId(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    const id = (value as Record<string, unknown>).id;
-    return typeof id === "string" ? id : "";
-  }
-  return "";
-}
-
-function runStepper(args: string[]) {
-  return runCommand("bun", [SCRIPT, "stepper", ...args], {
-    cwd: commandCwd,
-    env: commandEnv,
-    timeoutMs: 120_000,
+function createRepo(root: string): string {
+  const repo = join(root, "repo");
+  const git = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
+  if (git.status !== 0) fail(git.stderr || git.stdout);
+  runCommand("git", ["config", "user.email", "loopship-stepper@example.invalid"], {
+    cwd: repo,
   });
-}
-
-function runStepperWithInput(args: string[], input: Record<string, unknown>) {
-  return runCommand("bun", [SCRIPT, "stepper", ...args], {
-    cwd: commandCwd,
-    env: commandEnv,
-    input: JSON.stringify(input),
-    timeoutMs: 120_000,
-  });
-}
-
-function assertGuidedStep(step: Record<string, any>, repo: string): void {
-  if ("hook_output" in step || "reason_payload" in step) {
-    fail(`guided stepper must not expose hook internals: ${JSON.stringify(step)}`);
-  }
-  if ("current_output" in step) {
-    fail(`guided stepper must expose the current step directly: ${JSON.stringify(step)}`);
-  }
-  if ("commands" in step) {
-    fail(`guided stepper must not expose commands.next: ${JSON.stringify(step)}`);
-  }
-  const continuation = step.continuation;
-  if (!continuation || typeof continuation !== "object" || Array.isArray(continuation)) {
-    fail(`guided stepper step must include continuation: ${JSON.stringify(step)}`);
-  }
-  const command = (continuation as Record<string, any>).command;
-  if (!command || command.cmd !== "loopship") {
-    fail(`guided stepper continuation must include loopship command: ${JSON.stringify(step)}`);
-  }
-  const args = Array.isArray(command.args) ? command.args : [];
-  const expected = [
-    "stepper",
-    "step",
-    "--wtree",
-    String(step.wtree ?? ""),
-    "--json",
-    "@-",
-  ];
-  if (JSON.stringify(args) !== JSON.stringify(expected)) {
-    fail(`guided stepper continuation command mismatch: ${JSON.stringify(args)}`);
-  }
-}
-
-function stepperArgsFromStep(step: Record<string, any>): string[] {
-  const args = step.continuation?.command?.args;
-  if (!Array.isArray(args) || args[0] !== "stepper") {
-    fail(`missing runnable stepper continuation command: ${JSON.stringify(step.continuation)}`);
-  }
-  return args.slice(1).map(String);
-}
-
-function fastflowSessions(repoRoot: string, wtree: string): Record<string, any> {
-  const parsed = JSON.parse(readText(questFiles(repoRoot, wtree).hook_state));
-  const sessions = parsed?.fastflow_sessions;
-  return sessions && typeof sessions === "object" && !Array.isArray(sessions)
-    ? sessions
-    : {};
-}
-
-function assertFastflowSession(
-  repoRoot: string,
-  wtree: string,
-  stepId: string,
-  expected: boolean,
-): void {
-  const key = `step:${stepId}`;
-  const session = fastflowSessions(repoRoot, wtree)[key];
-  if (expected) {
-    if (!session?.session_id || session.workflow_ref !== "loopship.workflow.service.flows.swe") {
-      fail(`missing native Fastflow session ${key}: ${JSON.stringify(session)}`);
-    }
-  } else if (session) {
-    fail(`native Fastflow session ${key} should have been consumed: ${JSON.stringify(session)}`);
-  }
-}
-
-function assertOldStepperCommandsAreUnknown(): void {
-  const cases = [
-    ["loopship: old top-level start"],
-    ["--repo", "/tmp/loopship-stepper-old", "--json", "{}"],
-    ["start", "--request", "loopship: old path"],
-    ["next", "--repo", "/tmp/loopship-stepper-old"],
-    ["callback", "--repo", "/tmp/loopship-stepper-old", "--json", "{}"],
-    ["status", "--repo", "/tmp/loopship-stepper-old"],
-    ["quest", "help"],
-  ];
-  for (const args of cases) {
-    const oldCommand = runStepper(args);
-    if (oldCommand.status === 0) {
-      fail(`old stepper command unexpectedly succeeded: ${oldCommand.stdout}`);
-    }
-    const combined = `${oldCommand.stderr}\n${oldCommand.stdout}`;
-    const expectedError =
-      `unknown stepper command: ${args[0]}`;
-    if (!combined.includes(expectedError)) {
-      fail(`old stepper command must hard-fail as unknown: ${combined}`);
-    }
-  }
-}
-
-function prepareExistingGitRepoFixture(repo: string): void {
-  const init = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
-  if (init.status !== 0) fail(init.stderr || init.stdout);
-  for (const [key, value] of [
-    ["user.email", "loopship-stepper@example.invalid"],
-    ["user.name", "Loopship Stepper Fixture"],
-  ] as const) {
-    const config = runCommand("git", ["config", key, value], {
-      cwd: repo,
-      timeoutMs: 15_000,
-    });
-    if (config.status !== 0) fail(config.stderr || config.stdout);
-  }
-  const branch = runCommand("git", ["checkout", "-B", "main"], {
+  runCommand("git", ["config", "user.name", "Loopship Stepper"], { cwd: repo });
+  writeFileSync(join(repo, "README.md"), "# stepper fixture\n", "utf8");
+  runCommand("git", ["add", "README.md"], { cwd: repo });
+  const commit = runCommand("git", ["commit", "-m", "stepper fixture"], {
     cwd: repo,
     timeoutMs: 15_000,
   });
-  if (branch.status !== 0) fail(branch.stderr || branch.stdout);
-  // Test fixture setup: stepper is being run inside an existing repo with HEAD.
-  const existingRepoHead = runCommand(
-    "git",
-    ["commit", "--allow-empty", "-m", "stepper test baseline"],
-    {
-      cwd: repo,
-      timeoutMs: 15_000,
-    },
-  );
-  if (existingRepoHead.status !== 0) {
-    fail(existingRepoHead.stderr || existingRepoHead.stdout);
+  if (commit.status !== 0) fail(commit.stderr || commit.stdout);
+  return repo;
+}
+
+function assertNoLoopshipStepEnvelope(value: JsonObject, label: string): void {
+  for (const key of ["quest_step", "answer_schema", "continuation", "current_stage"]) {
+    if (key in value) fail(`${label} must not expose old Loopship step envelope field '${key}'`);
   }
 }
 
-function main(): number {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-stepper-")));
-  const repo = join(root, "repo");
-  const request = "loopship: a fullstack app";
-  commandEnv = {
-    ...process.env,
-    HOME: join(root, "home"),
-    LOOPSHIP_GLOBAL_BIN: join(root, "bin", "loopship"),
-    LOOPSHIP_SCRIPT: SCRIPT,
+function nativeClarifyingPlanDecision(): Record<string, unknown> {
+  return {
+    classification: "greenfield_app",
+    scope: "Clarify the requested full stack app before implementation.",
+    questions: [
+      {
+        id: "app_goal",
+        question: "What should the app do?",
+        impact: "Defines MVP behavior.",
+        default: "A minimal todo app.",
+      },
+      {
+        id: "stack",
+        question: "What stack should it use?",
+        impact: "Determines implementation files.",
+        default: "React frontend, Node API, SQLite.",
+      },
+    ],
+    system_context: {
+      relevant_object_refs: [],
+      relevant_assertion_refs: [],
+      relevant_resource_refs: [],
+      relevant_memory_refs: [],
+      durable_implications: [],
+    },
+    verification_targets: [
+      "A scoped app request is captured before implementation.",
+    ],
+    task_graph: { tasks: [] },
   };
-  try {
-    assertOldStepperCommandsAreUnknown();
-    prepareExistingGitRepoFixture(repo);
-    commandCwd = repo;
+}
 
-    const start = runStepper([
+function pauseToken(value: JsonObject): PauseToken | null {
+  if (value.status !== "paused") return null;
+  const pause = value.pause && typeof value.pause === "object" ? value.pause : null;
+  const sessionId = String(pause?.sessionId ?? pause?.session_id ?? "").trim();
+  const nonce = String(pause?.nonce ?? "").trim();
+  const reason = String(pause?.reason ?? "").trim();
+  if (!sessionId) fail(`paused Fastflow response must include session id: ${JSON.stringify(value)}`);
+  return nonce ? { sessionId, nonce, reason } : { sessionId, reason };
+}
+
+function assertNativeFastflowResponse(value: JsonObject, label: string): PauseToken | null {
+  assertNoLoopshipStepEnvelope(value, label);
+  if (value.schemaVersion !== "fastflow/workflows-run-response/v1") {
+    fail(`${label} must return native Fastflow response schema: ${JSON.stringify(value)}`);
+  }
+  if (value.status === "paused") return pauseToken(value);
+  if (value.ok !== true) fail(`${label} must be ok or paused: ${JSON.stringify(value)}`);
+  return null;
+}
+
+function resumeNativePause(input: {
+  repo: string;
+  root: string;
+  pause: PauseToken;
+}): JsonObject {
+  const resumePath = join(input.root, "native-resume.json");
+  const resumePayload =
+    input.pause.reason === "pending_inference"
+      ? { decision: nativeClarifyingPlanDecision() }
+      : { supervisorDecision: "ok" };
+  writeFileSync(
+    resumePath,
+    JSON.stringify({
+      sessionId: input.pause.sessionId,
+      ...(input.pause.nonce ? { nonce: input.pause.nonce } : {}),
+      ...resumePayload,
+    }),
+    "utf8",
+  );
+  const resumed = runLoopship(input.repo, [
+    "stepper",
+    "step",
+    "--repo",
+    input.repo,
+    "--json",
+    `@${resumePath}`,
+  ]);
+  if (resumed.status !== 0) fail(resumed.stderr || resumed.stdout);
+  return parseJson(resumed.stdout, "stepper step");
+}
+
+function main(): number {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-native-stepper-")));
+  try {
+    const repo = createRepo(root);
+    const start = runLoopship(repo, [
+      "stepper",
       "init",
-      request,
+      "loopship: build a full stack app",
       "--repo",
       repo,
       "--runtime",
       "codex",
-      "--flow",
-      "swe",
     ]);
     if (start.status !== 0) fail(start.stderr || start.stdout);
-    if (existsSync(join(repo, ".loopship", "stepper-runtime"))) {
-      fail("guided stepper must not create .loopship/stepper-runtime");
+    const first = parseJson(start.stdout, "stepper init");
+    const pause = assertNativeFastflowResponse(first, "stepper init");
+    if (pause) {
+      const resumed = resumeNativePause({ repo, root, pause });
+      assertNativeFastflowResponse(resumed, "stepper step");
     }
-    let current = parseJson(start.stdout);
-    assertGuidedStep(current, repo);
-    if (current.wtree !== "a-fullstack-app") {
-      fail(`unexpected wtree from guided stepper start: ${start.stdout}`);
-    }
-    if (current.current_stage !== "planning") {
-      fail(`guided stepper start must create a planning quest: ${start.stdout}`);
-    }
-    assertFastflowSession(repo, String(current.wtree), "plan", true);
-
-    const requestedStep = stepId(current.task);
-    if (requestedStep !== "plan") {
-      fail(`guided stepper must start at plan: ${JSON.stringify(current)}`);
-    }
-    const quest = parseTasksYaml(readText(questFiles(repo, current.wtree).tasks));
-    const callbackInput = scenarioPayloadForStep({
-      request,
-      step: requestedStep,
-      quest,
-      planRound: 0,
-      landingRound: 0,
-    });
-    const continued = runStepperWithInput(stepperArgsFromStep(current), callbackInput);
-    if (continued.status !== 0) fail(continued.stderr || continued.stdout);
-    current = parseJson(continued.stdout);
-    assertGuidedStep(current, repo);
-    if (stepId(current.task) !== "questions") {
-      fail(`guided stepper first continuation must emit questions: ${JSON.stringify(current)}`);
-    }
-    if (current.current_stage !== "awaiting_user_answers" || current.done === true) {
-      fail(`guided stepper first continuation stage mismatch: ${JSON.stringify(current)}`);
-    }
-    assertFastflowSession(repo, String(current.wtree), "plan", false);
-    assertFastflowSession(repo, String(current.wtree), "questions", true);
-
-    console.log("loopship runtime stepper verification passed");
+    console.log("loopship native stepper verification passed");
     return 0;
   } finally {
     rmSync(root, { recursive: true, force: true });

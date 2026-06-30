@@ -114,7 +114,7 @@ function pushJsonArg(args: string[], value: unknown): void {
   args.push("--json", JSON.stringify(payload));
 }
 
-function withCapturedOutput(run: () => number): CapturedCommand {
+async function withCapturedOutput(run: () => number | Promise<number>): Promise<CapturedCommand> {
   const stdoutParts: string[] = [];
   const stderrParts: string[] = [];
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -154,7 +154,7 @@ function withCapturedOutput(run: () => number): CapturedCommand {
 
   try {
     return {
-      statusCode: run(),
+      statusCode: await run(),
       stdout: stdoutParts.join(""),
       stderr: stderrParts.join(""),
     };
@@ -284,7 +284,7 @@ async function invokeInit(params: Record<string, unknown>): Promise<CommandExecu
   pushFlag(args, "--runtime", params.runtime);
   pushFlag(args, "--flow", params.flow);
   pushFlag(args, "--wtree", params.wtree);
-  const output = withCapturedOutput(() => runInit(args));
+  const output = await withCapturedOutput(() => runInit(args));
   const stdout = output.stdout.trim().startsWith("{")
     ? normalizeJsonStdout(output, "loopship init")
     : renderJsonStdout(parseInstallerOutput(output));
@@ -292,17 +292,37 @@ async function invokeInit(params: Record<string, unknown>): Promise<CommandExecu
 }
 
 async function invokeHook(params: Record<string, unknown>): Promise<CommandExecution> {
-  const { runHook } = await loadLoopshipCommands();
-  const args: string[] = [];
-  pushFlag(args, "--runtime", params.runtime);
-  pushFlag(args, "--repo", params.repo);
-  pushFlag(args, "--wtree", params.wtree);
-  pushJsonArg(args, params.payload);
-  const output = withCapturedOutput(() => runHook(args));
+  const payload = objectValue(params.payload);
+  const source =
+    payload.fastflow && typeof payload.fastflow === "object" && !Array.isArray(payload.fastflow)
+      ? (payload.fastflow as Record<string, unknown>)
+      : payload.resume && typeof payload.resume === "object" && !Array.isArray(payload.resume)
+        ? (payload.resume as Record<string, unknown>)
+        : payload;
+  const sessionId = stringValue(source.sessionId ?? source.session_id);
+  if (!sessionId) {
+    return {
+      statusCode: 0,
+      stdout: "{}\n",
+      stderr: "",
+    };
+  }
+  const repo = stringValue(params.repo);
+  if (!repo) {
+    throw new Error("cmdproto hook native resume requires repo");
+  }
+  const { resumeLoopshipFastflowWorkflow } = await import("./loopship_fastflow.ts");
+  const result = await resumeLoopshipFastflowWorkflow({
+    repoRoot: resolve(expandHome(repo)),
+    request: {
+      ...source,
+      sessionId,
+    },
+  });
   return {
-    statusCode: output.statusCode,
-    stdout: normalizeJsonStdout(output, "loopship hook"),
-    stderr: output.stderr,
+    statusCode: 0,
+    stdout: renderJsonStdout(result),
+    stderr: "",
   };
 }
 
@@ -314,7 +334,7 @@ async function invokeDoctor(params: Record<string, unknown>): Promise<CommandExe
   if (params.fix === true) {
     args.push("--fix");
   }
-  const output = withCapturedOutput(() => runDoctor(args));
+  const output = await withCapturedOutput(() => runDoctor(args));
   return {
     statusCode: output.statusCode,
     stdout: renderJsonStdout(parseDoctorOutput(output)),

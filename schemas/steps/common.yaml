@@ -125,22 +125,6 @@ $defs:
         type: array
         items:
           type: string
-  resume_continuation:
-    type: object
-    additionalProperties: false
-    required:
-      - kind
-      - transport
-      - wtree
-    properties:
-      kind:
-        const: fastflow.resume
-      transport:
-        const: loopship
-      wtree:
-        type: string
-      command:
-        $ref: "#/$defs/command"
   compact_step:
     type: object
     additionalProperties: false
@@ -355,9 +339,6 @@ $defs:
         additionalProperties: false
         required:
           - init
-          - resume
         properties:
           init:
-            $ref: "#/$defs/command"
-          resume:
             $ref: "#/$defs/command"

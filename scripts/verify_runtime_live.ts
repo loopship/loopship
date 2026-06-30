@@ -392,7 +392,7 @@ export function emptyQuestSummary(): QuestSummary {
   };
 }
 
-function continuationPrompt(reason: string): string {
+function nativeResumePrompt(reason: string): string {
   let embedded = reason;
   try {
     embedded = JSON.stringify(JSON.parse(reason), null, 2);
@@ -400,9 +400,9 @@ function continuationPrompt(reason: string): string {
     embedded = reason;
   }
   return [
-    "Loopship continuation:",
+    "Loopship native Fastflow resume:",
     "You are continuing an active Loopship quest in the current repository.",
-    "Use the embedded task payload, answer_schema, and Fastflow resume continuation to advance exactly one lifecycle step.",
+    "Use the embedded Fastflow resume payload to advance exactly one supervised lifecycle step.",
     "Do not restart with loopship init unless the payload explicitly tells you to.",
     "",
     embedded,
@@ -731,8 +731,8 @@ export function runLiveRuntime(
       );
       if (!hook.reason) break;
       lastProc = runCliTurn(
-        continuationPrompt(hook.reason),
-        `continuation-${guard + 1}`,
+        nativeResumePrompt(hook.reason),
+        `fastflow-resume-${guard + 1}`,
       );
       const skipReason =
         matchProcessSkipReason(lastProc) ??

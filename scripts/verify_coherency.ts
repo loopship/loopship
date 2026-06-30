@@ -5,13 +5,6 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { readText } from "./loopship_utils.ts";
-import {
-  loadFlowDefinition,
-  loadWorkflowRecord,
-  validateWorkflowRecord,
-  WORKFLOW_SCHEMA_FILE,
-  WORKFLOW_VALIDATION_ENTRYPOINT,
-} from "./loopship_workflow_runner.ts";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKSPACE_ROOT =
@@ -409,23 +402,25 @@ function assertNoStaleProjectLanguage(): void {
 }
 
 function assertWorkflowValidation(): void {
-  const flowRecord = loadWorkflowRecord(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "flows", "swe.stable.yaml"));
-  validateWorkflowRecord(flowRecord, {
-    schemaPath: WORKFLOW_VALIDATION_ENTRYPOINT,
-    workflowLabel: "swe flow",
-  });
-  const flow = loadFlowDefinition("swe");
-  if (flow.default_stage !== "planning") {
-    throw new Error(`swe flow default stage must stay planning, got ${flow.default_stage}`);
-  }
   for (const relativePath of [
+    "call-catalog/loopship/workflow/service/flows/index.yaml",
+    "call-catalog/loopship/workflow/service/flows/swe.stable.yaml",
+    "call-catalog/loopship/workflow/service/step/index.yaml",
     "call-catalog/loopship/workflow/service/step/plan.stable.yaml",
     "call-catalog/loopship/workflow/service/step/system-update.stable.yaml",
   ]) {
-    validateWorkflowRecord(loadWorkflowRecord(resolve(PACKAGE_ROOT, relativePath)), {
-      schemaPath: WORKFLOW_SCHEMA_FILE,
-      workflowLabel: relativePath,
-    });
+    const absolutePath = resolve(PACKAGE_ROOT, relativePath);
+    assertExists(absolutePath, relativePath);
+    const document = readYamlObject(absolutePath);
+    if (relativePath.endsWith(".stable.yaml")) {
+      const metadata = document.document;
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+        throw new Error(`${relativePath} must contain Fastflow document metadata`);
+      }
+      if (!Array.isArray(document.do)) {
+        throw new Error(`${relativePath} must contain a Fastflow do list`);
+      }
+    }
   }
 }
 

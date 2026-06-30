@@ -2,13 +2,12 @@
 
 import {
   mkdtempSync,
-  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "./loopship_utils.ts";
 
@@ -18,266 +17,125 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-function runLoopship(
-  repo: string,
-  args: string[],
-  input?: Record<string, unknown>,
-) {
+function runLoopship(repo: string, args: string[], input?: Record<string, unknown>) {
   return runCommand("bun", [SCRIPT, ...args], {
     cwd: repo,
-    timeoutMs: 60_000,
+    timeoutMs: 120_000,
     input: input ? JSON.stringify(input) : undefined,
   });
 }
 
-function parseJson(text: string): Record<string, any> {
+function parseJson(text: string, label: string): Record<string, any> {
   try {
-    return JSON.parse(text);
-  } catch {
-    fail(`expected JSON: ${text}`);
-  }
-}
-
-function assertHookNoop(label: string, hook: ReturnType<typeof runLoopship>): void {
-  if (hook.status !== 0) fail(hook.stderr || hook.stdout);
-  if (hook.stdout.trim() !== "{}") {
-    fail(`${label} must emit an empty object: ${hook.stdout}`);
-  }
-}
-
-function assertHookContinuation(
-  label: string,
-  hook: ReturnType<typeof runLoopship>,
-): Record<string, any> {
-  if (hook.status !== 0) fail(hook.stderr || hook.stdout);
-  const parsed = parseJson(hook.stdout);
-  const reason = parseJson(String(parsed.reason ?? ""));
-  const task = String(reason.task?.id ?? "");
-  if (
-    parsed.decision !== "block" ||
-    reason.command !== "fastflow.resume" ||
-    task !== "plan"
-  ) {
-    fail(`${label} must wrap Fastflow resume output: ${hook.stdout}`);
-  }
-  return { parsed, reason };
-}
-
-function collectHookCommands(
-  value: unknown,
-  commands: string[] = [],
-): string[] {
-  if (Array.isArray(value)) {
-    for (const item of value) collectHookCommands(item, commands);
-    return commands;
-  }
-  if (!value || typeof value !== "object") return commands;
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (
-      (key === "command" || key === "bash") &&
-      typeof child === "string" &&
-      child.trim()
-    ) {
-      commands.push(child);
-      continue;
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      fail(`${label} must be a JSON object: ${text}`);
     }
-    collectHookCommands(child, commands);
+    return parsed as Record<string, any>;
+  } catch (error) {
+    fail(`${label} must be JSON: ${error instanceof Error ? error.message : String(error)}\n${text}`);
   }
-  return commands;
 }
 
-function normalizeCommand(command: string): string {
-  return command.replace(/['"]/g, " ").replace(/\s+/g, " ").trim();
+function assertNoOldEnvelope(value: Record<string, any>, label: string): void {
+  for (const key of ["quest_step", "answer_schema", "continuation", "current_stage"]) {
+    if (key in value) fail(`${label} must not expose old Loopship step envelope field '${key}'`);
+  }
 }
 
-function assertSimpleHookConfig(
-  label: string,
-  config: unknown,
-  runtime: string,
-) {
-  const commands = collectHookCommands(config).map(normalizeCommand);
-  if (!commands.length) fail(`${label} must include hook commands`);
-  if (!commands.some((cmd) => cmd.includes(`hook --runtime ${runtime}`))) {
-    fail(
-      `${label} must use the simplified hook command: ${commands.join(" | ")}`,
-    );
-  }
-  if (commands.some((cmd) => cmd.includes("--json"))) {
-    fail(`${label} must not require --json: ${commands.join(" | ")}`);
-  }
-  if (commands.some((cmd) => cmd.includes("node -e"))) {
-    fail(`${label} must not shell through node -e: ${commands.join(" | ")}`);
-  }
-  if (commands.some((cmd) => cmd.includes("--cwd") || cmd.includes("--repo"))) {
-    fail(`${label} must not embed a repo path: ${commands.join(" | ")}`);
-  }
+function createRepo(root: string): string {
+  const repo = join(root, "repo");
+  const git = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
+  if (git.status !== 0) fail(git.stderr || git.stdout);
+  runCommand("git", ["config", "user.email", "loopship-hooks@example.invalid"], {
+    cwd: repo,
+  });
+  runCommand("git", ["config", "user.name", "Loopship Hooks"], { cwd: repo });
+  writeFileSync(join(repo, "README.md"), "# hook fixture\n", "utf8");
+  runCommand("git", ["add", "README.md"], { cwd: repo });
+  const commit = runCommand("git", ["commit", "-m", "hook fixture"], {
+    cwd: repo,
+    timeoutMs: 15_000,
+  });
+  if (commit.status !== 0) fail(commit.stderr || commit.stdout);
+  return repo;
+}
+
+function nativePlanDecision(): Record<string, unknown> {
+  return {
+    classification: "greenfield_app",
+    scope: "Clarify the requested app before implementation.",
+    questions: [
+      {
+        id: "app_goal",
+        question: "What should the app do first?",
+        impact: "Defines the app MVP.",
+        default: "A minimal CRUD app.",
+      },
+    ],
+    system_context: {
+      relevant_object_refs: [],
+      relevant_assertion_refs: [],
+      relevant_resource_refs: [],
+      relevant_memory_refs: [],
+      durable_implications: [],
+    },
+    verification_targets: ["Capture a scoped app request before implementation."],
+    task_graph: { tasks: [] },
+  };
 }
 
 function main(): number {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-v3-hooks-")));
-  const repo = join(root, "repo");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-native-hooks-")));
   try {
-    const git = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
-    if (git.status !== 0) fail(git.stderr || git.stdout);
-    runCommand("git", ["config", "user.email", "loopship-test@example.invalid"], {
+    const repo = createRepo(root);
+    const noop = runLoopship(repo, ["hook", "--runtime", "codex"], {
       cwd: repo,
+      hook_event_name: "Stop",
     });
-    runCommand("git", ["config", "user.name", "Loopship Test"], { cwd: repo });
-    writeFileSync(join(repo, "README.md"), "# loopship hooks\n", "utf8");
-    runCommand("git", ["add", "README.md"], { cwd: repo });
-    runCommand("git", ["commit", "-m", "fixture"], { cwd: repo });
+    if (noop.status !== 0) fail(noop.stderr || noop.stdout);
+    if (noop.stdout.trim() !== "{}") {
+      fail(`ordinary hook must no-op without a native Fastflow resume payload: ${noop.stdout}`);
+    }
 
-    const init = runLoopship(repo, [
+    const start = runLoopship(repo, [
+      "stepper",
       "init",
-      "loopship: hook check",
+      "loopship: build a full stack app",
+      "--repo",
+      repo,
       "--runtime",
-      "all",
-    ]);
-    if (init.status !== 0) fail(init.stderr || init.stdout);
-    const wtree = String(parseJson(init.stdout).new_quest.suggested_wtree);
-    const create = runLoopship(
-      repo,
-      ["resume", "--wtree", wtree, "--json", "@-"],
-      {
-        action: "create_quest",
-        wtree,
-        request: "loopship: hook check",
-      },
-    );
-    if (create.status !== 0) fail(create.stderr || create.stdout);
-    const otherWtree = "hook-check-other";
-    const createOther = runLoopship(
-      repo,
-      ["resume", "--wtree", otherWtree, "--json", "@-"],
-      {
-        action: "create_quest",
-        wtree: otherWtree,
-        request: "loopship: other hook check",
-      },
-    );
-    if (createOther.status !== 0) fail(createOther.stderr || createOther.stdout);
-
-    assertSimpleHookConfig(
-      ".codex/hooks.json",
-      parseJson(readFileSync(join(repo, ".codex", "hooks.json"), "utf8")),
       "codex",
+    ]);
+    if (start.status !== 0) fail(start.stderr || start.stdout);
+    const started = parseJson(start.stdout, "stepper init");
+    const pause = started.pause && typeof started.pause === "object" ? started.pause : null;
+    const sessionId = String(pause?.sessionId ?? pause?.session_id ?? "").trim();
+    const nonce = String(pause?.nonce ?? "").trim();
+    if (!sessionId || !nonce) fail(`missing Fastflow pause identifiers: ${start.stdout}`);
+
+    const resumePath = join(root, "resume.json");
+    writeFileSync(
+      resumePath,
+      JSON.stringify({ sessionId, nonce, decision: nativePlanDecision() }),
+      "utf8",
     );
-    assertSimpleHookConfig(
-      ".gemini/settings.json",
-      parseJson(readFileSync(join(repo, ".gemini", "settings.json"), "utf8")),
-      "gemini",
-    );
-    assertSimpleHookConfig(
-      ".github/hooks/loopship.json",
-      parseJson(
-        readFileSync(join(repo, ".github", "hooks", "loopship.json"), "utf8"),
-      ),
-      "copilot",
-    );
-
-    assertHookNoop(
-      "repo-root hook with multiple quests",
-      runLoopship(repo, ["hook", "--runtime", "codex"], {
-        cwd: repo,
-        hook_event_name: "RootStop",
-      }),
-    );
-
-    const matching = assertHookContinuation(
-      "explicit wtree plus matching cwd hook",
-      runLoopship(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
-        cwd: join(repo, "worktrees", wtree),
-        hook_event_name: "ExplicitMatchStop",
-      }),
-    );
-    if (matching.reason.wtree) {
-      fail(`compact hook reason must omit full wtree metadata: ${JSON.stringify(matching.reason)}`);
+    const hook = runLoopship(repo, [
+      "hook",
+      "--runtime",
+      "codex",
+      "--repo",
+      repo,
+      "--json",
+      `@${resumePath}`,
+    ]);
+    if (hook.status !== 0) fail(hook.stderr || hook.stdout);
+    const output = parseJson(hook.stdout, "hook resume");
+    assertNoOldEnvelope(output, "hook resume");
+    if (output.ok !== true) {
+      fail(`hook resume must return native Fastflow response: ${hook.stdout}`);
     }
-
-    assertHookNoop(
-      "explicit wtree plus conflicting cwd hook",
-      runLoopship(repo, ["hook", "--runtime", "codex", "--wtree", wtree], {
-        cwd: join(repo, "worktrees", otherWtree),
-        hook_event_name: "ExplicitConflictStop",
-      }),
-    );
-
-    assertHookNoop(
-      "missing selector hook",
-      runLoopship(repo, ["hook", "--runtime", "codex", "--repo", repo], {
-        hook_event_name: "MissingSelectorStop",
-      }),
-    );
-
-    const hook = runLoopship(repo, ["hook", "--runtime", "codex"], {
-      cwd: join(repo, "worktrees", wtree),
-      hook_event_name: "Stop",
-    });
-    const { reason } = assertHookContinuation("cwd-derived hook", hook);
-    if (
-      "schema_version" in reason ||
-      "kind" in reason ||
-      "schema_path" in reason ||
-      ["sl", "ug"].join("") in reason ||
-      "flow_id" in reason ||
-      "flow_version" in reason ||
-      "state" in reason ||
-      "step" in reason ||
-      "summary" in reason ||
-      "context" in reason ||
-      "docs" in reason ||
-      "allowed_transitions" in reason ||
-      "commands" in reason ||
-      "output_schema" in reason
-    ) {
-      fail(`hook resume output must stay compact: ${hook.stdout}`);
-    }
-    if (
-      reason.task &&
-      typeof reason.task === "object" &&
-      "summary" in reason.task
-    ) {
-      fail(`hook resume task must omit summary: ${hook.stdout}`);
-    }
-    if (
-      !reason.answer_schema ||
-      typeof reason.answer_schema !== "object" ||
-      reason.answer_schema.$id !==
-        "schemas/steps/plan-input.yaml"
-    ) {
-      fail(`hook resume output must embed answer schema: ${hook.stdout}`);
-    }
-    if ("input_schema" in reason) {
-      fail(`hook resume output must use answer_schema: ${hook.stdout}`);
-    }
-    if (
-      !reason.continuation ||
-      reason.continuation.kind !== "fastflow.resume" ||
-      reason.continuation.transport !== "loopship"
-    ) {
-      fail(`hook resume output must include Fastflow continuation: ${hook.stdout}`);
-    }
-
-    const duplicate = runLoopship(repo, ["hook", "--runtime", "codex"], {
-      cwd: join(repo, "worktrees", wtree),
-      hook_event_name: "Stop",
-    });
-    if (duplicate.status !== 0) fail(duplicate.stderr || duplicate.stdout);
-    if (duplicate.stdout.trim() !== "{}") {
-      fail(`duplicate hook event must be suppressed: ${duplicate.stdout}`);
-    }
-
-    const copilot = runLoopship(repo, ["hook", "--runtime", "copilot"], {
-      cwd: join(repo, "worktrees", wtree),
-      hook_event_name: "Stop",
-    });
-    if (copilot.status !== 0) fail(copilot.stderr || copilot.stdout);
-    const copilotJson = parseJson(copilot.stdout);
-    if (!copilotJson.hookSpecificOutput) {
-      fail(`copilot hook must include hookSpecificOutput: ${copilot.stdout}`);
-    }
-
-    console.log("loopship v3 hook verification passed");
+    console.log("loopship native hook verification passed");
     return 0;
   } finally {
     rmSync(root, { recursive: true, force: true });

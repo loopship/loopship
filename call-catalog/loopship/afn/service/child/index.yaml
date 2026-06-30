@@ -237,7 +237,7 @@ calls:
     preferWhen:
       - "A Loopship workflow needs to prepare child quest/worktree launch metadata."
     avoidWhen:
-      - "The workflow only needs planning, validation, verification, or model reasoning."
+      - "The workflow only needs reasoning, validation, verification, or model output."
     metadata:
       allowed_phases:
         - action
