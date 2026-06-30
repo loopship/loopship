@@ -408,6 +408,7 @@ do:
           target_branch: "${inputs.target_branch || ''}"
           target_worktree: "${inputs.target_worktree || ''}"
           source_branch: "${inputs.source_branch || ''}"
+          next_stage: "${inputs.next_stage || (inputs.status === 'blocked' ? 'landing_ready' : 'archived')}"
       output:
         schema:
           document:

@@ -99,9 +99,9 @@ workflows:
         - loopship.afn.service.child.prepare
   landing:
     stable:
-      release: 1
-      digest: "sha256:903dfd2927a13aed9355a4579bb40e72354561ad565eeeb54df9faddbf5a858a"
-      summary: "Submit landing status and final summary."
+      release: 2
+      digest: "sha256:8395f7172340fed270fec6198990b7d0cdf42533ad1802381522ddf88053dd54"
+      summary: "Forward native landing next_stage through Loopship landing AFN"
       inputs:
         required:
           - status
