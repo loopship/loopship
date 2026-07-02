@@ -313,7 +313,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Submit acceptance trace, PR-style risk review, and residual risks."
-        inference: handoff
+        inference: aitl.chat
         validation:
           post:
             kind: js

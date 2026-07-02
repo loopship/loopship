@@ -313,7 +313,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
-        inference: handoff
+        inference: aitl.chat
         validation:
           post:
             kind: js

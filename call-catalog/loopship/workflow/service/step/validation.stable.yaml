@@ -313,7 +313,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
-        inference: handoff
+        inference: aitl.chat
         validation:
           post:
             kind: js
