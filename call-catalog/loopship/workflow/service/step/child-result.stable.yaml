@@ -313,7 +313,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Submit the result of a completed child quest back to the parent flow."
-        inference: handoff
+        inference: aitl.chat
         validation:
           post:
             kind: js

@@ -313,7 +313,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Approve or reject the generated task graph, including a replan reason when rejected."
-        inference: handoff
+        inference: aitl.chat
         validation:
           post:
             kind: js

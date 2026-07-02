@@ -313,7 +313,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Report final quest state only."
-        inference: handoff
+        inference: aitl.chat
         validation:
           post:
             kind: js

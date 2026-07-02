@@ -313,7 +313,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Submit grouped user answers for the current clarification round."
-        inference: handoff
+        inference: aitl.chat
         validation:
           post:
             kind: js

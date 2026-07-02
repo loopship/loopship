@@ -3,7 +3,7 @@ workflows:
   archived:
     stable:
       release: 1
-      digest: "sha256:0b48de73a5680250f4d0610d922421d4d5e858ec72d137df23d36489c8678e5e"
+      digest: "sha256:a0ba29921969bd88d281d36cf2ca7fb3cccd668817a164ed4b93e948c949b81e"
       summary: "Report final quest state only."
       inputs:
         required: []
@@ -36,7 +36,7 @@ workflows:
   child-result:
     stable:
       release: 1
-      digest: "sha256:bcb9234ace000a9a4d99a1e6e8a6e86379c82a79d42812dcd5ad98f910f743dc"
+      digest: "sha256:edb8c27a7607a9a738e0ed213b7f12738db8b7880fd2b0798b171667b8354aaa"
       summary: "Submit the result of a completed child quest back to the parent flow."
       inputs:
         required: []
@@ -124,7 +124,7 @@ workflows:
   plan:
     stable:
       release: 1
-      digest: "sha256:c68e5565e0cfeab19d1bfcbf0a4053a0834f057687473fd38277a95557b85e74"
+      digest: "sha256:1739ad866105d0b6fca909989643ad87983531caff766ed56cfa0b8f28ef2543"
       summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
       inputs:
         required: []
@@ -157,7 +157,7 @@ workflows:
   questions:
     stable:
       release: 1
-      digest: "sha256:3b9b49e2836bc6c30f0b671e25a8278f60042bb28f153d2b3f0c1e56d2336820"
+      digest: "sha256:e294ab37b9fad916af5dcae3c3e5ed39e2e1e375ab56a38d517b1bd372277b04"
       summary: "Submit grouped user answers for the current clarification round."
       inputs:
         required: []
@@ -213,7 +213,7 @@ workflows:
   task-graph:
     stable:
       release: 1
-      digest: "sha256:7ef0065a1f6015c70a319f9885fd2e6ddae92e561faa6bdcf14796ce82a68c98"
+      digest: "sha256:36062dbf12633d7bb4b29458480d8574a004f0fad757197a762a8b082737cb22"
       summary: "Approve or reject the generated task graph, including a replan reason when rejected."
       inputs:
         required: []
@@ -246,7 +246,7 @@ workflows:
   validation:
     stable:
       release: 1
-      digest: "sha256:656d1854e80abcfcd2dddfdae8b9ccd41e75c51b1c10e02ce9b32066ea48cd09"
+      digest: "sha256:9b4f6098439241b03aceb8b964e63b8d6e142f001250d86e98fa8b6aa3d9e010"
       summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
       inputs:
         required: []
@@ -279,7 +279,7 @@ workflows:
   verification:
     stable:
       release: 1
-      digest: "sha256:c4f63378c2c3eab5b551795ffb6d9c8f45499d9c15cfd6678e1acec31a335e92"
+      digest: "sha256:ea160bd4943dbfdc88346d50db575e6e9e1726806a8ca22205cde690ffe768d0"
       summary: "Submit acceptance trace, PR-style risk review, and residual risks."
       inputs:
         required: []
@@ -313,9 +313,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
 
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakP0OBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGu9JwEAh40EMDz81XoOlB9KF9Ia
-    +aimw5wraFHqk8AYxt1f1oABAMmnA810XIdHdXMuP1ua6+pCDh4WN4WaDcq5jGxr
-    j50D
-    =5Iim
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakYrqBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGveTwEArH6+751tnMFwdQzP+tK1
+    zzEyt0khs9Z5UQ6Gy1JsaQgA/05kCmuDQMrtLxGHGs3+jMJxAXi57/wbeayOsyDv
+    gS8L
+    =E+k4
     -----END PGP SIGNATURE-----
