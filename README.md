@@ -61,7 +61,7 @@ For mocked runtime lifecycle stepping, `loopship stepper` supports:
 - `loopship stepper step --repo <repo> --json @-`: resume a native Fastflow pause using `sessionId`, optional `nonce`, and the pause-specific `decision` or supervisor decision fields
 - `loopship stepper hook --repo <repo> --json @-`: explicitly exercise native Fastflow resume passthrough behavior
 
-Fastflow owns the stepper `nextAction` resume command and decision payload.
+Fastflow owns the stepper `nextCall` resume command and decision payload.
 Loopship only contributes concise supervisor guidance through Fastflow app
 configuration; it does not render continuation commands.
 

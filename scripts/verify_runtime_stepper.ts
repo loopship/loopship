@@ -14,7 +14,12 @@ import { runCommand } from "./loopship_utils.ts";
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 
 type JsonObject = Record<string, any>;
-type PauseToken = { sessionId: string; nonce?: string; reason: string };
+type PauseToken = {
+  sessionId: string;
+  nonce?: string;
+  reason: string;
+  kind: "handoff_answer" | "supervisor_review" | "inline_answer";
+};
 
 function fail(message: string): never {
   throw new Error(message);
@@ -96,21 +101,38 @@ function nativeClarifyingPlanDecision(): Record<string, unknown> {
 }
 
 function pauseToken(value: JsonObject): PauseToken | null {
-  if (value.status !== "paused") return null;
-  const pause = value.pause && typeof value.pause === "object" ? value.pause : null;
-  const sessionId = String(pause?.sessionId ?? pause?.session_id ?? "").trim();
-  const nonce = String(pause?.nonce ?? "").trim();
-  const reason = String(pause?.reason ?? "").trim();
-  if (!sessionId) fail(`paused Fastflow response must include session id: ${JSON.stringify(value)}`);
-  return nonce ? { sessionId, nonce, reason } : { sessionId, reason };
+  if (value.schemaVersion !== "fastflow/interaction-response/v1") return null;
+  const nextCall = value.nextCall && typeof value.nextCall === "object" ? value.nextCall : null;
+  const args = nextCall?.args && typeof nextCall.args === "object" ? nextCall.args : null;
+  const request =
+    value.context && typeof value.context === "object" && !Array.isArray(value.context)
+      ? value.context.request
+      : null;
+  const sessionId = String(args?.sessionId ?? "").trim();
+  const nonce = String(args?.nonce ?? "").trim();
+  const reason =
+    request && typeof request === "object" && !Array.isArray(request)
+      ? String(request.reason ?? "").trim()
+      : "";
+  if (!sessionId) fail(`interaction response must include nextCall.args.sessionId: ${JSON.stringify(value)}`);
+  const kind = String(value.kind || "");
+  if (kind !== "handoff_answer" && kind !== "supervisor_review" && kind !== "inline_answer") {
+    fail(`interaction response has unsupported kind: ${JSON.stringify(value)}`);
+  }
+  return nonce ? { sessionId, nonce, reason, kind } : { sessionId, reason, kind };
 }
 
 function assertNativeFastflowResponse(value: JsonObject, label: string): PauseToken | null {
   assertNoLoopshipStepEnvelope(value, label);
-  if (value.schemaVersion !== "fastflow/workflows-run-response/v1") {
+  if (value.schemaVersion === "fastflow/interaction-response/v1") {
+    return pauseToken(value);
+  }
+  if (
+    value.schemaVersion !== "fastflow/workflow-run-artifact/v1" ||
+    value.kind !== "workflow_result"
+  ) {
     fail(`${label} must return native Fastflow response schema: ${JSON.stringify(value)}`);
   }
-  if (value.status === "paused") return pauseToken(value);
   if (value.ok !== true) fail(`${label} must be ok or paused: ${JSON.stringify(value)}`);
   return null;
 }
@@ -122,7 +144,7 @@ function resumeNativePause(input: {
 }): JsonObject {
   const resumePath = join(input.root, "native-resume.json");
   const resumePayload =
-    input.pause.reason === "pending_inference"
+    input.pause.kind === "handoff_answer"
       ? { decision: nativeClarifyingPlanDecision() }
       : { supervisorDecision: "ok" };
   writeFileSync(
