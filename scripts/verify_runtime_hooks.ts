@@ -43,6 +43,25 @@ function assertNoOldEnvelope(value: Record<string, any>, label: string): void {
   }
 }
 
+function pauseToken(value: Record<string, any>): { sessionId: string; nonce?: string } {
+  if (value.schemaVersion !== "fastflow/interaction-response/v1") {
+    fail(`expected Fastflow interaction response: ${JSON.stringify(value)}`);
+  }
+  const args =
+    value.nextCall &&
+    typeof value.nextCall === "object" &&
+    value.nextCall.args &&
+    typeof value.nextCall.args === "object"
+      ? value.nextCall.args
+      : null;
+  const sessionId = String(args?.sessionId ?? "").trim();
+  const nonce = String(args?.nonce ?? "").trim();
+  if (!sessionId || !nonce) {
+    fail(`missing Fastflow interaction nextCall identifiers: ${JSON.stringify(value)}`);
+  }
+  return { sessionId, nonce };
+}
+
 function createRepo(root: string): string {
   const repo = join(root, "repo");
   const git = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
@@ -109,15 +128,16 @@ function main(): number {
     ]);
     if (start.status !== 0) fail(start.stderr || start.stdout);
     const started = parseJson(start.stdout, "stepper init");
-    const pause = started.pause && typeof started.pause === "object" ? started.pause : null;
-    const sessionId = String(pause?.sessionId ?? pause?.session_id ?? "").trim();
-    const nonce = String(pause?.nonce ?? "").trim();
-    if (!sessionId || !nonce) fail(`missing Fastflow pause identifiers: ${start.stdout}`);
+    const pause = pauseToken(started);
 
     const resumePath = join(root, "resume.json");
     writeFileSync(
       resumePath,
-      JSON.stringify({ sessionId, nonce, decision: nativePlanDecision() }),
+      JSON.stringify({
+        sessionId: pause.sessionId,
+        nonce: pause.nonce,
+        decision: nativePlanDecision(),
+      }),
       "utf8",
     );
     const hook = runLoopship(repo, [
@@ -132,7 +152,11 @@ function main(): number {
     if (hook.status !== 0) fail(hook.stderr || hook.stdout);
     const output = parseJson(hook.stdout, "hook resume");
     assertNoOldEnvelope(output, "hook resume");
-    if (output.ok !== true) {
+    if (
+      output.schemaVersion !== "fastflow/workflow-run-artifact/v1" ||
+      output.kind !== "workflow_result" ||
+      output.ok !== true
+    ) {
       fail(`hook resume must return native Fastflow response: ${hook.stdout}`);
     }
     console.log("loopship native hook verification passed");
