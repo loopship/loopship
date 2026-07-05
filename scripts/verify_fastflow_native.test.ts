@@ -519,10 +519,14 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(dryRunChild).toMatchObject({
       schema_version: "loopship.child.prepare/v1",
       parent_wtree: "demo",
+      parent_context_ref: "/tmp/repo/worktrees/demo/.loopship/runtime/tasks.yaml",
       actions: {
         init: { cmd: "loopship" },
       },
     });
+    expect(dryRunChild.actions.init.args.join(" ")).toContain(
+      "/tmp/repo/worktrees/demo/.loopship/runtime/tasks.yaml",
+    );
     expect(dryRunChild.actions.resume).toBeUndefined();
     await expect(
       (adapters.executeAfn as Function)({
@@ -542,11 +546,19 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       }),
     ).resolves.toMatchObject({
-      schema_version: "loopship.child.prepare/v1",
-      count: 2,
-      prepared_children: [
-        { task_id: "task-a", actions: { init: { cmd: "loopship" } } },
-        { task_id: "task-b", actions: { init: { cmd: "loopship" } } },
+        schema_version: "loopship.child.prepare/v1",
+        count: 2,
+        prepared_children: [
+        {
+          task_id: "task-a",
+          parent_context_ref: "/tmp/repo/worktrees/demo/.loopship/runtime/tasks.yaml",
+          actions: { init: { cmd: "loopship" } },
+        },
+        {
+          task_id: "task-b",
+          parent_context_ref: "/tmp/repo/worktrees/demo/.loopship/runtime/tasks.yaml",
+          actions: { init: { cmd: "loopship" } },
+        },
       ],
     });
   });

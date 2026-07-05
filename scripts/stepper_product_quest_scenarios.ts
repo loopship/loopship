@@ -11,6 +11,10 @@ export type StepperPlanPayload = {
     question: string;
     impact: string;
     default?: string;
+    options?: Array<{
+      label: string;
+      description: string;
+    }>;
   }>;
   system_context?: Record<string, unknown>;
   verification_targets: string[];
@@ -222,6 +226,20 @@ export function selectStepperProductQuestScenario(
           question: "What is the primary purpose of the app?",
           impact: "Changes the domain model and the MVP acceptance target.",
           default: "Task tracker",
+          options: [
+            {
+              label: "Task tracker",
+              description: "Small-team task tracking with CRUD workflows.",
+            },
+            {
+              label: "Dashboard",
+              description: "Operational dashboard with summary views.",
+            },
+            {
+              label: "Internal tool",
+              description: "Workflow-specific tool with custom actions.",
+            },
+          ],
         },
       ],
       assumptions: [
@@ -282,7 +300,7 @@ function scenarioPlanPayload(plan: StepperPlanPayload): Record<string, unknown> 
     ...(plan.questions?.length ? { questions: plan.questions } : {}),
     system_context: plan.system_context ?? EMPTY_SYSTEM_CONTEXT,
     verification_targets: plan.verification_targets,
-    task_graph: { tasks: plan.tasks },
+    ...(plan.questions?.length ? {} : { task_graph: { tasks: plan.tasks } }),
   };
 }
 

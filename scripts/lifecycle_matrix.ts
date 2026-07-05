@@ -10,9 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTasksYaml, questFiles } from "./loopship_core.ts";
-import { validateV3Input } from "./loopship_schema.ts";
-import { readText, runCommand } from "./loopship_utils.ts";
+import { parseTasksYaml } from "./loopship_core.ts";
+import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 const EMPTY_SYSTEM_CONTEXT = {
@@ -64,11 +63,8 @@ function parseJson(stdout: string): any {
   return JSON.parse(stdout);
 }
 
-function expectValidSchema(
-  payload: Record<string, unknown>,
-  schemaName: string,
-): void {
-  expect(validateV3Input(payload, schemaName)).toEqual([]);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function runLoopship(
@@ -110,27 +106,6 @@ export function createFixture(prefix: string): MatrixFixture {
   return { root, repo, env };
 }
 
-function next(
-  fixture: MatrixFixture,
-  wtree: string,
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
-  const proc = runLoopship(
-    fixture.repo,
-    [
-      "resume",
-      "--wtree",
-      wtree,
-      "--json",
-      "@-",
-    ],
-    payload,
-    fixture.env,
-  );
-  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
-  return parseJson(proc.stdout);
-}
-
 function gitWorktrees(repo: string, env: Record<string, string>): string[] {
   const stdout = runGit(repo, ["worktree", "list", "--porcelain"], env);
   return stdout
@@ -141,7 +116,10 @@ function gitWorktrees(repo: string, env: Record<string, string>): string[] {
 
 function latestQuestState(fixture: MatrixFixture, wtree: string): any {
   return parseTasksYaml(
-    readFileSync(questFiles(fixture.repo, wtree).tasks, "utf8"),
+    readFileSync(
+      join(fixture.repo, "worktrees", wtree, ".loopship", "runtime", "tasks.yaml"),
+      "utf8",
+    ),
   );
 }
 
@@ -156,93 +134,11 @@ function childResultPayload(taskId: string, childWtree: string, worktreePath: st
   };
 }
 
-function childDispatchPayload(
+function scenarioPlanPayload(
   scenario: MatrixScenario,
-  children: Array<Record<string, unknown>>,
+  mode: "questions" | "task_graph",
 ): Record<string, unknown> {
-  const byId = new Map(
-    scenario.tasks.map((task) => [String(task.id ?? task.task_id ?? ""), task]),
-  );
-  return {
-    schema_version: "loopship.child-dispatch.request/v1",
-    kind: "child_dispatch_request",
-    children: children.map((child) => {
-      const taskId = String(child.task_id ?? child.id ?? "");
-      const source = byId.get(taskId) ?? {};
-      return {
-        id: taskId,
-        task_id: taskId,
-        title: String(child.title ?? source.title ?? taskId),
-        type: source.type ?? "coding",
-        acceptance: child.acceptance ?? source.acceptance ?? "done",
-        dependencies: source.dependencies ?? source.depends_on ?? [],
-        scope_files: source.scope_files ?? source.scope ?? [],
-        spec_refs: source.spec_refs ?? source.specs ?? [],
-        context_refs: source.context_refs ?? source.context ?? [],
-        branch_ref: String(child.branch_ref ?? source.branch_ref ?? ""),
-        worktree_path: String(child.worktree_path ?? source.worktree_path ?? ""),
-        child_wtree: String(child.child_wtree ?? source.child_wtree ?? ""),
-        concurrency_group: String(source.concurrency_group ?? ""),
-        merge_target: String(child.merge_target ?? source.merge_target ?? ""),
-        merge_lease_id: String(source.merge_lease_id ?? ""),
-        system_impact_ref: String(source.system_impact_ref ?? ""),
-      };
-    }),
-  };
-}
-
-function routeAndCreateQuest(
-  fixture: MatrixFixture,
-  prompt: string,
-): { wtree: string; route: any; created: Record<string, unknown> } {
-  const init = runLoopship(
-    fixture.repo,
-    ["init", prompt, "--runtime", "codex"],
-    undefined,
-    fixture.env,
-  );
-  expect(init.status, init.stderr || init.stdout).toBe(0);
-  const route = parseJson(init.stdout);
-  expectValidSchema(route, "init-output");
-  expect(route.new_quest.command.cmd).toBe("loopship");
-  expect(route.new_quest.command.args).toEqual(
-    expect.arrayContaining(["resume"]),
-  );
-  const wtree = String(route.new_quest.suggested_wtree);
-  const created = next(fixture, wtree, route.new_quest.input);
-  expectValidSchema(created, "step-output");
-  return { wtree, route, created };
-}
-
-function driveScenario(
-  fixture: MatrixFixture,
-  scenario: MatrixScenario,
-): MatrixScenarioResult {
-  const { wtree, created } = routeAndCreateQuest(fixture, scenario.prompt);
-  expect(created.task.id).toBe("plan");
-
-  let questionRoundUsed = false;
-  if (scenario.questions?.length) {
-    const awaiting = next(fixture, wtree, {
-      classification: scenario.classification,
-      scope: scenario.scope,
-      summary: scenario.summary,
-      questions: scenario.questions,
-      system_context: scenario.system_context ?? EMPTY_SYSTEM_CONTEXT,
-      verification_targets: scenario.verification_targets,
-      task_graph: { tasks: [] },
-    });
-    expectValidSchema(awaiting, "step-output");
-    expect(awaiting.task.id).toBe("questions");
-    questionRoundUsed = true;
-    const backToPlanning = next(fixture, wtree, {
-      answers: scenario.preplanAnswers ?? [],
-    });
-    expectValidSchema(backToPlanning, "step-output");
-    expect(backToPlanning.task.id).toBe("plan");
-  }
-
-  const planned = next(fixture, wtree, {
+  const base = {
     classification: scenario.classification,
     scope: scenario.scope,
     summary: scenario.summary,
@@ -251,18 +147,188 @@ function driveScenario(
     constraints: scenario.constraints ?? [],
     system_context: scenario.system_context ?? EMPTY_SYSTEM_CONTEXT,
     verification_targets: scenario.verification_targets,
+  };
+  if (mode === "questions") {
+    return {
+      ...base,
+      questions: scenario.questions ?? [],
+    };
+  }
+  return {
+    ...base,
     task_graph: { tasks: scenario.tasks },
-  });
-  expectValidSchema(planned, "step-output");
-  expect(planned.task.id).toBe("task_graph");
+  };
+}
 
-  const executing = next(fixture, wtree, {
-    approved: true,
+function runInitCommand(
+  fixture: MatrixFixture,
+  prompt: string,
+  wtree?: string,
+): Record<string, unknown> {
+  const args = ["init", prompt, "--runtime", "codex", "--flow", "swe"];
+  if (wtree) args.push("--wtree", wtree);
+  const init = runLoopship(fixture.repo, args, undefined, fixture.env);
+  expect(init.status, init.stderr || init.stdout).toBe(0);
+  return parseJson(init.stdout);
+}
+
+function nativeWorkflowOutput(value: Record<string, unknown>): Record<string, unknown> | null {
+  if (
+    value.schemaVersion !== "fastflow/workflow-run-artifact/v1" ||
+    value.kind !== "workflow_result"
+  ) {
+    return null;
+  }
+  expect(value.ok).toBe(true);
+  return isRecord(value.output) ? value.output : {};
+}
+
+function nativePauseToken(value: Record<string, unknown>): Record<string, unknown> | null {
+  if (value.schemaVersion !== "fastflow/interaction-response/v1") return null;
+  const nextCall = isRecord(value.nextCall) ? value.nextCall : {};
+  const args = isRecord(nextCall.args) ? nextCall.args : {};
+  const sessionId = String(args.sessionId ?? "").trim();
+  expect(sessionId).toBeTruthy();
+  const context = isRecord(value.context) ? value.context : {};
+  const request = isRecord(context.request) ? context.request : {};
+  return {
+    sessionId,
+    nonce: String(args.nonce ?? "").trim(),
+    workspaceRoot: String(args.workspaceRoot ?? "").trim(),
+    kind: String(value.kind ?? ""),
+    wtree: String(request.wtree ?? request.quest_id ?? "").trim(),
+  };
+}
+
+function resumeNativePause(
+  fixture: MatrixFixture,
+  pause: Record<string, unknown>,
+  decision: Record<string, unknown>,
+): Record<string, unknown> {
+  const payload = {
+    sessionId: String(pause.sessionId),
+    ...(String(pause.nonce ?? "").trim() ? { nonce: String(pause.nonce) } : {}),
+    ...(String(pause.workspaceRoot ?? "").trim()
+      ? { workspaceRoot: String(pause.workspaceRoot) }
+      : {}),
+    ...(pause.kind === "supervisor_review"
+      ? { supervisorDecision: "ok" }
+      : { decision }),
+  };
+  const proc = runLoopship(
+    fixture.repo,
+    ["hook", "--repo", fixture.repo, "--json", "@-"],
+    payload,
+    fixture.env,
+  );
+  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+  return parseJson(proc.stdout);
+}
+
+function completeNativeStartedStage(input: {
+  fixture: MatrixFixture;
+  started: Record<string, unknown>;
+  decision?: Record<string, unknown>;
+}): { output: Record<string, unknown>; wtree: string } {
+  const directOutput = nativeWorkflowOutput(input.started);
+  if (directOutput) return { output: directOutput, wtree: "" };
+
+  const pause = nativePauseToken(input.started);
+  expect(pause, JSON.stringify(input.started)).not.toBeNull();
+  if (!input.decision && pause?.kind !== "supervisor_review") {
+    throw new Error(`native lifecycle pause requires a decision: ${JSON.stringify(input.started)}`);
+  }
+  const resumed = resumeNativePause(input.fixture, pause!, input.decision ?? {});
+  const output = nativeWorkflowOutput(resumed);
+  expect(output, JSON.stringify(resumed)).not.toBeNull();
+  return { output: output!, wtree: String(pause!.wtree ?? "") };
+}
+
+function runNativeStage(input: {
+  fixture: MatrixFixture;
+  prompt: string;
+  wtree: string;
+  decision?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const started = runInitCommand(input.fixture, input.prompt, input.wtree);
+  return completeNativeStartedStage({
+    fixture: input.fixture,
+    started,
+    decision: input.decision,
+  }).output;
+}
+
+function nestedNativeStepOutput(stageResult: Record<string, unknown>): Record<string, unknown> {
+  const stepPayload = isRecord(stageResult.step_payload) ? stageResult.step_payload : {};
+  const result = isRecord(stepPayload.result) ? stepPayload.result : {};
+  if (isRecord(result.output)) return result.output;
+  if (isRecord(stepPayload.output)) return stepPayload.output;
+  return stepPayload;
+}
+
+function driveScenario(
+  fixture: MatrixFixture,
+  scenario: MatrixScenario,
+): MatrixScenarioResult {
+  const initial = runInitCommand(fixture, scenario.prompt);
+  const firstPlan = completeNativeStartedStage({
+    fixture,
+    started: initial,
+    decision: scenarioPlanPayload(
+      scenario,
+      scenario.questions?.length ? "questions" : "task_graph",
+    ),
   });
-  expectValidSchema(executing, "child-dispatch-output");
-  expect(executing.task.id).toBe("executing");
-  const children = Array.isArray((executing as any).children)
-    ? ((executing as any).children as any[])
+  let wtree = firstPlan.wtree;
+  expect(wtree).toBeTruthy();
+  expect(firstPlan.output.step).toBe("plan");
+
+  let questionRoundUsed = false;
+  if (scenario.questions?.length) {
+    expect(firstPlan.output.stage_after).toBe("awaiting_user_answers");
+    questionRoundUsed = true;
+
+    const answered = runNativeStage({
+      fixture,
+      prompt: scenario.prompt,
+      wtree,
+      decision: { answers: scenario.preplanAnswers ?? [] },
+    });
+    expect(answered.step).toBe("questions");
+    expect(answered.stage_after).toBe("planning");
+
+    const planned = runNativeStage({
+      fixture,
+      prompt: scenario.prompt,
+      wtree,
+      decision: scenarioPlanPayload(scenario, "task_graph"),
+    });
+    expect(planned.step).toBe("plan");
+    expect(planned.stage_after).toBe("plan_review");
+  } else {
+    expect(firstPlan.output.stage_after).toBe("plan_review");
+  }
+
+  const approved = runNativeStage({
+    fixture,
+    prompt: scenario.prompt,
+    wtree,
+    decision: { approved: true },
+  });
+  expect(approved.step).toBe("task_graph");
+  expect(approved.stage_after).toBe("task_graph_ready");
+
+  const executing = runNativeStage({
+    fixture,
+    prompt: scenario.prompt,
+    wtree,
+  });
+  expect(executing.step).toBe("executing");
+  expect(executing.stage_after).toBe("executing");
+  const childDispatch = nestedNativeStepOutput(executing);
+  expect(childDispatch.schema_version).toBe("loopship.child.prepare/v1");
+  const children = Array.isArray(childDispatch.children)
+    ? (childDispatch.children as Record<string, unknown>[])
     : [];
   expect(children.length).toBe(scenario.tasks.length);
 
@@ -270,8 +336,19 @@ function driveScenario(
   const childWorktrees = children.map((child) => resolve(String(child.worktree_path)));
   const childBranches = children.map((child) => String(child.branch_ref));
   for (const child of children) {
-    expect(child.actions.init.cmd).toBe("loopship");
-    expect(child.actions.init.args).toEqual(
+    const actions = isRecord(child.actions) ? child.actions : {};
+    const initAction = isRecord(actions.init) ? actions.init : {};
+    expect(initAction.cmd).toBe("loopship");
+    const parentContextRef = join(
+      fixture.repo,
+      "worktrees",
+      wtree,
+      ".loopship",
+      "runtime",
+      "tasks.yaml",
+    );
+    expect(child.parent_context_ref).toBe(parentContextRef);
+    expect(initAction.args).toEqual(
       expect.arrayContaining([
         "init",
         "--wtree",
@@ -280,64 +357,82 @@ function driveScenario(
         "codex",
       ]),
     );
+    expect(String(initAction.args)).toContain(parentContextRef);
     expect(existsSync(String(child.worktree_path))).toBe(true);
     expect(worktrees).toContain(resolve(String(child.worktree_path)));
   }
 
-  const childResultStep = next(
-    fixture,
-    wtree,
-    childDispatchPayload(scenario, children),
-  );
-  expectValidSchema(childResultStep, "step-output");
-  expect(childResultStep.task.id).toBe("child_result");
-
-  for (const child of children) {
-    next(
+  children.forEach((child, index) => {
+    const childResult = runNativeStage({
       fixture,
+      prompt: scenario.prompt,
       wtree,
-      childResultPayload(
+      decision: childResultPayload(
         String(child.task_id),
         String(child.child_wtree),
         String(child.worktree_path),
       ),
+    });
+    expect(childResult.step).toBe("child_result");
+    expect(childResult.stage_after).toBe(
+      index === children.length - 1 ? "validating" : "executing",
     );
-  }
-
-  const validated = next(fixture, wtree, {
-    status: "passed",
-    checks: [{ name: `${scenario.id}-smoke`, status: "passed" }],
   });
-  expectValidSchema(validated, "step-output");
-  expect(validated.task.id).toBe("verification");
 
-  const verified = next(fixture, wtree, {
-    status: "passed",
-    acceptance_trace: scenario.tasks.map((task) => ({
-      acceptance: String((task.acceptance as string[])[0] ?? task.title ?? "done"),
+  const validated = runNativeStage({
+    fixture,
+    prompt: scenario.prompt,
+    wtree,
+    decision: {
       status: "passed",
-    })),
-    risks: [],
-  });
-  expectValidSchema(verified, "step-output");
-  expect(verified.task.id).toBe("system_update");
-
-  const landing = next(fixture, wtree, {
-    system_update: {
-      schema_version: 1,
-      mode: "no_change",
-      summary: `${scenario.id} covered`,
+      checks: [{ name: `${scenario.id}-smoke`, status: "passed" }],
     },
   });
-  expectValidSchema(landing, "step-output");
-  expect(landing.task.id).toBe("landing");
+  expect(validated.step).toBe("validation");
+  expect(validated.stage_after).toBe("verification_pending");
 
-  const archived = next(fixture, wtree, {
-    status: "landed",
-    summary: `${scenario.id} complete`,
+  const verified = runNativeStage({
+    fixture,
+    prompt: scenario.prompt,
+    wtree,
+    decision: {
+      status: "passed",
+      acceptance_trace: scenario.tasks.map((task) => ({
+        acceptance: String((task.acceptance as string[])[0] ?? task.title ?? "done"),
+        status: "passed",
+      })),
+      risks: [],
+    },
   });
-  expectValidSchema(archived, "archive-output");
-  expect(archived.task.id).toBe("archived");
+  expect(verified.step).toBe("verification");
+  expect(verified.stage_after).toBe("system_update_pending");
+
+  const updated = runNativeStage({
+    fixture,
+    prompt: scenario.prompt,
+    wtree,
+    decision: {
+      system_update: {
+        schema_version: 1,
+        mode: "no_change",
+        summary: `${scenario.id} covered`,
+      },
+    },
+  });
+  expect(updated.step).toBe("system_update");
+  expect(updated.stage_after).toBe("landing_ready");
+
+  const landed = runNativeStage({
+    fixture,
+    prompt: scenario.prompt,
+    wtree,
+    decision: {
+      status: "landed",
+      summary: `${scenario.id} complete`,
+    },
+  });
+  expect(landed.step).toBe("landing");
+  expect(landed.stage_after).toBe("archived");
 
   const finalState = latestQuestState(fixture, wtree);
   const finalTasks = Array.isArray(finalState.tasks) ? finalState.tasks : [];
@@ -353,11 +448,11 @@ function driveScenario(
     merge_commits_recorded: finalTasks.every(
       (task: any) => typeof task.merge_commit === "string" && task.merge_commit.trim(),
     ),
-    loopship_routed: children.every(
-      (child) =>
-        child.actions.init.cmd === "loopship" &&
-        child.actions.resume.cmd === "loopship",
-    ),
+    loopship_routed: children.every((child) => {
+      const actions = isRecord(child.actions) ? child.actions : {};
+      const initAction = isRecord(actions.init) ? actions.init : {};
+      return initAction.cmd === "loopship";
+    }),
     general_task_present: scenario.tasks.some((task) => String(task.type) === "general"),
     question_round_used: questionRoundUsed,
   };
@@ -494,6 +589,16 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
         question: "What is the primary purpose of the app?",
         impact: "high",
         default: "Task tracker",
+        options: [
+          {
+            label: "Task tracker",
+            description: "Small-team task tracking with CRUD workflows.",
+          },
+          {
+            label: "Dashboard",
+            description: "Operational dashboard with summary views.",
+          },
+        ],
       },
     ],
     preplanAnswers: [
@@ -589,5 +694,5 @@ export function lifecycleMatrixMarkdown(results: MatrixScenarioResult[]): string
 }
 
 export function readQuestPlans(path: string): string {
-  return existsSync(path) ? readText(path) : "";
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
 }

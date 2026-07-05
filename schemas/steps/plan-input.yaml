@@ -8,7 +8,31 @@ required:
   - scope
   - system_context
   - verification_targets
-  - task_graph
+allOf:
+  - oneOf:
+      - required:
+          - questions
+        properties:
+          questions:
+            type: array
+            minItems: 1
+        not:
+          required:
+            - task_graph
+      - required:
+          - task_graph
+        properties:
+          questions:
+            type: array
+            maxItems: 0
+          task_graph:
+            type: object
+            required:
+              - tasks
+            properties:
+              tasks:
+                type: array
+                minItems: 1
 properties:
   classification:
     enum:

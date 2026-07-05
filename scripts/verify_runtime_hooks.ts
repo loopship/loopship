@@ -43,7 +43,14 @@ function assertNoOldEnvelope(value: Record<string, any>, label: string): void {
   }
 }
 
-function pauseToken(value: Record<string, any>): { sessionId: string; nonce?: string } {
+type PauseToken = {
+  sessionId: string;
+  nonce?: string;
+  workspaceRoot?: string;
+  kind: string;
+};
+
+function pauseToken(value: Record<string, any>): PauseToken {
   if (value.schemaVersion !== "fastflow/interaction-response/v1") {
     fail(`expected Fastflow interaction response: ${JSON.stringify(value)}`);
   }
@@ -56,10 +63,35 @@ function pauseToken(value: Record<string, any>): { sessionId: string; nonce?: st
       : null;
   const sessionId = String(args?.sessionId ?? "").trim();
   const nonce = String(args?.nonce ?? "").trim();
-  if (!sessionId || !nonce) {
-    fail(`missing Fastflow interaction nextCall identifiers: ${JSON.stringify(value)}`);
+  const workspaceRoot = String(args?.workspaceRoot ?? "").trim();
+  if (!sessionId) {
+    fail(`missing Fastflow interaction nextCall sessionId: ${JSON.stringify(value)}`);
   }
-  return { sessionId, nonce };
+  const kind = String(value.kind ?? "").trim();
+  if (kind !== "handoff_answer" && kind !== "supervisor_review" && kind !== "inline_answer") {
+    fail(`unsupported Fastflow interaction kind: ${JSON.stringify(value)}`);
+  }
+  return {
+    sessionId,
+    ...(nonce ? { nonce } : {}),
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+    kind,
+  };
+}
+
+function assertNativeFastflowResponse(value: Record<string, any>, label: string): void {
+  assertNoOldEnvelope(value, label);
+  if (value.schemaVersion === "fastflow/interaction-response/v1") {
+    pauseToken(value);
+    return;
+  }
+  if (
+    value.schemaVersion !== "fastflow/workflow-run-artifact/v1" ||
+    value.kind !== "workflow_result" ||
+    value.ok !== true
+  ) {
+    fail(`${label} must return native Fastflow response: ${JSON.stringify(value)}`);
+  }
 }
 
 function createRepo(root: string): string {
@@ -90,6 +122,16 @@ function nativePlanDecision(): Record<string, unknown> {
         question: "What should the app do first?",
         impact: "Defines the app MVP.",
         default: "A minimal CRUD app.",
+        options: [
+          {
+            label: "CRUD app",
+            description: "Create, read, update, and delete one resource.",
+          },
+          {
+            label: "Dashboard",
+            description: "Display a simple status overview.",
+          },
+        ],
       },
     ],
     system_context: {
@@ -100,7 +142,6 @@ function nativePlanDecision(): Record<string, unknown> {
       durable_implications: [],
     },
     verification_targets: ["Capture a scoped app request before implementation."],
-    task_graph: { tasks: [] },
   };
 }
 
@@ -129,14 +170,19 @@ function main(): number {
     if (start.status !== 0) fail(start.stderr || start.stdout);
     const started = parseJson(start.stdout, "stepper init");
     const pause = pauseToken(started);
+    const resumePayload =
+      pause.kind === "handoff_answer"
+        ? { decision: nativePlanDecision() }
+        : { supervisorDecision: "ok" };
 
     const resumePath = join(root, "resume.json");
     writeFileSync(
       resumePath,
       JSON.stringify({
         sessionId: pause.sessionId,
-        nonce: pause.nonce,
-        decision: nativePlanDecision(),
+        ...(pause.nonce ? { nonce: pause.nonce } : {}),
+        ...(pause.workspaceRoot ? { workspaceRoot: pause.workspaceRoot } : {}),
+        ...resumePayload,
       }),
       "utf8",
     );
@@ -151,14 +197,7 @@ function main(): number {
     ]);
     if (hook.status !== 0) fail(hook.stderr || hook.stdout);
     const output = parseJson(hook.stdout, "hook resume");
-    assertNoOldEnvelope(output, "hook resume");
-    if (
-      output.schemaVersion !== "fastflow/workflow-run-artifact/v1" ||
-      output.kind !== "workflow_result" ||
-      output.ok !== true
-    ) {
-      fail(`hook resume must return native Fastflow response: ${hook.stdout}`);
-    }
+    assertNativeFastflowResponse(output, "hook resume");
     console.log("loopship native hook verification passed");
     return 0;
   } finally {

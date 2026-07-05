@@ -22,8 +22,6 @@ properties:
     type: string
   prompt:
     type: string
-  repo:
-    type: string
   repoRoot:
     type: string
   runtime:

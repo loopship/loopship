@@ -336,6 +336,7 @@ do:
       call: fastflow.afn.core.request.input
       with:
         body:
+          timeout_ms: 250
           instruction: |-
             # Loopship Plan Step
             
@@ -474,7 +475,7 @@ do:
             5. Build a relevance-bounded clarification matrix from only unresolved,
                materially relevant decisions.
             6. Choose exactly one next state:
-               - ask: submit `questions`, keep `task_graph.tasks` empty, and stop
+              - ask: submit `questions`, omit `task_graph`, and stop
                - default: record safe reversible choices in `defaulted_unknowns`
                - decompose: submit the smallest decision-complete task graph
             7. Apply AF to challenge contradictions, hidden assumptions, weak reasoning,
@@ -547,6 +548,8 @@ do:
             - Make each question answerable with 2-3 mutually exclusive choices; put the
                recommended choice first and rely on the tool's automatic `Other` choice
                instead of inventing a catchall.
+            - Record those choices in `questions[].options` using `{ label, description }`
+              objects. Keep `default` equal to the recommended option label.
             - Prefer one concise grouped round over serial single-question turns whenever
                the next question does not depend on the previous answer.
             - Prefer explicit low-risk defaults only when no clarification round is
@@ -589,7 +592,7 @@ do:
             - Treat prompts like `create a fullstack app`, `build a website`, or `make a
               tool` as unresolved product-definition requests.
             - For those generic prompts, the first plan response must emit a
-              clarification round through `questions` and keep `task_graph.tasks` empty.
+              clarification round through `questions` and omit `task_graph`.
             - Do not invent domain, stack, persistence, auth, or primary workflow in
               `scope` unless the prompt already constrained them or the user answered
               them in the current clarification history.
@@ -636,7 +639,7 @@ do:
               into separate child tasks unless the acceptance boundaries genuinely differ.
             - When the request still requires implementation work, the task graph must
               contain at least one concrete task. Do not submit an empty `task_graph`
-              just because the scope is small.
+              just because the scope is small; omit it only for clarification rounds.
             - When the request requires non-coding work, the task graph must contain at
               least one concrete `general` task unless a high-impact clarification round
               is being emitted.
@@ -878,7 +881,31 @@ do:
                 - scope
                 - system_context
                 - verification_targets
-                - task_graph
+              allOf:
+                - oneOf:
+                    - required:
+                        - questions
+                      properties:
+                        questions:
+                          type: array
+                          minItems: 1
+                      not:
+                        required:
+                          - task_graph
+                    - required:
+                        - task_graph
+                      properties:
+                        questions:
+                          type: array
+                          maxItems: 0
+                        task_graph:
+                          type: object
+                          required:
+                            - tasks
+                          properties:
+                            tasks:
+                              type: array
+                              minItems: 1
               properties:
                 classification:
                   enum:
@@ -908,6 +935,21 @@ do:
                         type: string
                       default:
                         type: string
+                      options:
+                        type: array
+                        minItems: 2
+                        maxItems: 3
+                        items:
+                          type: object
+                          additionalProperties: false
+                          required:
+                            - label
+                            - description
+                          properties:
+                            label:
+                              type: string
+                            description:
+                              type: string
                 high_impact_unknowns:
                   type: array
                   items:
@@ -941,6 +983,21 @@ do:
                         type: string
                       default:
                         type: string
+                      options:
+                        type: array
+                        minItems: 2
+                        maxItems: 3
+                        items:
+                          type: object
+                          additionalProperties: false
+                          required:
+                            - label
+                            - description
+                          properties:
+                            label:
+                              type: string
+                            description:
+                              type: string
                 system_context:
                   type: object
                   additionalProperties: false

@@ -336,6 +336,7 @@ do:
       call: fastflow.afn.core.request.input
       with:
         body:
+          timeout_ms: 250
           instruction: |-
             # Loopship Child Result Step
             

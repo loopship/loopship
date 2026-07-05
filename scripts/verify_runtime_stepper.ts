@@ -17,6 +17,7 @@ type JsonObject = Record<string, any>;
 type PauseToken = {
   sessionId: string;
   nonce?: string;
+  workspaceRoot?: string;
   reason: string;
   kind: "handoff_answer" | "supervisor_review" | "inline_answer";
 };
@@ -78,12 +79,32 @@ function nativeClarifyingPlanDecision(): Record<string, unknown> {
         question: "What should the app do?",
         impact: "Defines MVP behavior.",
         default: "A minimal todo app.",
+        options: [
+          {
+            label: "Todo app",
+            description: "Minimal todo workflow with create and complete.",
+          },
+          {
+            label: "Dashboard",
+            description: "Read-only dashboard with sample data.",
+          },
+        ],
       },
       {
         id: "stack",
         question: "What stack should it use?",
         impact: "Determines implementation files.",
         default: "React frontend, Node API, SQLite.",
+        options: [
+          {
+            label: "React Node SQLite",
+            description: "Full-stack JavaScript app with local persistence.",
+          },
+          {
+            label: "Next.js SQLite",
+            description: "Single framework app with API routes.",
+          },
+        ],
       },
     ],
     system_context: {
@@ -96,7 +117,6 @@ function nativeClarifyingPlanDecision(): Record<string, unknown> {
     verification_targets: [
       "A scoped app request is captured before implementation.",
     ],
-    task_graph: { tasks: [] },
   };
 }
 
@@ -110,6 +130,7 @@ function pauseToken(value: JsonObject): PauseToken | null {
       : null;
   const sessionId = String(args?.sessionId ?? "").trim();
   const nonce = String(args?.nonce ?? "").trim();
+  const workspaceRoot = String(args?.workspaceRoot ?? "").trim();
   const reason =
     request && typeof request === "object" && !Array.isArray(request)
       ? String(request.reason ?? "").trim()
@@ -119,7 +140,23 @@ function pauseToken(value: JsonObject): PauseToken | null {
   if (kind !== "handoff_answer" && kind !== "supervisor_review" && kind !== "inline_answer") {
     fail(`interaction response has unsupported kind: ${JSON.stringify(value)}`);
   }
-  return nonce ? { sessionId, nonce, reason, kind } : { sessionId, reason, kind };
+  if (value.supervision?.enabled !== true || value.supervision?.mode !== "step") {
+    fail(`stepper interaction must carry Fastflow step supervision: ${JSON.stringify(value)}`);
+  }
+  const systemInstructions = String(value.systemInstructions ?? "");
+  if (
+    !systemInstructions.includes("loopship-supervisor") ||
+    !systemInstructions.includes("native Fastflow decision")
+  ) {
+    fail(`stepper interaction must include supervisor guidance: ${JSON.stringify(value)}`);
+  }
+  return {
+    sessionId,
+    ...(nonce ? { nonce } : {}),
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+    reason,
+    kind,
+  };
 }
 
 function assertNativeFastflowResponse(value: JsonObject, label: string): PauseToken | null {
@@ -152,6 +189,7 @@ function resumeNativePause(input: {
     JSON.stringify({
       sessionId: input.pause.sessionId,
       ...(input.pause.nonce ? { nonce: input.pause.nonce } : {}),
+      ...(input.pause.workspaceRoot ? { workspaceRoot: input.pause.workspaceRoot } : {}),
       ...resumePayload,
     }),
     "utf8",
@@ -188,7 +226,9 @@ function main(): number {
       const resumed = resumeNativePause({ repo, root, pause });
       assertNativeFastflowResponse(resumed, "stepper step");
     }
-    console.log("loopship native stepper verification passed");
+    console.log(
+      "loopship native stepper production run paused/resumed under superviseStep before child execution",
+    );
     return 0;
   } finally {
     rmSync(root, { recursive: true, force: true });
