@@ -16,6 +16,7 @@ import {
   applyLandingReceipt,
   applySystemUpdate,
   appendJsonl,
+  ensureCoordinatorWorkspace,
   ensureTaskWorkspace,
   landingTargetWorktreePath,
   parseTasksYaml,
@@ -51,7 +52,7 @@ export const LOOPSHIP_SUPERVISOR_GUIDANCE = Object.freeze({
   id: "loopship-supervisor",
   version: PACKAGE_JSON.version || "0.0.0",
   summary:
-    "Inspect the Fastflow pause, verify current-step evidence, answer safe clarification prompts as the human supervisor, and resume with the native Fastflow decision only when evidence is sufficient.",
+    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose, run emitted child commands for real when the flow delegates work, and require canonical runtime, worktree, task, validation, verification, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor and improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
   ref: "README.md#mocked-runtime-lifecycle-stepping",
 });
 
@@ -300,6 +301,12 @@ export type LoopshipFastflowRunInput = {
   progressMode?: string;
 };
 
+export type LoopshipFastflowWorkflowRequestInput = {
+  repoRoot: string;
+  workspaceRoot?: string;
+  request: Record<string, unknown>;
+};
+
 export type LoopshipFastflowResumeInput = {
   repoRoot: string;
   workspaceRoot?: string;
@@ -379,10 +386,12 @@ function defaultWtreeName(request: string): string {
 }
 
 function ensureLoopshipRuntimeDocument(input: {
+  repoRoot: string;
   workspaceRoot: string;
   flowId: string;
   inputs: Record<string, unknown>;
 }): void {
+  const repoRoot = resolve(input.repoRoot);
   const runtimeDir = resolve(input.workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE);
   const tasksPath = resolve(runtimeDir, "tasks.yaml");
   if (existsSync(tasksPath)) return;
@@ -397,14 +406,36 @@ function ensureLoopshipRuntimeDocument(input: {
       quest_id: wtree,
       wtree,
       prompt: request,
-      context_root: input.workspaceRoot,
+      context_root: repoRoot,
       flow_id: input.flowId,
       runtime: String(input.inputs.runtime ?? ""),
+      coordinator_branch: wtree,
+      coordinator_worktree: input.workspaceRoot,
+      landing_target_branch: "main",
+      landing_target_worktree: landingTargetWorktreePath(repoRoot, "main"),
       tasks: [],
       question_rounds: [],
     }),
     "utf8",
   );
+}
+
+function resolveRunWorkspace(input: LoopshipFastflowRunInput): {
+  inputs: Record<string, unknown>;
+  workspaceRoot: string;
+} {
+  const inputs = { ...(input.inputs || {}) };
+  if (input.workspaceRoot) {
+    return { inputs, workspaceRoot: resolve(input.workspaceRoot) };
+  }
+  const request = String(inputs.request ?? inputs.prompt ?? "").trim();
+  const wtree = String(inputs.wtree ?? "").trim() || (request ? defaultWtreeName(request) : "");
+  if (!wtree) {
+    return { inputs, workspaceRoot: resolve(input.repoRoot) };
+  }
+  const workspace = ensureCoordinatorWorkspace(input.repoRoot, wtree);
+  inputs.wtree = wtree;
+  return { inputs, workspaceRoot: workspace.worktree_path };
 }
 
 function schemaAllowsType(schema: Record<string, unknown>, value: unknown): boolean {
@@ -597,6 +628,14 @@ export function loopshipFlowWorkflowRef(flowId: string): string {
   return workflowRefFor(LOOPSHIP_FLOW_SCOPE, flowId.replace(/_/g, "-"));
 }
 
+function loopshipFlowIdFromWorkflowRef(workflowRef: string): string {
+  const prefix = workflowRefFor(LOOPSHIP_FLOW_SCOPE, "");
+  if (!workflowRef.startsWith(prefix)) {
+    throw new Error(`Loopship workflow request must target ${prefix}<flow-id>.`);
+  }
+  return workflowRef.slice(prefix.length).replace(/-/g, "_");
+}
+
 export async function ensureLoopshipFastflowWorkflowCatalog(
   _repoRoot: string,
 ): Promise<string> {
@@ -670,25 +709,62 @@ function runFastflowNodeSession(input: {
   }
 }
 
-export async function runLoopshipFastflowWorkflow(
-  input: LoopshipFastflowRunInput,
+export async function resolveLoopshipFastflowCommandBinding(
+  argv: string[],
+  bindings: Array<Record<string, unknown>>,
+  context: Record<string, unknown> = {},
+): Promise<Record<string, unknown> | null> {
+  const fastflowRoot = resolveFastflowRoot();
+  const { resolveFastflowCommandBinding } = await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "command-bindings.mjs")).href
+  );
+  return resolveFastflowCommandBinding(argv, bindings, context) as Record<string, unknown> | null;
+}
+
+export async function runLoopshipFastflowWorkflowRequest(
+  input: LoopshipFastflowWorkflowRequestInput,
 ): Promise<Record<string, unknown>> {
   const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
-  const flowId = resolveLoopshipFlowId(input.flowId);
-  const inputs = input.inputs || {};
+  const workflowRef = requireString(input.request.workflowRef, "workflowRef");
+  const requestInputs = isPlainObject(input.request.inputs)
+    ? { ...(input.request.inputs as Record<string, unknown>) }
+    : {};
+  const flowId = loopshipFlowIdFromWorkflowRef(workflowRef);
+  const { inputs, workspaceRoot } = resolveRunWorkspace({
+    repoRoot: input.repoRoot,
+    workspaceRoot: input.workspaceRoot,
+    flowId,
+    inputs: requestInputs,
+  });
   ensureLoopshipRuntimeDocument({
-    workspaceRoot: resolve(input.workspaceRoot || input.repoRoot),
+    repoRoot: input.repoRoot,
+    workspaceRoot,
     flowId,
     inputs,
   });
   return runFastflowNodeSession({
     repoRoot: input.repoRoot,
-    workspaceRoot: input.workspaceRoot,
+    workspaceRoot,
     catalogRoot,
     operation: "run",
     request: {
-      workflowRef: loopshipFlowWorkflowRef(flowId),
+      ...input.request,
+      workflowRef,
       inputs,
+    },
+  });
+}
+
+export async function runLoopshipFastflowWorkflow(
+  input: LoopshipFastflowRunInput,
+): Promise<Record<string, unknown>> {
+  const flowId = resolveLoopshipFlowId(input.flowId);
+  return runLoopshipFastflowWorkflowRequest({
+    repoRoot: input.repoRoot,
+    workspaceRoot: input.workspaceRoot,
+    request: {
+      workflowRef: loopshipFlowWorkflowRef(flowId),
+      inputs: input.inputs || {},
       ...(input.superviseStep ? { superviseStep: true } : {}),
       ...(input.progressMode ? { progressMode: input.progressMode } : {}),
     },
@@ -701,7 +777,9 @@ export async function resumeLoopshipFastflowWorkflow(
   const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
   return runFastflowNodeSession({
     repoRoot: input.repoRoot,
-    workspaceRoot: input.workspaceRoot,
+    workspaceRoot:
+      input.workspaceRoot ||
+      (typeof input.request.workspaceRoot === "string" ? input.request.workspaceRoot : undefined),
     catalogRoot,
     operation: "resume",
     request: input.request,
@@ -748,12 +826,14 @@ function prepareChildLaunch(
     ? { branch_ref: branchRef, worktree_path: worktreePath, mode: "dry-run" }
     : ensureTaskWorkspace(repo, branchRef, worktreePath);
   const runtime = optionalString(body.runtime) || "codex";
-  const request = `loopship: execute child task ${taskId}: ${optionalString(task.title) || taskId}. Read parent context at ${repo}/worktrees/${parentWtree}/.loopship/runtime/tasks.yaml. Implement only this assigned task. Do not split into child worktrees. Land into ${parentWtree} and return the merge_commit.`;
+  const parentContextRef = `${repo}/worktrees/${parentWtree}/${LOOPSHIP_RUNTIME_NAMESPACE}/tasks.yaml`;
+  const request = `loopship: execute child task ${taskId}: ${optionalString(task.title) || taskId}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${parentWtree} and return the merge_commit.`;
   return {
     schema_version: "loopship.child.prepare/v1",
     task_id: taskId,
     child_wtree: childWtree,
     parent_wtree: parentWtree,
+    parent_context_ref: parentContextRef,
     branch_ref: workspace.branch_ref,
     worktree_path: workspace.worktree_path,
     runtime,

@@ -2,9 +2,11 @@
 
 import { resolve } from "node:path";
 import {
+  loopshipFlowWorkflowRef,
+  resolveLoopshipFastflowCommandBinding,
   resolveLoopshipFlowId,
   resumeLoopshipFastflowWorkflow,
-  runLoopshipFastflowWorkflow,
+  runLoopshipFastflowWorkflowRequest,
 } from "./loopship_fastflow.ts";
 import {
   expandHome,
@@ -12,16 +14,43 @@ import {
   readStdinJson,
 } from "./loopship_utils.ts";
 
-type StepperCommand = "init" | "step" | "hook";
+type StepperCommand = "step" | "hook";
 
 type StepperArgs = {
   command: StepperCommand;
   repo: string | null;
-  runtime: string | null;
   json: string | null;
-  request: string | null;
-  flow: string | null;
-  wtree: string | null;
+};
+
+const STEPPER_INIT_BINDING: Record<string, unknown> = {
+  path: ["init"],
+  kind: "workflow.run",
+  workflowRef: ({ flags }: { flags: Record<string, unknown> }) =>
+    loopshipFlowWorkflowRef(
+      resolveLoopshipFlowId(typeof flags.flow === "string" ? flags.flow : null),
+    ),
+  supervision: "step",
+  progressMode: "compact",
+  usage: {
+    args: '"loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
+  },
+  flags: {
+    repo: { valueName: "path", description: "Repository root." },
+    runtime: { valueName: "runtime", description: "Agent runtime." },
+    flow: { valueName: "id", description: "Loopship flow id." },
+    wtree: { valueName: "name", description: "Coordinator worktree name." },
+    full: { type: "boolean", description: "Compatibility no-op." },
+  },
+  inputs: {
+    request: { positional: 0, required: true, transform: "ensurePrefix:loopship:" },
+    runtime: { flag: "runtime", default: "codex" },
+    repoRoot: {
+      flag: "repo",
+      defaultFrom: "cwd",
+      transform: (value: unknown) => defaultRepoRoot(String(value)),
+    },
+    wtree: { flag: "wtree" },
+  },
 };
 
 function usage(exitCode = 1): number {
@@ -38,19 +67,12 @@ function usage(exitCode = 1): number {
 
 function parseArgs(argv: string[]): StepperArgs {
   let repo: string | null = null;
-  let runtime: string | null = null;
   let json: string | null = null;
-  let flow: string | null = null;
-  let wtree: string | null = null;
-  const requestParts: string[] = [];
   const command = argv[0];
   let stepperCommand: StepperCommand;
   let body: string[];
 
-  if (command === "init") {
-    stepperCommand = "init";
-    body = argv.slice(1);
-  } else if (command === "step") {
+  if (command === "step") {
     stepperCommand = "step";
     body = argv.slice(1);
   } else if (command === "hook") {
@@ -68,43 +90,22 @@ function parseArgs(argv: string[]): StepperArgs {
     else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
       throw new Error("loopship stepper no longer accepts --cwd; use --repo or run from the repo root");
-    } else if (arg === "--wtree") wtree = body[++i] ?? null;
-    else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
-    else if (arg === "--runtime") runtime = body[++i] ?? null;
-    else if (arg?.startsWith("--runtime="))
-      runtime = arg.slice("--runtime=".length);
-    else if (arg === "--json") json = body[++i] ?? "@-";
+    } else if (arg === "--json") json = body[++i] ?? "@-";
     else if (arg?.startsWith("--json=")) json = arg.slice("--json=".length);
-    else if (arg === "--flow") flow = body[++i] ?? null;
-    else if (arg?.startsWith("--flow=")) flow = arg.slice("--flow=".length);
     else if (arg === "--help" || arg === "-h") throw new Error("__STEPPER_HELP__");
-    else if (arg === "--full") continue;
     else if (arg?.startsWith("-")) throw new Error(`unknown stepper argument: ${arg}`);
-    else if (arg !== undefined && stepperCommand === "init") requestParts.push(arg);
   }
 
   return {
     command: stepperCommand,
     repo,
-    runtime,
     json,
-    request: requestParts.join(" ").trim() || null,
-    flow,
-    wtree,
   };
 }
 
 function defaultRepoRoot(repo: string | null): string {
   if (repo) return resolve(expandHome(repo));
   return resolve(process.cwd());
-}
-
-function normalizeRequestText(request: string | null): string {
-  const raw = String(request ?? "").trim();
-  if (!raw) {
-    throw new Error('stepper init requires a request, for example: loopship stepper init "loopship: build the app" --runtime codex');
-  }
-  return /^loopship:/i.test(raw) ? raw : `loopship: ${raw}`;
 }
 
 function readJsonSource(raw: string | null, label: string): Record<string, unknown> {
@@ -122,15 +123,36 @@ function readJsonSource(raw: string | null, label: string): Record<string, unkno
 }
 
 function nativeResumeRequest(value: Record<string, unknown>): Record<string, unknown> | null {
+  const nextCall =
+    value.nextCall && typeof value.nextCall === "object" && !Array.isArray(value.nextCall)
+      ? (value.nextCall as Record<string, unknown>)
+      : {};
+  const nextArgs =
+    nextCall.args && typeof nextCall.args === "object" && !Array.isArray(nextCall.args)
+      ? (nextCall.args as Record<string, unknown>)
+      : {};
   const source =
     value.fastflow && typeof value.fastflow === "object" && !Array.isArray(value.fastflow)
       ? (value.fastflow as Record<string, unknown>)
       : value.resume && typeof value.resume === "object" && !Array.isArray(value.resume)
         ? (value.resume as Record<string, unknown>)
-        : value;
+        : Object.keys(nextArgs).length
+          ? nextArgs
+          : value;
   const sessionId = String(source.sessionId ?? source.session_id ?? "").trim();
   if (!sessionId) return null;
-  return { ...source, sessionId };
+  const request: Record<string, unknown> = { sessionId };
+  for (const field of ["nonce", "workspaceRoot", "executionName", "progressMode"]) {
+    const fieldValue = source[field] ?? nextArgs[field];
+    if (typeof fieldValue === "string" && fieldValue.trim()) {
+      request[field] = fieldValue.trim();
+    }
+  }
+  for (const field of ["supervisorDecision", "decision", "response"]) {
+    if (source[field] !== undefined) request[field] = source[field];
+    else if (value[field] !== undefined) request[field] = value[field];
+  }
+  return request;
 }
 
 function writeJson(payload: Record<string, unknown>): number {
@@ -138,21 +160,31 @@ function writeJson(payload: Record<string, unknown>): number {
   return 0;
 }
 
-async function runInit(args: StepperArgs): Promise<number> {
-  const repoRoot = defaultRepoRoot(args.repo);
-  const flowId = resolveLoopshipFlowId(args.flow);
-  const result = await runLoopshipFastflowWorkflow({
+async function runInit(argv: string[]): Promise<number> {
+  const binding = await resolveLoopshipFastflowCommandBinding(
+    argv,
+    [STEPPER_INIT_BINDING],
+    { cwd: process.cwd() },
+  );
+  if (!binding) {
+    throw new Error("stepper init did not match a Fastflow command binding");
+  }
+  if (binding.kind === "help") {
+    console.log(String(binding.text || ""));
+    return 0;
+  }
+  const request =
+    binding.params && typeof binding.params === "object" && !Array.isArray(binding.params)
+      ? (binding.params as Record<string, unknown>)
+      : {};
+  const inputs =
+    request.inputs && typeof request.inputs === "object" && !Array.isArray(request.inputs)
+      ? (request.inputs as Record<string, unknown>)
+      : {};
+  const repoRoot = defaultRepoRoot(String(inputs.repoRoot || process.cwd()));
+  const result = await runLoopshipFastflowWorkflowRequest({
     repoRoot,
-    flowId,
-    inputs: {
-      request: normalizeRequestText(args.request),
-      runtime: args.runtime || "codex",
-      repo: repoRoot,
-      repoRoot,
-      ...(args.wtree ? { wtree: args.wtree } : {}),
-    },
-    superviseStep: true,
-    progressMode: "compact",
+    request,
   });
   return writeJson(result);
 }
@@ -183,6 +215,7 @@ async function runHook(args: StepperArgs): Promise<number> {
 }
 
 export async function runStepperCli(argv: string[]): Promise<number> {
+  if (argv[0] === "init") return await runInit(argv);
   let args: StepperArgs;
   try {
     args = parseArgs(argv);
@@ -200,7 +233,6 @@ export async function runStepperCli(argv: string[]): Promise<number> {
     }
     throw error;
   }
-  if (args.command === "init") return await runInit(args);
   if (args.command === "step") return await runStep(args);
   return await runHook(args);
 }

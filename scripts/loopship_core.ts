@@ -82,6 +82,10 @@ export type QuestQuestion = {
   question: string;
   impact?: string;
   default?: string;
+  options?: Array<{
+    label: string;
+    description: string;
+  }>;
   status?: "open" | "answered" | "defaulted";
   answer?: string;
   accepted_default?: boolean;
@@ -1217,6 +1221,20 @@ function normalizeQuestQuestion(value: unknown): QuestQuestion | null {
   if (String(row.impact ?? "").trim()) result.impact = String(row.impact).trim();
   if (String(row.default ?? "").trim())
     result.default = String(row.default).trim();
+  if (Array.isArray(row.options)) {
+    const options = row.options
+      .map((option) => {
+        if (!option || typeof option !== "object") return null;
+        const optionRow = option as Record<string, unknown>;
+        const label = String(optionRow.label ?? "").trim();
+        const description = String(optionRow.description ?? "").trim();
+        return label && description ? { label, description } : null;
+      })
+      .filter((option): option is { label: string; description: string } =>
+        Boolean(option),
+      );
+    if (options.length) result.options = options;
+  }
   const status = String(row.status ?? "").trim();
   if (status === "open" || status === "answered" || status === "defaulted") {
     result.status = status;

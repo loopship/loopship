@@ -3,7 +3,7 @@ workflows:
   swe:
     stable:
       release: 3
-      digest: "sha256:5efbbcee0188458b9ad96a815affc2da5f68f8fe218837de8a20208536fbc126"
+      digest: "sha256:0331ce3a42555f30de3a7ae33d4ab098835e083bdc5ca6e84eaace5731f445e9"
       summary: "Refactor SWE flow to native stage-local SWF branches"
       inputs:
         required: []
@@ -23,9 +23,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
 
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakYrqBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtUpwEAi549XI6BtZCGmWk6v9LQ
-    nGlGZIwc0KA9YpA0Ff0VC94A/iREBofoGvucJd7QVt+0FFHg4yrZoN4EcougUOfD
-    44QG
-    =9ROW
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakkA1RsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvCeAD/VOUwy/YYr8R4UpqgyHZr
+    nfsodh81Ky9eN8M1b+hDnhYBAKXgzqsDuBteNH21k6Ib6yzLSIZIEcKhyJn4kn5/
+    NXcI
+    =XfZd
     -----END PGP SIGNATURE-----
