@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 16
-      digest: "sha256:95bd4c7b7f860adfdd9f1d7379f2511342db48865a240f51c83c63a59b0427d7"
-      summary: "Write system_update docs into the active coordinator worktree before landing terminal-child results."
+      release: 17
+      digest: "sha256:234f55c9e6b0ef86028fead8bd858b6951a2af68b4221964863df73f1d5fd7a0"
+      summary: "Write terminal-child system_update docs into the active worktree before landing back to the parent."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuzrBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtprQD+KfeaIJSNzkIAx0yjvT2v
-    iTpf7wpkFGrU4RbMlVaaUSkA/ikPXqVzW1pM4GczlAijqTgDFxeP8AQsGT3QjQDj
-    CgYB
-    =alH/
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaku2IBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvQ/AD+N1GKfBz2tpZFkleVH0gD
+    XG/IFjbnpaVer7g/ahiCJqMA/A8ZvoLUa8sS7Xk24LDJtWVUnOMZXeOxDMZK9rEs
+    U2II
+    =aBaA
     -----END PGP SIGNATURE-----
