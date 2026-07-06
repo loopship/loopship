@@ -22,10 +22,14 @@ properties:
     type: string
   prompt:
     type: string
+  repo:
+    type: string
   repoRoot:
     type: string
   runtime:
     type: string
+  supervise_step:
+    type: boolean
   tasks:
     type: array
     items:
@@ -51,6 +55,10 @@ properties:
       additionalProperties: true
   parent_wtree:
     type: string
+  parent_task_id:
+    type: string
+  parent_context_ref:
+    type: string
   coordinator_branch:
     type: string
   coordinator_worktree:
@@ -58,6 +66,8 @@ properties:
   landing_target_branch:
     type: string
   landing_target_worktree:
+    type: string
+  replan_reason:
     type: string
   requirements:
     type: array

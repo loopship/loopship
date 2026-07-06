@@ -158,6 +158,13 @@ function assertPlanPrompt(): void {
     "# Loopship Plan Step",
     "Documentation Grill",
     ".loopship/system.yaml",
+    "## Terminal Child Constraint",
+    "`parent_task_id`",
+    "`parent_context_ref`",
+    "`execute child task`",
+    "leave `child_wtree` and `merge_lease_id` empty or omitted",
+    "`*.stable.yaml` and call-catalog `index.yaml` as promotion-managed",
+    "make edits in `*.dev.yaml` only",
     "`objects[]`",
     "`assertions[]`",
     "`resources[]`",
@@ -194,6 +201,38 @@ function assertPlanPrompt(): void {
     "`of`",
   ]) {
     assertNotContains(text, needle, scope);
+  }
+}
+
+function assertWorkflowSpecTerminalChildRules(): void {
+  const text = readText(resolve(PACKAGE_ROOT, ".loopship", "docs", "workflow", "spec.yaml"));
+  const scope = ".loopship/docs/workflow/spec.yaml";
+  for (const needle of [
+    "terminal child quests",
+    "Only root/coordinator quests may decompose into child worktrees",
+    "launch one child at a time",
+    "Unsupervised runs may still dispatch multiple children in parallel",
+    "Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files",
+    "promotion-managed release artifacts",
+    "Workflow validation rejects stable workflow digest drift",
+  ]) {
+    assertContains(text, needle, scope);
+  }
+}
+
+function assertAgentSystemCardTerminalChildRules(): void {
+  const text = readText(resolve(PACKAGE_ROOT, ".loopship", "docs", "agent", "system-card.yaml"));
+  const scope = ".loopship/docs/agent/system-card.yaml";
+  for (const needle of [
+    "terminal child agents stay local",
+    "coordinators launch one child at a time",
+    "`loopship stepper init`",
+    "promotion-managed release artifacts",
+    "Do not hand-edit Fastflow `*.stable.yaml` workflow files or call-catalog `index.yaml`",
+    "Do not let a terminal child quest dispatch child worktrees",
+    "malformed stable workflow edits",
+  ]) {
+    assertContains(text, needle, scope);
   }
 }
 
@@ -439,6 +478,8 @@ function main(): number {
   assertPlanPrompt();
   assertSystemUpdatePrompt();
   assertCanonicalArchitectureDocs();
+  assertWorkflowSpecTerminalChildRules();
+  assertAgentSystemCardTerminalChildRules();
   assertWorkflowValidation();
   return 0;
 }

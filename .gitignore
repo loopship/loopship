@@ -41,6 +41,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # repo-owned worktrees
 /worktrees/*
+/temp/
 
 # ignored worktree-local loopship runtime
 /.loopship/runtime/

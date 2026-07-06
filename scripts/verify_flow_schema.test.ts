@@ -72,11 +72,42 @@ function workflowPath(scopeRoot: string, id: string): string {
   return join(scopeRoot, `${id.replace(/_/g, "-")}.stable.yaml`);
 }
 
+function workflowDigestEntries(scopeRoot: string): Array<{
+  id: string;
+  path: string;
+  expectedDigest: string;
+}> {
+  const index = readYamlObject(join(scopeRoot, "index.yaml"));
+  const workflows =
+    index.workflows && typeof index.workflows === "object" && !Array.isArray(index.workflows)
+      ? (index.workflows as Record<string, unknown>)
+      : {};
+  return Object.entries(workflows).map(([id, entry]) => {
+    const stable =
+      entry && typeof entry === "object" && !Array.isArray(entry)
+        ? (entry as Record<string, unknown>).stable
+        : null;
+    const stableRecord =
+      stable && typeof stable === "object" && !Array.isArray(stable)
+        ? (stable as Record<string, unknown>)
+        : {};
+    return {
+      id,
+      path: workflowPath(scopeRoot, id),
+      expectedDigest: String(stableRecord.digest ?? ""),
+    };
+  });
+}
+
 function workflowScopeRoots(): string[] {
   return [
     join(CALL_CATALOG_ROOT, "loopship", "workflow", "service", "step"),
     join(CALL_CATALOG_ROOT, "loopship", "workflow", "service", "flows"),
   ];
+}
+
+function rootManifest(): Record<string, unknown> {
+  return readYamlObject(join(CALL_CATALOG_ROOT, "index.yaml"));
 }
 
 function collectWorkflowFiles(): string[] {
@@ -155,6 +186,65 @@ describe("Loopship declarative Fastflow catalog", () => {
       [CALL_CATALOG_ROOT],
     );
     expect(JSON.parse(output).calls).toBeGreaterThan(0);
+  });
+
+  it("ships rooted call catalog release authorization and prefixes", () => {
+    const manifest = rootManifest();
+    expect(manifest.schemaVersion).toBe("fastflow/call-catalog-manifest/v3");
+    expect(manifest.pathTemplate).toBe("{registry}/{kind}/{target}/{scope}/index.yaml");
+    const releaseAuth =
+      manifest.release_auth &&
+      typeof manifest.release_auth === "object" &&
+      !Array.isArray(manifest.release_auth)
+        ? (manifest.release_auth as Record<string, unknown>)
+        : null;
+    const trustedReleasers = Array.isArray(releaseAuth?.trusted_releasers)
+      ? releaseAuth.trusted_releasers
+      : [];
+    expect(trustedReleasers.length).toBeGreaterThan(0);
+    const prefixes =
+      manifest.prefixes && typeof manifest.prefixes === "object" && !Array.isArray(manifest.prefixes)
+        ? (manifest.prefixes as Record<string, unknown>)
+        : {};
+    expect(Object.keys(prefixes).length).toBeGreaterThan(0);
+  });
+
+  it("reports malformed direct stable workflow edits through digest drift", () => {
+    const entries = workflowScopeRoots().flatMap((scopeRoot) => workflowDigestEntries(scopeRoot));
+    expect(entries.length).toBeGreaterThan(0);
+    const dir = mkdtempSync(join(PACKAGE_ROOT, "tmp", "flow-digests-"));
+    const dataPath = join(dir, "digests.json");
+    writeFileSync(dataPath, JSON.stringify(entries), "utf8");
+    try {
+      runNodeCheck(
+        `
+          import { readFileSync } from "node:fs";
+          import { parse as parseYaml } from "yaml";
+          import { hashSwfWorkflow } from ${JSON.stringify(fastflowImport("src/lib/swf-compat.mjs"))};
+          const entries = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          for (const entry of entries) {
+            const workflow = parseYaml(readFileSync(entry.path, "utf8"));
+            const actualDigest = "sha256:" + hashSwfWorkflow(workflow);
+            if (actualDigest !== entry.expectedDigest) {
+              throw new Error(
+                entry.path +
+                  " digest drifted from its scope index; direct edits to *.stable.yaml are malformed. Copy the changes into the matching *.dev.yaml and continue via Fastflow promotion."
+              );
+            }
+            const rootHash = workflow?.document?.metadata?.rootHash;
+            if (typeof rootHash === "string" && rootHash.trim() && rootHash !== actualDigest) {
+              throw new Error(
+                entry.path +
+                  " metadata.rootHash drifted; continue workflow edits in *.dev.yaml and refresh stable artifacts via promotion instead of hand-editing *.stable.yaml."
+              );
+            }
+          }
+        `,
+        [dataPath],
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps step schema registry declarative", () => {

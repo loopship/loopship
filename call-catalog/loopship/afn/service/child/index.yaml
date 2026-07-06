@@ -10,6 +10,7 @@ calls:
         - task_id
         - task
         - children
+        - quest
         - parent
         - runtime
         - branch
@@ -208,6 +209,18 @@ calls:
                     - type: array
                       items:
                         type: string
+          quest:
+            type: object
+            additionalProperties: true
+            properties:
+              prompt:
+                type: string
+              parent_wtree:
+                type: string
+              parent_task_id:
+                type: string
+              parent_context_ref:
+                type: string
           parent:
             type: object
             additionalProperties: false

@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 import {
+  applyQuestPlanToTasks,
   createQuest,
   ensureCoordinatorWorkspace,
   parseTasksYaml,
@@ -24,6 +25,8 @@ import {
   loopshipFlowWorkflowRef,
 } from "./loopship_fastflow.ts";
 import { runCommand } from "./loopship_utils.ts";
+
+const LOOPSHIP_SCRIPT = resolve(process.cwd(), "scripts", "loopship.ts");
 
 function parseCallId(call: string): {
   registry: string;
@@ -244,6 +247,41 @@ function loadYamlWorkflow(path: string): Record<string, unknown> {
   return parseYaml(readFileSync(path, "utf8")) as Record<string, unknown>;
 }
 
+function workflowTaskDefinition(
+  workflow: Record<string, unknown>,
+  taskName: string,
+): Record<string, unknown> {
+  const tasks = Array.isArray(workflow.do) ? workflow.do : [];
+  for (const entry of tasks) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (taskName in (entry as Record<string, unknown>)) {
+      const task = (entry as Record<string, unknown>)[taskName];
+      if (task && typeof task === "object" && !Array.isArray(task)) {
+        return task as Record<string, unknown>;
+      }
+    }
+  }
+  throw new Error(`missing workflow task: ${taskName}`);
+}
+
+function executeWorkflowTaskScript(
+  task: Record<string, unknown>,
+  state: Record<string, unknown>,
+): Record<string, unknown> {
+  const run = task.run && typeof task.run === "object" && !Array.isArray(task.run)
+    ? (task.run as Record<string, unknown>)
+    : {};
+  const script = run.script && typeof run.script === "object" && !Array.isArray(run.script)
+    ? (run.script as Record<string, unknown>)
+    : {};
+  const code = typeof script.code === "string" ? script.code : "";
+  if (!code.trim()) throw new Error("workflow task is missing run.script.code");
+  return Function(
+    "state",
+    `"use strict"; return (() => { ${code}\n})();`,
+  )(state) as Record<string, unknown>;
+}
+
 function workflowIdsFromIndex(path: string): string[] {
   const index = parseYaml(readFileSync(path, "utf8")) as Record<string, unknown>;
   const workflows = index.workflows;
@@ -336,6 +374,118 @@ function createNativeQuest(repo: string, wtree = "demo") {
     flowId: "swe",
     initialStage: "initial",
   });
+}
+
+function runLoopshipCli(
+  repo: string,
+  args: string[],
+  input?: Record<string, unknown>,
+): { status: number | null; stdout: string; stderr: string } {
+  return runCommand("bun", [LOOPSHIP_SCRIPT, ...args], {
+    cwd: repo,
+    timeoutMs: 600_000,
+    input: input ? JSON.stringify(input) : undefined,
+  });
+}
+
+function parseJsonObject(text: string, label: string): Record<string, unknown> {
+  const parsed = JSON.parse(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object: ${text}`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+async function startQuestStage(
+  repo: string,
+  prompt: string,
+  wtree: string,
+  extraArgs: string[] = [],
+): Promise<Record<string, unknown>> {
+  const proc = runLoopshipCli(repo, [
+    "init",
+    prompt,
+    "--runtime",
+    "codex",
+    "--flow",
+    "swe",
+    "--wtree",
+    wtree,
+    ...extraArgs,
+  ]);
+  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+  return parseJsonObject(proc.stdout, "loopship init");
+}
+
+function workflowOutput(value: Record<string, unknown>): Record<string, unknown> | null {
+  if (
+    value.schemaVersion !== "fastflow/workflow-run-artifact/v1" ||
+    value.kind !== "workflow_result"
+  ) {
+    return null;
+  }
+  expect(value.ok).toBe(true);
+  return value.output && typeof value.output === "object" && !Array.isArray(value.output)
+    ? (value.output as Record<string, unknown>)
+    : {};
+}
+
+function interactionPause(value: Record<string, unknown>): Record<string, unknown> | null {
+  if (value.schemaVersion !== "fastflow/interaction-response/v1") return null;
+  const nextCall =
+    value.nextCall && typeof value.nextCall === "object" && !Array.isArray(value.nextCall)
+      ? (value.nextCall as Record<string, unknown>)
+      : {};
+  const args =
+    nextCall.args && typeof nextCall.args === "object" && !Array.isArray(nextCall.args)
+      ? (nextCall.args as Record<string, unknown>)
+      : {};
+  const sessionId = String(args.sessionId ?? "").trim();
+  expect(sessionId).toBeTruthy();
+  return {
+    sessionId,
+    nonce: String(args.nonce ?? "").trim(),
+    workspaceRoot: String(args.workspaceRoot ?? "").trim(),
+    kind: String(value.kind ?? ""),
+  };
+}
+
+async function resumeQuestPause(
+  repo: string,
+  pause: Record<string, unknown>,
+  decision: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const payload = {
+    sessionId: String(pause.sessionId),
+    ...(String(pause.nonce ?? "").trim() ? { nonce: String(pause.nonce) } : {}),
+    ...(String(pause.workspaceRoot ?? "").trim()
+      ? { workspaceRoot: String(pause.workspaceRoot) }
+      : {}),
+    ...(pause.kind === "supervisor_review"
+      ? { supervisorDecision: "ok" }
+      : { decision }),
+  };
+  const proc = runLoopshipCli(repo, ["hook", "--repo", repo, "--json", "@-"], payload);
+  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+  return parseJsonObject(proc.stdout, "loopship hook");
+}
+
+async function completeQuestStage(
+  repo: string,
+  started: Record<string, unknown>,
+  decision?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const direct = workflowOutput(started);
+  if (direct) return direct;
+  const pause = interactionPause(started);
+  expect(pause, JSON.stringify(started)).not.toBeNull();
+  if (!decision && pause?.kind !== "supervisor_review") {
+    throw new Error(`quest stage pause requires a decision: ${JSON.stringify(started)}`);
+  }
+  const resumed = await resumeQuestPause(repo, pause!, decision ?? {});
+  const output = workflowOutput(resumed);
+  expect(output, JSON.stringify(resumed)).not.toBeNull();
+  return output!;
 }
 
 describe("Loopship Fastflow-native bridge", () => {
@@ -534,6 +684,9 @@ describe("Loopship Fastflow-native bridge", () => {
       ref: "README.md#mocked-runtime-lifecycle-stepping",
     });
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("native Fastflow decision");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("terminal child quests");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("*.stable.yaml workflows");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(".dev.yaml plus Fastflow promotion");
     expect("command" in LOOPSHIP_SUPERVISOR_GUIDANCE).toBe(false);
     const adapters = createLoopshipFastflowAdapters();
     expect(adapters.adapterIdentity).toBe("@omar391/loopship");
@@ -611,6 +764,373 @@ describe("Loopship Fastflow-native bridge", () => {
       ],
     });
   });
+
+  test("rewrites terminal child plans into local execution state", () => {
+    const fixture = createGitFixture("loopship-terminal-child-plan-");
+    try {
+      const childWorkspace = ensureCoordinatorWorkspace(fixture.repo, "child-terminal");
+      const parentWorkspace = ensureCoordinatorWorkspace(fixture.repo, "parent");
+      const { files, state } = createQuest({
+        repoRoot: fixture.repo,
+        wtree: "child-terminal",
+        prompt: "loopship: execute child task timer-ui: implement the timer UI.",
+        resolutionSource: "test",
+        workspace: childWorkspace,
+        flowId: "swe",
+        initialStage: "planning",
+        parentWtree: "parent",
+        parentTaskId: "timer-ui",
+        parentContextRef: join(parentWorkspace.worktree_path, ".loopship", "runtime", "tasks.yaml"),
+        landingTargetBranch: "parent",
+        landingTargetWorktree: parentWorkspace.worktree_path,
+      });
+
+      const planned = applyQuestPlanToTasks(files, state, {
+        classification: "feature",
+        scope: "Implement the assigned timer UI locally.",
+        summary: "Keep the child quest local and land it back into the parent worktree.",
+        system_context: {
+          relevant_object_refs: [],
+          relevant_assertion_refs: [],
+          relevant_resource_refs: [],
+          relevant_memory_refs: [],
+          durable_implications: [],
+        },
+        verification_targets: ["Timer UI files are updated and committed in the current child worktree."],
+        tasks: [
+          {
+            id: "implement-timer-ui",
+            title: "Implement the timer UI locally",
+            acceptance: "Timer UI files are updated and committed.",
+            child_wtree: "nested-child",
+            branch_ref: "codex/nested-child",
+            worktree_path: join(fixture.repo, "worktrees", "nested-child"),
+            merge_lease_id: "lease-nested-child",
+          },
+        ],
+      });
+
+      expect(planned.tasks).toHaveLength(1);
+      expect(planned.tasks[0]).toMatchObject({
+        id: "implement-timer-ui",
+        status: "pending",
+        branch_ref: planned.coordinator_branch,
+        worktree_path: planned.coordinator_worktree,
+        child_wtree: "",
+        merge_target: planned.coordinator_branch,
+        merge_lease_id: "",
+      });
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects terminal child child.prepare requests before synthesizing nested child worktrees", async () => {
+    const fixture = createGitFixture("loopship-terminal-child-prepare-");
+    try {
+      const adapters = createLoopshipFastflowAdapters();
+      await expect(
+        (adapters.executeAfn as Function)({
+          action: {
+            call: LOOPSHIP_AFN_CALLS.childPrepare,
+            with: {
+              body: {
+                repo: fixture.repo,
+                wtree: "child-terminal",
+                quest: {
+                  prompt: "loopship: execute child task timer-ui: implement the timer UI.",
+                  parent_wtree: "parent",
+                  parent_task_id: "timer-ui",
+                  parent_context_ref: join(
+                    fixture.repo,
+                    "worktrees",
+                    "parent",
+                    ".loopship",
+                    "runtime",
+                    "tasks.yaml",
+                  ),
+                },
+                children: [
+                  {
+                    id: "nested-child",
+                    title: "Nested child work",
+                    acceptance: "done",
+                    child_wtree: "",
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      ).rejects.toThrow("terminal child quests must not prepare child worktrees");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("launches exactly one supervised child at a time and uses stepper init for child runs", async () => {
+    const adapters = createLoopshipFastflowAdapters();
+    const prepared = await (adapters.executeAfn as Function)({
+      action: {
+        call: LOOPSHIP_AFN_CALLS.childPrepare,
+        with: {
+          body: {
+            repo: "/tmp/repo",
+            wtree: "demo",
+            dry_run: true,
+            quest: {
+              supervise_step: true,
+            },
+            children: [
+              { id: "task-a", title: "Task A", acceptance: "done" },
+              { id: "task-b", title: "Task B", acceptance: "done" },
+            ],
+          },
+        },
+      },
+    });
+    expect(prepared.count).toBe(1);
+    expect(prepared.prepared_children).toHaveLength(1);
+    expect(prepared.prepared_children[0]).toMatchObject({
+      task_id: "task-a",
+      supervise_step: true,
+    });
+    expect(prepared.actions.init.args.slice(0, 2)).toEqual(["stepper", "init"]);
+  });
+
+  test("requeues the next child only for supervised coordinator runs", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_executing");
+    const sharedState = {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        stage_executing: {
+          action: {
+            task_id: "task-a",
+            child_wtree: "root-task-a",
+            status: "passed",
+            evidence: [{ type: "git_commit", ref: "abc123" }],
+            merge_commit: "abc123",
+          },
+        },
+      },
+    };
+
+    const supervised = executeWorkflowTaskScript(task, {
+      ...sharedState,
+      steps: {
+        ...sharedState.steps,
+        read_tasks: {
+          action: {
+            supervise_step: true,
+            tasks: [
+              { id: "task-a", status: "child_received", child_wtree: "root-task-a" },
+              { id: "task-b", status: "child_received", child_wtree: "root-task-b" },
+            ],
+            child_results: [],
+          },
+        },
+      },
+    });
+    expect(supervised.stage_after).toBe("task_graph_ready");
+    expect(supervised.transition).toBe("next_child");
+    expect(supervised.state_patch).toMatchObject({
+      stage: "task_graph_ready",
+    });
+
+    const unsupervised = executeWorkflowTaskScript(task, {
+      ...sharedState,
+      steps: {
+        ...sharedState.steps,
+        read_tasks: {
+          action: {
+            supervise_step: false,
+            tasks: [
+              { id: "task-a", status: "child_received", child_wtree: "root-task-a" },
+              { id: "task-b", status: "child_received", child_wtree: "root-task-b" },
+            ],
+            child_results: [],
+          },
+        },
+      },
+    });
+    expect(unsupervised.stage_after).toBe("executing");
+    expect(unsupervised.transition).toBe("partial");
+  });
+
+  test(
+    "terminal child quests complete local execution without emitting child init commands",
+    { timeout: 600_000 },
+    async () => {
+    const fixture = createGitFixture("loopship-terminal-child-lifecycle-");
+    try {
+      const parentWorkspace = ensureCoordinatorWorkspace(fixture.repo, "parent");
+      const prompt =
+        "loopship: execute child task timer-ui: implement the timer UI and local persistence.";
+      const childWtree = "child-terminal";
+      const extraArgs = [
+        "--parent-wtree",
+        "parent",
+        "--parent-task-id",
+        "timer-ui",
+        "--parent-context-ref",
+        join(parentWorkspace.worktree_path, ".loopship", "runtime", "tasks.yaml"),
+        "--target-branch",
+        "parent",
+        "--target-worktree",
+        parentWorkspace.worktree_path,
+      ];
+
+      const planOutput = await completeQuestStage(
+        fixture.repo,
+        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
+        {
+          classification: "feature",
+          scope: "Implement the assigned timer UI locally in the current child worktree.",
+          summary: "Finish the assigned child task locally and land it back into the parent worktree.",
+          assumptions: [],
+          constraints: ["Do not create child worktrees."],
+          system_context: {
+            relevant_object_refs: [],
+            relevant_assertion_refs: [],
+            relevant_resource_refs: [],
+            relevant_memory_refs: [],
+            durable_implications: [],
+          },
+          verification_targets: ["Timer UI files are updated and committed in the current child worktree."],
+          task_graph: {
+            tasks: [
+              {
+                id: "implement-timer-ui",
+                title: "Implement the timer UI locally",
+                acceptance: [
+                  "Timer UI files are updated and committed in the current child worktree.",
+                ],
+              },
+            ],
+          },
+        },
+      );
+      expect(planOutput.step).toBe("plan");
+      expect(planOutput.stage_after).toBe("plan_review");
+
+      let childState = parseTasksYaml(
+        readFileSync(
+          join(fixture.repo, "worktrees", childWtree, ".loopship", "runtime", "tasks.yaml"),
+          "utf8",
+        ),
+      );
+      expect(childState.parent_wtree).toBe("parent");
+      expect(childState.parent_task_id).toBe("timer-ui");
+      expect(childState.tasks?.[0]).toMatchObject({
+        child_wtree: "",
+      });
+
+      const approved = await completeQuestStage(
+        fixture.repo,
+        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
+        { approved: true },
+      );
+      expect(approved.step).toBe("task_graph");
+      expect(approved.stage_after).toBe("executing");
+
+      childState = parseTasksYaml(
+        readFileSync(
+          join(fixture.repo, "worktrees", childWtree, ".loopship", "runtime", "tasks.yaml"),
+          "utf8",
+        ),
+      );
+      const childWorktree = String(childState.coordinator_worktree || "");
+      writeFileSync(join(childWorktree, "CHILD.md"), "# terminal child\n", "utf8");
+      runGit(childWorktree, ["add", "CHILD.md"]);
+      runGit(childWorktree, ["commit", "-m", "terminal child work"]);
+
+      const executing = await completeQuestStage(
+        fixture.repo,
+        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
+      );
+      expect(executing.step).toBe("executing");
+      expect(executing.stage_after).toBe("validating");
+      expect(JSON.stringify(executing)).not.toContain("loopship.child.prepare/v1");
+      expect(JSON.stringify(executing)).not.toContain("prepared_children");
+
+      const validated = await completeQuestStage(
+        fixture.repo,
+        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
+        {
+          status: "passed",
+          checks: [{ name: "terminal-child-smoke", status: "passed" }],
+        },
+      );
+      expect(validated.step).toBe("validation");
+      expect(validated.stage_after).toBe("verification_pending");
+
+      const verified = await completeQuestStage(
+        fixture.repo,
+        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
+        {
+          status: "passed",
+          acceptance_trace: [
+            {
+              acceptance: "Timer UI files are updated and committed in the current child worktree.",
+              status: "passed",
+            },
+          ],
+          risks: [],
+        },
+      );
+      expect(verified.step).toBe("verification");
+      expect(verified.stage_after).toBe("system_update_pending");
+
+      const updated = await completeQuestStage(
+        fixture.repo,
+        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
+      );
+      expect(updated.step).toBe("system_update");
+      expect(updated.stage_after).toBe("landing_ready");
+
+      const landed = await completeQuestStage(
+        fixture.repo,
+        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
+      );
+      expect(landed.step).toBe("landing");
+      expect(landed.stage_after).toBe("archived");
+
+      expect(readFileSync(join(parentWorkspace.worktree_path, "CHILD.md"), "utf8")).toContain(
+        "terminal child",
+      );
+      childState = parseTasksYaml(
+        readFileSync(
+          join(fixture.repo, "worktrees", childWtree, ".loopship", "runtime", "tasks.yaml"),
+          "utf8",
+        ),
+      );
+      expect(childState.stage).toBe("archived");
+      expect(String(childState.landed_commit || "")).toMatch(/^[0-9a-f]{40}$/);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+    },
+  );
 
   test("validates committed native step workflows without legacy metadata or context.script", () => {
     const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
@@ -723,6 +1243,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const manifest = parseYaml(readFileSync(join(catalogRoot, "index.yaml"), "utf8")) as any;
       expect(manifest.schemaVersion).toBe("fastflow/call-catalog-manifest/v3");
       expect(manifest.pathTemplate).toBe("{registry}/{kind}/{target}/{scope}/index.yaml");
+      expect(manifest.release_auth?.trusted_releasers?.length).toBeGreaterThan(0);
       expect(manifest.prefixes.loopship.workflow.service.step.tags).toContain("step");
       expect(manifest.prefixes.loopship.workflow.service.flows.tags).toContain("flow");
     } finally {
