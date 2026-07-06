@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 5
-      digest: "sha256:201d46b51f0c0f9476e090d7ab47b80faa8ecc7dfecb613a154765915f6c7146"
-      summary: "Refresh SWE stable refs after the plan step schema promotion."
+      release: 6
+      digest: "sha256:9644aeb61aa4766112c3116c5dc28e43cb9b60259ad626c129d99c3b0af0f4e4"
+      summary: "Queue exactly one child at a time during supervised runs while preserving normal parallel child execution."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktSjBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtgKAEAgbJpCfqe/Q966ZTexa8k
-    vukN4bYyFxitV45LPp7BAeIA/R84Mp7hqP69Rqe3i7KdP3V9A15Pt67gzsr8QMMI
-    2LAK
-    =99m7
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktc5xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGta0wD9GUVdmM+f5PmNL6Z40aS8
+    DZXI6YHQ/mU48oMSVcHc+f4A/0zzP3o0++aaP+zhTS5+AdKN0a/yez6NCTY8P8B0
+    WJ8H
+    =AD1h
     -----END PGP SIGNATURE-----
