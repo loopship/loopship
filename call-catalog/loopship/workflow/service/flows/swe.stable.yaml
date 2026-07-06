@@ -637,6 +637,7 @@ do:
           target_branch: "${inputs.target_branch || state.steps.read_tasks.action.landing_target_branch || 'main'}"
           target_worktree: "${inputs.target_worktree || state.steps.read_tasks.action.landing_target_worktree || ''}"
           source_branch: "${inputs.source_branch || state.steps.read_tasks.action.coordinator_branch || ''}"
+          next_stage: "${(inputs.status || 'landed') === 'blocked' ? 'landing_ready' : 'archived'}"
       output:
         schema:
           document:
@@ -665,7 +666,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:8395f7172340fed270fec6198990b7d0cdf42533ad1802381522ddf88053dd54"
+          digest: "sha256:a67b2cd9c43c3ed05f654f6429fdf34f7a8a699a20073db9186f2d945cb91bc4"
       call: loopship.workflow.service.step.landing
       with:
         version: 0.1.0

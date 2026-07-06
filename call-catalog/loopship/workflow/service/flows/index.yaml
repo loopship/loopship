@@ -3,7 +3,7 @@ workflows:
   swe:
     stable:
       release: 3
-      digest: "sha256:d18bb35ad3efbe3048b7e1c1f1613c6ff9d0ebd0f69b8a6ab37dedab9f90ff7c"
+      digest: "sha256:caaa88458a00e70913a1ac45b1d463a40963baa295f61391a17ba38609171993"
       summary: "Refactor SWE flow to native stage-local SWF branches"
       inputs:
         required: []
