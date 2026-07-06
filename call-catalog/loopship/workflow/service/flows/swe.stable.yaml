@@ -234,7 +234,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:96829edcb383db7ad081c5e6e0ad7d8067516f27fae5d965a368130ebd34e131"
+          digest: "sha256:effbf3ae89c4c5ce0c6b8d9e85b2cc28e569b32d08b7dd94a45a7886c5cfbefe"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
@@ -713,7 +713,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:96829edcb383db7ad081c5e6e0ad7d8067516f27fae5d965a368130ebd34e131"
+          digest: "sha256:effbf3ae89c4c5ce0c6b8d9e85b2cc28e569b32d08b7dd94a45a7886c5cfbefe"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0

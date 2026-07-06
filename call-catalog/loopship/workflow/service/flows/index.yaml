@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 4
-      digest: "sha256:0e713f4055b6419dd082ec7fea2034cae2ad923976abfde8cdf013b4f3dfccb6"
-      summary: "Enforce terminal-child local execution, preserve quest evidence, and require dev-only workflow authoring."
+      release: 5
+      digest: "sha256:201d46b51f0c0f9476e090d7ab47b80faa8ecc7dfecb613a154765915f6c7146"
+      summary: "Refresh SWE stable refs after the plan step schema promotion."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktOYBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvMGwEAsreg4IasJwZU7c2Rwec/
-    cxHkN2q2+SQ4Uv/FOqMCWJ0BANUGdDyk5D3YcU4M3OcFIaZ/1QwJCLDn1Qd5Ibeu
-    Tc0J
-    =gDKC
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktSjBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtgKAEAgbJpCfqe/Q966ZTexa8k
+    vukN4bYyFxitV45LPp7BAeIA/R84Mp7hqP69Rqe3i7KdP3V9A15Pt67gzsr8QMMI
+    2LAK
+    =99m7
     -----END PGP SIGNATURE-----
