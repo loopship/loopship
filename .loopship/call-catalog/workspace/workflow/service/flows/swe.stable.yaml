@@ -248,7 +248,7 @@ do:
           current_stage: planning
           summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
           prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repo: "${state.steps.read_tasks.action.coordinator_worktree || inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           runtime: "${inputs.runtime || ''}"
           tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
