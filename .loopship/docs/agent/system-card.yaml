@@ -48,7 +48,13 @@ responsibilities:
     schema validation pass.
   coordinate-child-work: |-
     Root agents coordinate child execution through emitted commands and canonical
-    child_result payloads rather than silently doing child work inline.
+    child_result payloads rather than silently doing child work inline, while terminal child agents stay local and finish the assigned work without nested dispatch. In superviseStep
+    mode, coordinators launch one child at a time and supervised child launches use
+    `loopship stepper init` so each child pauses through its own lifecycle steps.
+  respect-fastflow-release-authoring: |-
+    Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files are
+    promotion-managed release artifacts. Agents author workflow changes in `.dev.yaml` and
+    rely on promotion to refresh stable artifacts.
   preserve-canonical-truth: |-
     Agents trust tasks.yaml, events.jsonl, emitted child commands, git worktree state,
     manifests, and signatures before terminal chatter or narrative summaries.
@@ -65,6 +71,8 @@ autonomy:
     - Do not edit, stage, or commit directly on main because worktree isolation is a hard repository invariant.
     - Do not store credentials, secrets, private keys, tokens, or sensitive personal data in Loopship memories or canonical system documents.
     - Do not recursively create child-of-child quests unless recursive delegation was explicitly planned before execution.
+    - Do not hand-edit Fastflow `*.stable.yaml` workflow files or call-catalog `index.yaml`; continue edits in `.dev.yaml` and promote instead.
+    - Do not let a terminal child quest dispatch child worktrees or synthesize nested child assignments.
 tools:
   system-update:
     text: |-
@@ -142,8 +150,9 @@ safety:
       git worktree evidence do not prove.
   mitigations:
     schema-gates: |-
-      Schema validation and semantic verifiers reject malformed updates, unresolved links,
-      shell docs, unsigned canonical resources, and stale schema surfaces.
+      Schema validation, semantic verifiers, and workflow digest checks reject malformed
+      updates, malformed stable workflow edits, unresolved links, shell docs, unsigned
+      canonical resources, and stale schema surfaces.
     worktree-boundary: |-
       Worktree isolation and root coordinator rules keep child implementation work bounded and
       auditable.

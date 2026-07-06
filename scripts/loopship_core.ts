@@ -77,6 +77,25 @@ export type QuestTask = {
   blocker?: string;
 };
 
+export type QuestEvidence = {
+  type: string;
+  ref: string;
+  summary?: string;
+  status?: string;
+};
+
+export type QuestChildResult = {
+  task_id: string;
+  child_wtree: string;
+  status: string;
+  evidence: QuestEvidence[];
+  branch_ref: string;
+  worktree_path: string;
+  merge_target: string;
+  merge_lease_id: string;
+  merge_commit: string;
+};
+
 export type QuestQuestion = {
   id: string;
   question: string;
@@ -170,6 +189,7 @@ export type QuestState = {
   prompt: string;
   context_root: string;
   resolution_source: string;
+  supervise_step: boolean;
   coordinator_branch: string;
   coordinator_worktree: string;
   parent_wtree: string;
@@ -179,12 +199,14 @@ export type QuestState = {
   landing_target_worktree: string;
   landed_commit: string;
   landing_strategy: string;
+  replan_reason: string;
   assumptions: string[];
   constraints: string[];
   question_rounds: QuestQuestionRound[];
   plan_detail: QuestPlanDetail;
   validation_receipt: QuestValidationReceipt;
   verification_receipt: QuestVerificationReceipt;
+  child_results: QuestChildResult[];
   tasks: QuestTask[];
 };
 
@@ -270,6 +292,28 @@ export function normalizeName(input: string): string {
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
   return value || "main";
+}
+
+function normalizedPromptText(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/^loopship:\s*/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function isTerminalChildQuestState(
+  state: Partial<Pick<
+    QuestState,
+    "prompt" | "parent_wtree" | "parent_task_id" | "parent_context_ref"
+  >>,
+): boolean {
+  return (
+    Boolean(String(state.parent_wtree ?? "").trim()) ||
+    Boolean(String(state.parent_task_id ?? "").trim()) ||
+    Boolean(String(state.parent_context_ref ?? "").trim()) ||
+    normalizedPromptText(state.prompt).startsWith("execute child task ")
+  );
 }
 
 function yamlScalar(value: string): string {
@@ -1338,6 +1382,49 @@ function normalizeQuestSystemContext(value: unknown): QuestSystemContext {
   };
 }
 
+function normalizeQuestEvidence(value: unknown): QuestEvidence | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const type = String(row.type ?? "").trim();
+  const ref = String(row.ref ?? "").trim();
+  if (!type || !ref) return null;
+  return {
+    type,
+    ref,
+    summary: String(row.summary ?? "").trim() || undefined,
+    status: String(row.status ?? "").trim() || undefined,
+  };
+}
+
+function normalizeQuestChildResults(value: unknown): QuestChildResult[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const row = item as Record<string, unknown>;
+      const taskId = String(row.task_id ?? row.id ?? "").trim();
+      const childWtree = String(row.child_wtree ?? "").trim();
+      const status = String(row.status ?? "").trim();
+      if (!taskId || !childWtree || !status) return null;
+      return {
+        task_id: taskId,
+        child_wtree: childWtree,
+        status,
+        evidence: Array.isArray(row.evidence)
+          ? row.evidence
+              .map((entry) => normalizeQuestEvidence(entry))
+              .filter((entry): entry is QuestEvidence => Boolean(entry))
+          : [],
+        branch_ref: String(row.branch_ref ?? "").trim(),
+        worktree_path: String(row.worktree_path ?? "").trim(),
+        merge_target: String(row.merge_target ?? "").trim(),
+        merge_lease_id: String(row.merge_lease_id ?? "").trim(),
+        merge_commit: String(row.merge_commit ?? "").trim(),
+      };
+    })
+    .filter((entry): entry is QuestChildResult => Boolean(entry));
+}
+
 function normalizeTaskList(value: unknown): QuestTask[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1367,6 +1454,7 @@ export function renderTasksYaml(state: QuestState): string {
       prompt: String(state.prompt ?? ""),
       context_root: String(state.context_root ?? ""),
       resolution_source: String(state.resolution_source ?? ""),
+      supervise_step: state.supervise_step === true,
       coordinator_branch: String(state.coordinator_branch ?? "main"),
       coordinator_worktree: String(state.coordinator_worktree ?? ""),
       parent_wtree: String(state.parent_wtree ?? ""),
@@ -1376,6 +1464,7 @@ export function renderTasksYaml(state: QuestState): string {
       landing_target_worktree: String(state.landing_target_worktree ?? ""),
       landed_commit: String(state.landed_commit ?? ""),
       landing_strategy: String(state.landing_strategy ?? ""),
+      replan_reason: String(state.replan_reason ?? ""),
       assumptions: asStringList(state.assumptions),
       constraints: asStringList(state.constraints),
       question_rounds: Array.isArray(state.question_rounds)
@@ -1386,6 +1475,7 @@ export function renderTasksYaml(state: QuestState): string {
         state.validation_receipt ?? defaultQuestValidationReceipt(),
       verification_receipt:
         state.verification_receipt ?? defaultQuestVerificationReceipt(),
+      child_results: Array.isArray(state.child_results) ? state.child_results : [],
       tasks: Array.isArray(state.tasks) ? state.tasks : [],
     },
     { lineWidth: 0 },
@@ -1465,6 +1555,7 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
     prompt: String(raw.prompt ?? ""),
     context_root: String(raw.context_root ?? ""),
     resolution_source: String(raw.resolution_source ?? ""),
+    supervise_step: raw.supervise_step === true || raw.superviseStep === true,
     coordinator_branch: String(raw.coordinator_branch ?? "main"),
     coordinator_worktree: String(raw.coordinator_worktree ?? ""),
     parent_wtree: String(raw.parent_wtree ?? ""),
@@ -1474,6 +1565,7 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
     landing_target_worktree: String(raw.landing_target_worktree ?? ""),
     landed_commit: String(raw.landed_commit ?? ""),
     landing_strategy: String(raw.landing_strategy ?? ""),
+    replan_reason: String(raw.replan_reason ?? ""),
     assumptions: asStringList(raw.assumptions),
     constraints: asStringList(raw.constraints),
     question_rounds: normalizeQuestionRounds(raw.question_rounds),
@@ -1547,6 +1639,7 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
               : [],
           }
         : defaultQuestVerificationReceipt(),
+    child_results: normalizeQuestChildResults(raw.child_results),
     tasks: normalizeTaskList(raw.tasks),
   };
   if (!result.quest_id && result.wtree) result.quest_id = result.wtree;
@@ -1666,44 +1759,36 @@ function normalizePlanTask(
   const rawId = String(input.id ?? input.task_id ?? `task-${index + 1}`);
   const id = normalizeName(rawId);
   const contextRoot = String(state.context_root ?? ".");
-  const normalizedPrompt = String(state.prompt ?? "")
-    .toLowerCase()
-    .replace(/^loopship:\s*/, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-  const leafChild = normalizedPrompt.startsWith("execute child task ");
+  const terminalChild = isTerminalChildQuestState(state);
   const coordinatorBranch = String(state.coordinator_branch ?? "main");
   const coordinatorWorktree = String(state.coordinator_worktree ?? contextRoot);
   return {
     id,
     title: String(input.title ?? input.name ?? id),
     type: input.type === "general" ? "general" : "coding",
-    status: String(input.status ?? (leafChild ? "pending" : "child_received")),
+    status: String(input.status ?? (terminalChild ? "pending" : "child_received")),
     dependencies: asStringList(input.dependencies ?? input.depends_on).map((id) =>
       normalizeName(id),
     ),
     scope_files: asStringList(input.scope_files ?? input.scope),
     spec_refs: asStringList(input.spec_refs ?? input.specs),
     context_refs: asStringList(input.context_refs ?? input.context),
-    branch_ref: String(
-      input.branch_ref ??
-        (leafChild ? coordinatorBranch : taskAssignmentBranchRef(wtree, id)),
-    ),
-    worktree_path: String(
-      input.worktree_path ??
-        (leafChild
-          ? coordinatorWorktree
-          : taskAssignmentWorktreePath(contextRoot, wtree, id)),
-    ),
-    child_wtree: String(
-      input.child_wtree ?? (leafChild ? "" : taskAssignmentChildWtree(wtree, id)),
-    ),
+    branch_ref: terminalChild
+      ? coordinatorBranch
+      : String(input.branch_ref ?? taskAssignmentBranchRef(wtree, id)),
+    worktree_path: terminalChild
+      ? coordinatorWorktree
+      : String(input.worktree_path ?? taskAssignmentWorktreePath(contextRoot, wtree, id)),
+    child_wtree: terminalChild
+      ? ""
+      : String(input.child_wtree ?? taskAssignmentChildWtree(wtree, id)),
     concurrency_group: String(input.concurrency_group ?? ""),
-    merge_target: String(input.merge_target ?? coordinatorBranch),
-    merge_lease_id: String(
-      input.merge_lease_id ??
-        (leafChild ? "" : taskAssignmentMergeLeaseId(wtree, id)),
-    ),
+    merge_target: terminalChild
+      ? coordinatorBranch
+      : String(input.merge_target ?? coordinatorBranch),
+    merge_lease_id: terminalChild
+      ? ""
+      : String(input.merge_lease_id ?? taskAssignmentMergeLeaseId(wtree, id)),
     merge_commit: String(input.merge_commit ?? ""),
     system_impact_ref: String(input.system_impact_ref ?? ""),
     acceptance: planTaskAcceptance(
@@ -1730,6 +1815,7 @@ export function applyQuestPlanToTasks(
     prompt: String(state.prompt ?? ""),
     context_root: String(state.context_root ?? ""),
     resolution_source: String(state.resolution_source ?? ""),
+    supervise_step: state.supervise_step === true,
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
     parent_wtree: String(state.parent_wtree ?? ""),
@@ -1739,6 +1825,7 @@ export function applyQuestPlanToTasks(
     landing_target_worktree: String(state.landing_target_worktree ?? ""),
     landed_commit: String(state.landed_commit ?? ""),
     landing_strategy: String(state.landing_strategy ?? ""),
+    replan_reason: "",
     assumptions: asStringList(plan?.assumptions),
     constraints: asStringList(plan?.constraints),
     question_rounds: Array.isArray(state.question_rounds)
@@ -1761,6 +1848,7 @@ export function applyQuestPlanToTasks(
       state.validation_receipt ?? defaultQuestValidationReceipt(),
     verification_receipt:
       state.verification_receipt ?? defaultQuestVerificationReceipt(),
+    child_results: Array.isArray(state.child_results) ? state.child_results : [],
     tasks: taskInputs.map((task, index) =>
       normalizePlanTask(state, task, index),
     ),
@@ -1795,6 +1883,7 @@ export function applyChildStatusToTasks(
     prompt: String(state.prompt ?? ""),
     context_root: String(state.context_root ?? ""),
     resolution_source: String(state.resolution_source ?? ""),
+    supervise_step: state.supervise_step === true,
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
     parent_wtree: String(state.parent_wtree ?? ""),
@@ -1804,6 +1893,7 @@ export function applyChildStatusToTasks(
     landing_target_worktree: String(state.landing_target_worktree ?? ""),
     landed_commit: String(state.landed_commit ?? ""),
     landing_strategy: String(state.landing_strategy ?? ""),
+    replan_reason: String(state.replan_reason ?? ""),
     assumptions: asStringList(state.assumptions),
     constraints: asStringList(state.constraints),
     question_rounds: Array.isArray(state.question_rounds)
@@ -1814,6 +1904,7 @@ export function applyChildStatusToTasks(
       state.validation_receipt ?? defaultQuestValidationReceipt(),
     verification_receipt:
       state.verification_receipt ?? defaultQuestVerificationReceipt(),
+    child_results: Array.isArray(state.child_results) ? state.child_results : [],
     tasks: (Array.isArray(state.tasks) ? state.tasks : []).map((task) => {
       if (task.id !== taskId) return task;
       return {
@@ -1870,6 +1961,7 @@ export function applyLandingReceipt(
     prompt: String(state.prompt ?? ""),
     context_root: String(state.context_root ?? ""),
     resolution_source: String(state.resolution_source ?? ""),
+    supervise_step: state.supervise_step === true,
     coordinator_branch: String(state.coordinator_branch ?? "main"),
     coordinator_worktree: String(state.coordinator_worktree ?? ""),
     parent_wtree: String(
@@ -1887,6 +1979,7 @@ export function applyLandingReceipt(
     landing_strategy: String(
       receipt.landing_strategy ?? state.landing_strategy ?? "",
     ),
+    replan_reason: String(state.replan_reason ?? ""),
     assumptions: asStringList(state.assumptions),
     constraints: asStringList(state.constraints),
     question_rounds: Array.isArray(state.question_rounds)
@@ -1897,6 +1990,7 @@ export function applyLandingReceipt(
       state.validation_receipt ?? defaultQuestValidationReceipt(),
     verification_receipt:
       state.verification_receipt ?? defaultQuestVerificationReceipt(),
+    child_results: Array.isArray(state.child_results) ? state.child_results : [],
     tasks: Array.isArray(state.tasks) ? state.tasks : [],
   };
   writeText(files.tasks, renderTasksYaml(nextState));
@@ -1908,6 +2002,7 @@ export function createQuest(input: {
   wtree: string;
   prompt: string;
   resolutionSource: string;
+  superviseStep?: boolean;
   workspace: QuestWorkspace;
   flowId: string;
   flowVersion?: number;
@@ -1934,6 +2029,7 @@ export function createQuest(input: {
     prompt: input.prompt,
     context_root: input.repoRoot,
     resolution_source: input.resolutionSource,
+    supervise_step: input.superviseStep === true,
     coordinator_branch: input.workspace.branch_ref,
     coordinator_worktree: input.workspace.worktree_path,
     parent_wtree: String(input.parentWtree ?? ""),
@@ -1943,12 +2039,14 @@ export function createQuest(input: {
     landing_target_worktree: String(input.landingTargetWorktree ?? ""),
     landed_commit: String(input.landedCommit ?? ""),
     landing_strategy: String(input.landingStrategy ?? ""),
+    replan_reason: "",
     assumptions: [],
     constraints: [],
     question_rounds: [],
     plan_detail: defaultQuestPlanDetail(),
     validation_receipt: defaultQuestValidationReceipt(),
     verification_receipt: defaultQuestVerificationReceipt(),
+    child_results: [],
     tasks: [],
   };
   writeText(files.tasks, renderTasksYaml(state));
@@ -2323,6 +2421,7 @@ export function ensureQuestFiles(
       prompt: objective,
       context_root: repoRoot,
       resolution_source: "manual",
+      supervise_step: false,
       coordinator_branch: wtree,
       coordinator_worktree: coordinatorWorktreePath(repoRoot, wtree),
       parent_wtree: "",
@@ -2332,12 +2431,14 @@ export function ensureQuestFiles(
       landing_target_worktree: landingTargetWorktreePath(repoRoot, "main"),
       landed_commit: "",
       landing_strategy: "",
+      replan_reason: "",
       assumptions: [],
       constraints: [],
       question_rounds: [],
       plan_detail: defaultQuestPlanDetail(),
       validation_receipt: defaultQuestValidationReceipt(),
       verification_receipt: defaultQuestVerificationReceipt(),
+      child_results: [],
       tasks: [],
     };
     writeText(files.tasks, renderTasksYaml(initial));

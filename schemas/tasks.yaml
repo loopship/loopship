@@ -38,6 +38,8 @@ properties:
     type: string
   resolution_source:
     type: string
+  supervise_step:
+    type: boolean
   coordinator_branch:
     type: string
   coordinator_worktree:
@@ -55,6 +57,8 @@ properties:
   landed_commit:
     type: string
   landing_strategy:
+    type: string
+  replan_reason:
     type: string
   assumptions:
     type: array
@@ -167,6 +171,37 @@ properties:
         type: array
         items:
           type: object
+  child_results:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - task_id
+        - child_wtree
+        - status
+        - evidence
+      properties:
+        task_id:
+          type: string
+        child_wtree:
+          type: string
+        status:
+          type: string
+        evidence:
+          type: array
+          items:
+            $ref: steps/common.yaml#/$defs/evidence
+        branch_ref:
+          type: string
+        worktree_path:
+          type: string
+        merge_target:
+          type: string
+        merge_lease_id:
+          type: string
+        merge_commit:
+          type: string
   tasks:
     type: array
     items:

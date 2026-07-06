@@ -64,6 +64,10 @@ For mocked runtime lifecycle stepping, `loopship stepper` supports:
 Fastflow owns the stepper `nextCall` resume command and decision payload.
 Loopship only contributes concise supervisor guidance through Fastflow app
 configuration; it does not render continuation commands.
+In `superviseStep` mode, coordinator quests launch at most one child at a time,
+while ordinary `loopship init` runs may still dispatch multiple children in
+parallel. Supervised child launches use `loopship stepper init` so the child
+pauses on its own internal lifecycle steps before the next child starts.
 
 Routine verification keeps lifecycle checks focused and bounded:
 

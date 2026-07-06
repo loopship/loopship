@@ -30,7 +30,22 @@ properties:
     type: string
   runtime:
     type: string
+  supervise_step:
+    type: boolean
   children:
     type: array
     items:
       $ref: common.yaml#/$defs/task_graph_task
+  quest:
+    type: object
+    additionalProperties: true
+  actor:
+    type: string
+  target_branch:
+    type: string
+  target_worktree:
+    type: string
+  source_branch:
+    type: string
+  task:
+    $ref: common.yaml#/$defs/task_graph_task

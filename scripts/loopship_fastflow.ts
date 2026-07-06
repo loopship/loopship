@@ -18,6 +18,7 @@ import {
   appendJsonl,
   ensureCoordinatorWorkspace,
   ensureTaskWorkspace,
+  isTerminalChildQuestState,
   landingTargetWorktreePath,
   parseTasksYaml,
   questFiles,
@@ -27,6 +28,7 @@ import {
   updateQuestStage,
   writeQuestManifest,
 } from "./loopship_core.ts";
+import type { QuestState } from "./loopship_core.ts";
 import { readText, runCommand } from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -52,7 +54,7 @@ export const LOOPSHIP_SUPERVISOR_GUIDANCE = Object.freeze({
   id: "loopship-supervisor",
   version: PACKAGE_JSON.version || "0.0.0",
   summary:
-    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose, run emitted child commands for real when the flow delegates work, and require canonical runtime, worktree, task, validation, verification, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor and improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
+    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; treat *.stable.yaml workflows and call-catalog index.yaml files as promotion-managed release artifacts edited only through .dev.yaml plus Fastflow promotion; run emitted child commands for real when the flow delegates work; and require canonical runtime, worktree, task, validation, verification, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor and improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
   ref: "README.md#mocked-runtime-lifecycle-stepping",
 });
 
@@ -105,6 +107,17 @@ const PARENT_PAYLOAD_SCHEMA = {
     landing_target_branch: { type: "string" },
     landing_target_worktree: { type: "string" },
     merge_lease_id: { type: "string" },
+  },
+} as const;
+
+const QUEST_CHILD_PREPARE_GUARD_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    prompt: { type: "string" },
+    parent_wtree: { type: "string" },
+    parent_task_id: { type: "string" },
+    parent_context_ref: { type: "string" },
   },
 } as const;
 
@@ -177,6 +190,7 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
         "task_id",
         "task",
         "children",
+        "quest",
         "parent",
         "runtime",
         "branch",
@@ -199,6 +213,7 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
             type: "array",
             items: TASK_PAYLOAD_SCHEMA,
           },
+          quest: QUEST_CHILD_PREPARE_GUARD_SCHEMA,
           parent: PARENT_PAYLOAD_SCHEMA,
           runtime: { type: "string" },
           branch: { type: "string" },
@@ -416,6 +431,7 @@ function ensureLoopshipRuntimeDocument(input: {
   workspaceRoot: string;
   flowId: string;
   inputs: Record<string, unknown>;
+  superviseStep?: boolean;
 }): void {
   const repoRoot = resolve(input.repoRoot);
   const runtimeDir = resolve(input.workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE);
@@ -448,6 +464,7 @@ function ensureLoopshipRuntimeDocument(input: {
       context_root: repoRoot,
       flow_id: input.flowId,
       runtime: String(input.inputs.runtime ?? ""),
+      supervise_step: input.superviseStep === true,
       coordinator_branch: coordinatorBranch,
       coordinator_worktree: input.workspaceRoot,
       parent_wtree: optionalString(input.inputs.parentWtree) || optionalString(input.inputs.parent_wtree),
@@ -781,11 +798,13 @@ export async function runLoopshipFastflowWorkflowRequest(
     flowId,
     inputs: requestInputs,
   });
+  const superviseStep = input.request.superviseStep === true || input.request.supervision === "step";
   ensureLoopshipRuntimeDocument({
     repoRoot: input.repoRoot,
     workspaceRoot,
     flowId,
     inputs,
+    superviseStep,
   });
   return runFastflowNodeSession({
     repoRoot: input.repoRoot,
@@ -871,8 +890,29 @@ function prepareChildLaunch(
     ? { branch_ref: branchRef, worktree_path: worktreePath, mode: "dry-run" }
     : ensureTaskWorkspace(repo, branchRef, worktreePath);
   const runtime = optionalString(body.runtime) || "codex";
+  const superviseStep = childPrepareUsesSuperviseStep(body);
   const parentContextRef = `${repo}/worktrees/${parentWtree}/${LOOPSHIP_RUNTIME_NAMESPACE}/tasks.yaml`;
   const request = `loopship: execute child task ${taskId}: ${optionalString(task.title) || taskId}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${parentWtree} and return the merge_commit.`;
+  const initArgs = [
+    ...(superviseStep ? ["stepper", "init"] : ["init"]),
+    request,
+    "--wtree",
+    childWtree,
+    "--source-branch",
+    workspace.branch_ref,
+    "--parent-wtree",
+    parentWtree,
+    "--parent-task-id",
+    taskId,
+    "--parent-context-ref",
+    parentContextRef,
+    "--target-branch",
+    parentWtree,
+    "--target-worktree",
+    `${repo}/worktrees/${parentWtree}`,
+    "--runtime",
+    runtime,
+  ];
   return {
     schema_version: "loopship.child.prepare/v1",
     task_id: taskId,
@@ -882,36 +922,75 @@ function prepareChildLaunch(
     branch_ref: workspace.branch_ref,
     worktree_path: workspace.worktree_path,
     runtime,
+    supervise_step: superviseStep,
     actions: {
-      init: command("loopship", [
-        "init",
-        request,
-        "--wtree",
-        childWtree,
-        "--source-branch",
-        workspace.branch_ref,
-        "--parent-wtree",
-        parentWtree,
-        "--parent-task-id",
-        taskId,
-        "--parent-context-ref",
-        parentContextRef,
-        "--target-branch",
-        parentWtree,
-        "--target-worktree",
-        `${repo}/worktrees/${parentWtree}`,
-        "--runtime",
-        runtime,
-      ]),
+      init: command("loopship", initArgs),
     },
   };
+}
+
+function childPrepareQuestState(
+  body: Record<string, unknown>,
+): Partial<
+  Pick<
+    QuestState,
+    "prompt" | "parent_wtree" | "parent_task_id" | "parent_context_ref" | "supervise_step"
+  >
+> {
+  const quest = isPlainObject(body.quest) ? body.quest : {};
+  const parent = isPlainObject(body.parent) ? body.parent : {};
+  return {
+    prompt: optionalString(body.prompt) || optionalString(quest.prompt),
+    parent_wtree:
+      optionalString((parent as Record<string, unknown>).parent_wtree) ||
+      optionalString(quest.parent_wtree),
+    parent_task_id:
+      optionalString((parent as Record<string, unknown>).task_id) ||
+      optionalString(quest.parent_task_id),
+    parent_context_ref:
+      optionalString((parent as Record<string, unknown>).parent_context_ref) ||
+      optionalString(quest.parent_context_ref),
+    supervise_step:
+      body.supervise_step === true ||
+      body.superviseStep === true ||
+      quest.supervise_step === true ||
+      quest.superviseStep === true,
+  };
+}
+
+function childPrepareUsesSuperviseStep(body: Record<string, unknown>): boolean {
+  return childPrepareQuestState(body).supervise_step === true;
+}
+
+function isQueuedChildTask(task: Record<string, unknown>): boolean {
+  const status = optionalString(task.status) || "child_received";
+  return (
+    !CHILD_DONE_STATUSES.has(status) &&
+    status !== "blocked" &&
+    status !== "failed"
+  );
 }
 
 function executeChildPrepare(body: Record<string, unknown>): Record<string, unknown> {
   const childInputs = Array.isArray(body.children)
     ? body.children.filter(isPlainObject)
     : [isPlainObject(body.task) ? body.task : {}];
-  const preparedChildren = childInputs.map((task) => prepareChildLaunch(body, task));
+  if (isTerminalChildQuestState(childPrepareQuestState(body))) {
+    const childIds = childInputs
+      .map((task) =>
+        optionalString(task.task_id) || optionalString(task.id) || optionalString(task.title),
+      )
+      .filter(Boolean);
+    throw new Error(
+      `terminal child quests must not prepare child worktrees${
+        childIds.length ? ` (${childIds.join(", ")})` : ""
+      }; keep the assigned work local in the current child worktree and continue workflow edits through *.dev.yaml plus Fastflow promotion`,
+    );
+  }
+  const selectedInputs = childPrepareUsesSuperviseStep(body)
+    ? childInputs.filter(isQueuedChildTask).slice(0, 1)
+    : childInputs;
+  const preparedChildren = selectedInputs.map((task) => prepareChildLaunch(body, task));
   const first = preparedChildren[0] || {};
   return {
     schema_version: "loopship.child.prepare/v1",

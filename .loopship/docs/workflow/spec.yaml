@@ -15,7 +15,9 @@ standard_alignment:
 purpose: |-
   Loopship coordinates quest work from initial request through planning, clarification, task
   graph approval, child execution, verification, durable system update, landing, and
-  archive.
+  archive. Root/coordinator quests may decompose into child worktrees; terminal child quests
+  stay local in their assigned worktree and run plan, execute, validate, verify, report, and
+  land without nested dispatch.
 participants:
   user:
     kind: human
@@ -82,8 +84,12 @@ processes:
       execute:
         lane: agent
         text: |-
-          Execution dispatches leaf child tasks into dedicated worktrees and records their
-          returned evidence in canonical quest state.
+          Root/coordinator execution dispatches leaf child tasks into dedicated worktrees and
+          records their returned evidence in canonical quest state, while terminal child quests
+          execute assigned local work in the current worktree and skip nested child dispatch.
+          When Fastflow superviseStep mode is active, coordinators launch at most one child at
+          a time and each launched child enters its own supervised stepper lifecycle before the
+          next child starts.
       validate:
         lane: runtime
         text: |-
@@ -141,12 +147,23 @@ invariants:
   child-leaf-boundary: |-
     Child quests created for task execution are leaf workers and must not recursively create
     child quests unless explicitly planned.
+  coordinator-only-decomposition: |-
+    Only root/coordinator quests may decompose into child worktrees. Terminal child quests are
+    local workers identified by parent_wtree, parent_task_id, parent_context_ref, or an
+    execute child task prompt and must not dispatch child worktrees.
+  supervised-child-serialization: |-
+    In Fastflow superviseStep mode, coordinator quests launch one child at a time and resume
+    the next child only after the current child reports back. Unsupervised runs may still dispatch multiple children in parallel.
   one-task-one-child: |-
     Each task row maps to exactly one child CLI-agent flow and one child worktree, so hidden
     task splitting is rejected.
   landed-receipt-required: |-
     When landing is part of the lifecycle target, archived output must carry the landed
     commit and merge strategy.
+  fastflow-release-authoring: |-
+    Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files are
+    promotion-managed release artifacts. Authors must continue edits in `.dev.yaml` and reach
+    stable only through Fastflow promotion.
 exceptions:
   ambiguous-question: |-
     Ambiguous planning questions must stay colocated with answers inside task records
@@ -161,6 +178,9 @@ monitoring:
   lifecycle-matrix: |-
     Lifecycle matrix verification tracks whether planning, execution, validation,
     verification, system update, landing, and archive coverage remain coherent.
+  workflow-release-drift: |-
+    Workflow validation rejects stable workflow digest drift so malformed direct edits are
+    reported and redirected into `.dev.yaml` plus promotion.
   system-model: |-
     System-model verification rejects unresolved links, missing required docs, shell docs,
     stale schema names, and unsigned canonical resources.
