@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 14
-      digest: "sha256:be8982f8d84912d87eedffbdde3585fa6cb6379a4395e1dfaebb293216f2cf04"
-      summary: "Compact stage-result step_action payloads so native hook artifacts stay parseable while keeping explicit system_update review."
+      release: 15
+      digest: "sha256:c4a712e1fe94e1de179cc2322a47ec8290ccba5f9ad7b94524da5c11f5c61a2d"
+      summary: "Use guarded system_update release 4 and compact stage results so terminal-child hook resumes stay parseable."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuuNBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGurugEAiVpu8XPJ3jgfgpbdElLi
-    xgpeWxdytu1KQnGvMIBq0g4BANhsTjjK2sjEtyN12GqwriRNUt1x4C9F550QbKnT
-    u3UM
-    =ZD5m
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuwvxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuoBAD/fKJpxV2UkqQqWZQBimCq
+    rFAGQaPAH8zKzqA/lHQT1bQBAO0aj7He9NdOEzrAqiO3ZseqR83f/GMgz0X1ZRhu
+    loAJ
+    =zhL6
     -----END PGP SIGNATURE-----
