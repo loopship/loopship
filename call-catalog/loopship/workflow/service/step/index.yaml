@@ -123,9 +123,9 @@ workflows:
         - loopship.afn.service.landing.apply
   plan:
     stable:
-      release: 3
-      digest: "sha256:6a380ac2855e00734ae7c0a373b613bfb0a37cc9b9adf93f48d0c628b1df1136"
-      summary: "Fix embedded plan-step input validation for terminal-child planning fields."
+      release: 4
+      digest: "sha256:effbf3ae89c4c5ce0c6b8d9e85b2cc28e569b32d08b7dd94a45a7886c5cfbefe"
+      summary: "Allow terminal-child planning fields through the embedded plan task schema."
       inputs:
         required: []
         optional:
@@ -316,9 +316,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktRghsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtUAAD/V0KCXyRlqRpQN9FJrwuL
-    yugbcmhQhUGvVbndQN7gWBEA/A0j+f8NDhyQhSBiM6lhReC/Q6g/WpcMaXYIgp1M
-    XLkN
-    =T4WS
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktRyxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtGXwD/Y4U7a+np7ZrGTi4b5L00
+    Ehl8y93905TjcpDYTennjNkBAMyVJeTYopdbZOtoeKWOIO8FUCZKUuBre+cj1MDp
+    w6gD
+    =CJN0
     -----END PGP SIGNATURE-----

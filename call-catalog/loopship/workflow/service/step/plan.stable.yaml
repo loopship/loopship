@@ -174,7 +174,7 @@ do:
             "$id": schemas/steps/step-request.yaml
             title: "Loopship Fastflow Step Request Payload"
             type: object
-            additionalProperties: false
+            additionalProperties: true
             properties:
               schema_version:
                 const: loopship.step.request/v1
