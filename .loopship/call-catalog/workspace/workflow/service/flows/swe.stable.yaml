@@ -627,7 +627,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:8e2267670b045ad6f1897dabf8ea7fb15e437016f105b7003d06a23fdb56eda6"
+          digest: "sha256:04b794e8a253fd9b056c599be06045cf30d7cfa4d0f881a1104ad55c39f8ab5f"
       call: workspace.workflow.service.step.system-update
       with:
         version: 0.1.0
