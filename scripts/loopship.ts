@@ -168,6 +168,12 @@ function parseInitArgs(argv: string[]): {
   force: boolean;
   runtime: DoctorArgs["runtime"];
   skillHome: string | null;
+  sourceBranch: string | null;
+  parentWtree: string | null;
+  parentTaskId: string | null;
+  parentContextRef: string | null;
+  targetBranch: string | null;
+  targetWorktree: string | null;
 } {
   let repo: string | null = null;
   let wtree: string | null = null;
@@ -175,6 +181,12 @@ function parseInitArgs(argv: string[]): {
   let force = false;
   let runtime: DoctorArgs["runtime"] = "all";
   let skillHome: string | null = null;
+  let sourceBranch: string | null = null;
+  let parentWtree: string | null = null;
+  let parentTaskId: string | null = null;
+  let parentContextRef: string | null = null;
+  let targetBranch: string | null = null;
+  let targetWorktree: string | null = null;
   const objectiveParts: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -186,6 +198,18 @@ function parseInitArgs(argv: string[]): {
       throw new Error("loopship init no longer accepts --session");
     } else if (arg === "--wtree") wtree = argv[++i] ?? null;
     else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
+    else if (arg === "--source-branch") sourceBranch = argv[++i] ?? null;
+    else if (arg?.startsWith("--source-branch=")) sourceBranch = arg.slice("--source-branch=".length);
+    else if (arg === "--parent-wtree") parentWtree = argv[++i] ?? null;
+    else if (arg?.startsWith("--parent-wtree=")) parentWtree = arg.slice("--parent-wtree=".length);
+    else if (arg === "--parent-task-id") parentTaskId = argv[++i] ?? null;
+    else if (arg?.startsWith("--parent-task-id=")) parentTaskId = arg.slice("--parent-task-id=".length);
+    else if (arg === "--parent-context-ref") parentContextRef = argv[++i] ?? null;
+    else if (arg?.startsWith("--parent-context-ref=")) parentContextRef = arg.slice("--parent-context-ref=".length);
+    else if (arg === "--target-branch") targetBranch = argv[++i] ?? null;
+    else if (arg?.startsWith("--target-branch=")) targetBranch = arg.slice("--target-branch=".length);
+    else if (arg === "--target-worktree") targetWorktree = argv[++i] ?? null;
+    else if (arg?.startsWith("--target-worktree=")) targetWorktree = arg.slice("--target-worktree=".length);
     else if (arg === "--flow") flowId = argv[++i] ?? flowId;
     else if (arg?.startsWith("--flow=")) flowId = arg.slice("--flow=".length);
     else if (arg === "--force") force = true;
@@ -210,6 +234,12 @@ function parseInitArgs(argv: string[]): {
     force,
     runtime,
     skillHome,
+    sourceBranch: sourceBranch?.trim() || null,
+    parentWtree: parentWtree?.trim() || null,
+    parentTaskId: parentTaskId?.trim() || null,
+    parentContextRef: parentContextRef?.trim() || null,
+    targetBranch: targetBranch?.trim() || null,
+    targetWorktree: targetWorktree?.trim() || null,
   };
 }
 
@@ -603,6 +633,12 @@ export async function runInit(argv: string[]): Promise<number> {
         runtime: args.runtime,
         repoRoot: args.repo,
         ...(args.wtree ? { wtree: args.wtree } : {}),
+        ...(args.sourceBranch ? { sourceBranch: args.sourceBranch } : {}),
+        ...(args.parentWtree ? { parentWtree: args.parentWtree } : {}),
+        ...(args.parentTaskId ? { parentTaskId: args.parentTaskId } : {}),
+        ...(args.parentContextRef ? { parentContextRef: args.parentContextRef } : {}),
+        ...(args.targetBranch ? { targetBranch: args.targetBranch } : {}),
+        ...(args.targetWorktree ? { targetWorktree: args.targetWorktree } : {}),
       },
       progressMode: "compact",
     });

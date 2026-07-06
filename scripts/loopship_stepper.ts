@@ -39,6 +39,12 @@ const STEPPER_INIT_BINDING: Record<string, unknown> = {
     runtime: { valueName: "runtime", description: "Agent runtime." },
     flow: { valueName: "id", description: "Loopship flow id." },
     wtree: { valueName: "name", description: "Coordinator worktree name." },
+    "source-branch": { valueName: "branch", description: "Coordinator source branch." },
+    "parent-wtree": { valueName: "name", description: "Parent coordinator worktree." },
+    "parent-task-id": { valueName: "id", description: "Parent task id." },
+    "parent-context-ref": { valueName: "path", description: "Parent runtime task state path." },
+    "target-branch": { valueName: "branch", description: "Landing target branch." },
+    "target-worktree": { valueName: "path", description: "Landing target worktree." },
     full: { type: "boolean", description: "Compatibility no-op." },
   },
   inputs: {
@@ -50,6 +56,12 @@ const STEPPER_INIT_BINDING: Record<string, unknown> = {
       transform: (value: unknown) => defaultRepoRoot(String(value)),
     },
     wtree: { flag: "wtree" },
+    sourceBranch: { flag: "source-branch" },
+    parentWtree: { flag: "parent-wtree" },
+    parentTaskId: { flag: "parent-task-id" },
+    parentContextRef: { flag: "parent-context-ref" },
+    targetBranch: { flag: "target-branch" },
+    targetWorktree: { flag: "target-worktree" },
   },
 };
 

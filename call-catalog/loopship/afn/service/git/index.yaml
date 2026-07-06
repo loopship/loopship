@@ -1,0 +1,32 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+calls:
+  - call: loopship.afn.service.git.head
+    summary: "Resolve a git ref to a commit for Loopship lifecycle evidence."
+    inputs:
+      required:
+        - repo
+      optional:
+        - cwd
+        - ref
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - repo
+        properties:
+          repo:
+            type: string
+            minLength: 1
+          cwd:
+            type: string
+          ref:
+            type: string
+    preferWhen:
+      - "A Loopship workflow needs a concrete commit as lifecycle evidence."
+    avoidWhen:
+      - "The workflow only needs to inspect non-git validation or verification output."
+    metadata:
+      allowed_phases:
+        - action
+      effects:
+        - git.read

@@ -25,6 +25,8 @@ prefixes:
       service:
         child:
           tags: "child, worktree, quest, prepare"
+        git:
+          tags: "git, rev-parse, commit, head"
         landing:
           tags: "landing, git, merge, apply"
         system:

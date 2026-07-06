@@ -363,6 +363,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const calls = LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort();
     expect(calls).toEqual([
       LOOPSHIP_AFN_CALLS.childPrepare,
+      LOOPSHIP_AFN_CALLS.gitHead,
       LOOPSHIP_AFN_CALLS.landingApply,
       LOOPSHIP_AFN_CALLS.systemApply,
     ].sort());
@@ -433,6 +434,48 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(text).toContain("fastflow.afn.data.event-log.append");
   });
 
+  test("SWE stage call tasks are routed only by route_stage", () => {
+    const text = readFileSync(
+      join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "flows", "swe.stable.yaml"),
+      "utf8",
+    );
+    for (const stage of [
+      "stage_planning",
+      "stage_awaiting_user_answers",
+      "stage_plan_review",
+      "stage_task_graph_ready",
+      "stage_executing",
+      "stage_validating",
+      "stage_verification_pending",
+      "stage_system_update_pending",
+      "stage_landing_ready",
+      "stage_replanning",
+      "stage_archived",
+    ]) {
+      const match = text.match(new RegExp(`  - ${stage}:\\n([\\s\\S]*?)(?=\\n  - |\\noutput:)`));
+      expect(match?.[1] ?? "", `${stage} must execute after route_stage selects it`).not.toContain(
+        "\n      if:",
+      );
+    }
+  });
+
+  test("SWE executing route handles leaf child quests before child-result reconciliation", () => {
+    const text = readFileSync(
+      join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "flows", "swe.stable.yaml"),
+      "utf8",
+    );
+    const leafRoute = text.indexOf("- executing_leaf:");
+    const parentRoute = text.indexOf("- executing:", leafRoute + 1);
+
+    expect(leafRoute).toBeGreaterThan(0);
+    expect(parentRoute).toBeGreaterThan(leafRoute);
+    expect(text).toContain("then: stage_leaf_git_head");
+    expect(text).toContain("call: loopship.afn.service.git.head");
+    expect(text).toContain("leaf_execution_recorded");
+    expect(text).toContain("state.steps.stage_leaf_git_head?.action).commit");
+    expect(text).toContain("stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action");
+  });
+
   test("keeps child assignment keys compact and deterministic", () => {
     const longParent =
       "build-a-small-feature-that-intentionally-decomposes-into-frontend-and-backend-child-tasks";
@@ -452,14 +495,14 @@ describe("Loopship Fastflow-native bridge", () => {
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
-        if (!result.ok || result.calls !== 14) {
+        if (!result.ok || result.calls !== 15) {
           throw new Error(JSON.stringify(result));
         }
         console.log(JSON.stringify(result));
       `,
       [LOOPSHIP_CALL_CATALOG_ROOT],
     );
-    expect(JSON.parse(output).calls).toBe(14);
+    expect(JSON.parse(output).calls).toBe(15);
   });
 
   test("keeps static AFN call catalog descriptors in parity with adapter descriptors", async () => {
@@ -527,6 +570,12 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(dryRunChild.actions.init.args.join(" ")).toContain(
       "/tmp/repo/worktrees/demo/.loopship/runtime/tasks.yaml",
     );
+    expect(dryRunChild.actions.init.args).toContain("--source-branch");
+    expect(dryRunChild.actions.init.args).toContain(dryRunChild.branch_ref);
+    expect(dryRunChild.actions.init.args).toContain("--parent-wtree");
+    expect(dryRunChild.actions.init.args).toContain("demo");
+    expect(dryRunChild.actions.init.args).toContain("--target-branch");
+    expect(dryRunChild.actions.init.args).toContain("--target-worktree");
     expect(dryRunChild.actions.resume).toBeUndefined();
     await expect(
       (adapters.executeAfn as Function)({
