@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 8
-      digest: "sha256:43efdf37b2e41748870b63dd3e7c3960a4783e7c291dcfa25b32a38c4b6efe44"
-      summary: "Pass landing routing into landing.apply instead of system-update."
+      release: 9
+      digest: "sha256:cafdb9d12957e2a12d98b1ab6208dc24f1720d66f472cad5614372101a0a3555"
+      summary: "Move landing next_stage routing onto the landing step."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktjTRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsJAwEAgwsjYNvST7zJxAeTXvun
-    AWFYybFSNCaagqfsfF+0dbsA/1Skdb5AnuBecd7/8IiM1xMBPoiJftpu/XNKhPhV
-    qm0P
-    =GU1s
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktk/xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuY6gD9EiHGltu9jGT+f5W1CR5t
+    iNrL6RNTy5Jdtzyv1v98OjkBAJmaiJge7xaAvPqLbPrlytgMcdFOlOmXWOl5UxdL
+    laoF
+    =1Ffr
     -----END PGP SIGNATURE-----
