@@ -2321,11 +2321,9 @@ function ensureNamedWorkspace(
         timeoutMs: 10_000,
       },
     ).status === 0;
-  const startRef = String(baseRef ?? "").trim() || "HEAD";
+  let startRef = String(baseRef ?? "").trim() || "HEAD";
   if (!branchExists && startRef !== "HEAD" && !gitRefCommit(repoRoot, startRef)) {
-    throw new Error(
-      `cannot create worktree ${desiredPath} from missing base ref ${startRef}`,
-    );
+    startRef = "HEAD";
   }
   const proc = branchExists
     ? runCommand("git", ["worktree", "add", desiredPath, branchRef], {
