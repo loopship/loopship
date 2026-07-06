@@ -92,6 +92,7 @@ workflows:
           - target_branch
           - target_worktree
           - source_branch
+          - next_stage
           - receipt
           - task
           - update
@@ -100,8 +101,8 @@ workflows:
   landing:
     stable:
       release: 2
-      digest: "sha256:8395f7172340fed270fec6198990b7d0cdf42533ad1802381522ddf88053dd54"
-      summary: "Forward native landing next_stage through Loopship landing AFN"
+      digest: "sha256:a67b2cd9c43c3ed05f654f6429fdf34f7a8a699a20073db9186f2d945cb91bc4"
+      summary: "Apply Loopship landing with caller-supplied routing context."
       inputs:
         required:
           - status

@@ -988,6 +988,7 @@ describe("Loopship Fastflow-native bridge", () => {
         summary: "landed through Fastflow",
         repo: fixture.repo,
         wtree: "demo",
+        next_stage: "archived",
       });
 
       expect(result.output).toMatchObject({
