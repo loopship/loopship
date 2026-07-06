@@ -3,7 +3,7 @@ document:
   namespace: service-step
   name: executing
   version: 0.1.0
-  summary: "Start the ready child wtree commands and submit child_result payloads as children finish."
+  summary: "Prepare ready child worktrees for coordinator quests only; terminal child quests must stay local."
   metadata:
     catalog:
       tags:
@@ -564,7 +564,7 @@ do:
                           additionalProperties: true
         from: "${inputs}"
       metadata:
-        description: "Start the ready child wtree commands and submit child_result payloads as children finish."
+        description: "Prepare ready child worktrees for coordinator quests only; terminal child quests must not dispatch nested child worktrees."
         validation:
           post:
             kind: static
@@ -587,6 +587,7 @@ do:
         body:
           repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}"
           wtree: "${inputs.wtree || inputs.quest?.wtree || ''}"
+          quest: "${inputs.quest || {}}"
           children: "${Array.isArray(inputs.children) ? inputs.children : (inputs.task ? [inputs.task] : [inputs])}"
           runtime: "${inputs.runtime || ''}"
       output:

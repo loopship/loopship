@@ -68,9 +68,9 @@ workflows:
       requires: []
   executing:
     stable:
-      release: 1
-      digest: "sha256:8819d9544d58fc29523b79bba2db97c596d9a67dc902f6426a42ece061de75b1"
-      summary: "Start the ready child wtree commands and submit child_result payloads as children finish."
+      release: 2
+      digest: "sha256:f24f85241d816f088111e6fcf5f5618572d313cb1b2e986381ae8788d07a5d56"
+      summary: "Enforce terminal-child local execution, preserve quest evidence, and require dev-only workflow authoring."
       inputs:
         required:
           - children
@@ -92,7 +92,6 @@ workflows:
           - target_branch
           - target_worktree
           - source_branch
-          - next_stage
           - receipt
           - task
           - update
@@ -124,9 +123,9 @@ workflows:
         - loopship.afn.service.landing.apply
   plan:
     stable:
-      release: 1
-      digest: "sha256:7791b0a3b464a2815704169b1ed51e5bf3db0714e1a12b51903acb7ac87647ba"
-      summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
+      release: 2
+      digest: "sha256:96829edcb383db7ad081c5e6e0ad7d8067516f27fae5d965a368130ebd34e131"
+      summary: "Enforce terminal-child local execution, preserve quest evidence, and require dev-only workflow authoring."
       inputs:
         required: []
         optional:
@@ -149,10 +148,13 @@ workflows:
           - verification_receipt
           - events
           - parent_wtree
+          - parent_task_id
+          - parent_context_ref
           - coordinator_branch
           - coordinator_worktree
           - landing_target_branch
           - landing_target_worktree
+          - replan_reason
           - requirements
       requires: []
   questions:
@@ -313,10 +315,10 @@ workflows:
 stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
-
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakkA1RsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtJKQEAokU5mcc5/wgU13etOYve
-    Gc/8M7oRGTNw/xMa6IMYuBAA/jF5cn+gG0hTFeTvLiq9pdwWM20B4YoJET5kfYbO
-    TfUL
-    =BK/q
+    
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktOYhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvUSgEAkjsxxKSHeG9V7OnM4SDt
+    fmQuPe4WJk603oCipcvaqVwA/3VdZ/C2nMXcaU3/TV1ZQ0i5LN66u6w+HXYYmot4
+    R9EB
+    =oGhN
     -----END PGP SIGNATURE-----

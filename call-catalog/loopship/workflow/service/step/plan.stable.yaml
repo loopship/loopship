@@ -147,6 +147,10 @@ input:
             additionalProperties: true
         parent_wtree:
           type: string
+        parent_task_id:
+          type: string
+        parent_context_ref:
+          type: string
         coordinator_branch:
           type: string
         coordinator_worktree:
@@ -154,6 +158,8 @@ input:
         landing_target_branch:
           type: string
         landing_target_worktree:
+          type: string
+        replan_reason:
           type: string
         requirements:
           type: array
@@ -351,6 +357,22 @@ do:
             callback, later flow steps may run autonomously according to the active
             flow; they must not depend on hidden human choices or unstated product
             decisions.
+
+            ## Terminal Child Constraint
+
+            Treat the quest as a terminal child when `parent_wtree`,
+            `parent_task_id`, or `parent_context_ref` is present, or when the
+            normalized prompt starts with `execute child task`.
+
+            For terminal child quests:
+
+            - plan only the assigned local work in the current child worktree
+            - do not create nested child worktrees, child dispatch rows, or another
+              child depth
+            - if the task schema requires tasks, emit the smallest local task graph and
+              leave `child_wtree` and `merge_lease_id` empty or omitted
+            - validation, verification, reporting, and landing still apply after local
+              execution completes
             
             ## Step-Local Callback Contract
             
@@ -422,6 +444,9 @@ do:
             - risk surfaces such as auth, persistence, migrations, external services,
               deployment, reliability, performance, privacy, and rollback
             - relevant assumptions a later worker or step would otherwise have to invent
+            - whether the work touches Fastflow workflow release artifacts; if it does,
+              treat `*.stable.yaml` and call-catalog `index.yaml` as promotion-managed
+              outputs and make edits in `*.dev.yaml` only
             
             Record discovered facts and assumptions in canonical fields. Do not bury
             assumptions in prose; make them visible in `scope`, `constraints`,
@@ -649,6 +674,8 @@ do:
               unless the evidence sources, audiences, or acceptance criteria differ.
             - Child tasks are leaf workers. Do not split a child assignment into another
               child depth.
+            - Terminal child quests must stay local. Do not turn them back into
+              dispatchable coordinator work.
             
             ## Defaulting Rules
             
@@ -820,6 +847,10 @@ do:
                     additionalProperties: true
                 parent_wtree:
                   type: string
+                parent_task_id:
+                  type: string
+                parent_context_ref:
+                  type: string
                 coordinator_branch:
                   type: string
                 coordinator_worktree:
@@ -827,6 +858,8 @@ do:
                 landing_target_branch:
                   type: string
                 landing_target_worktree:
+                  type: string
+                replan_reason:
                   type: string
                 requirements:
                   type: array
@@ -863,10 +896,13 @@ do:
                   verification_receipt: Object.keys(object(inputs.verification_receipt)).length ? object(inputs.verification_receipt) : object(quest.verification_receipt),
                   events: array(inputs.events).length ? array(inputs.events) : array(queriedEvents),
                   parent_wtree: String(inputs.parent_wtree || quest.parent_wtree || ""),
+                  parent_task_id: String(inputs.parent_task_id || quest.parent_task_id || ""),
+                  parent_context_ref: String(inputs.parent_context_ref || quest.parent_context_ref || ""),
                   coordinator_branch: String(inputs.coordinator_branch || quest.coordinator_branch || ""),
                   coordinator_worktree: String(inputs.coordinator_worktree || quest.coordinator_worktree || ""),
                   landing_target_branch: String(inputs.landing_target_branch || quest.landing_target_branch || ""),
                   landing_target_worktree: String(inputs.landing_target_worktree || quest.landing_target_worktree || ""),
+                  replan_reason: String(inputs.replan_reason || quest.replan_reason || ""),
                   requirements: array(inputs.requirements)
                 };
           answer:

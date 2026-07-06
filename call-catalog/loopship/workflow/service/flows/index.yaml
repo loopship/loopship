@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 3
-      digest: "sha256:caaa88458a00e70913a1ac45b1d463a40963baa295f61391a17ba38609171993"
-      summary: "Refactor SWE flow to native stage-local SWF branches"
+      release: 4
+      digest: "sha256:0e713f4055b6419dd082ec7fea2034cae2ad923976abfde8cdf013b4f3dfccb6"
+      summary: "Enforce terminal-child local execution, preserve quest evidence, and require dev-only workflow authoring."
       inputs:
         required: []
         optional: []
@@ -23,10 +23,10 @@ workflows:
 stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
-
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakrKLRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuFrQD8CyhhlmiIzmxhdBNP4dnH
-    Wo+sxHwbVI7PGywWVoOPvVIA/37ICqJYcuhNuuxo38jv3zDf/ZpyheG4ryyeUEo9
-    9x0I
-    =2LMz
+    
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktOYBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvMGwEAsreg4IasJwZU7c2Rwec/
+    cxHkN2q2+SQ4Uv/FOqMCWJ0BANUGdDyk5D3YcU4M3OcFIaZ/1QwJCLDn1Qd5Ibeu
+    Tc0J
+    =gDKC
     -----END PGP SIGNATURE-----
