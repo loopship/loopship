@@ -20,6 +20,7 @@ import {
   ensureTaskWorkspace,
   isTerminalChildQuestState,
   landingTargetWorktreePath,
+  parseGitWorktrees,
   parseTasksYaml,
   questFiles,
   taskAssignmentBranchRef,
@@ -54,7 +55,7 @@ export const LOOPSHIP_SUPERVISOR_GUIDANCE = Object.freeze({
   id: "loopship-supervisor",
   version: PACKAGE_JSON.version || "0.0.0",
   summary:
-    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; treat *.stable.yaml workflows and call-catalog index.yaml files as promotion-managed release artifacts edited only through .dev.yaml plus Fastflow promotion; run emitted child commands for real when the flow delegates work; and require canonical runtime, worktree, task, validation, verification, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor and improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
+    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; treat *.stable.yaml workflows and call-catalog index.yaml files as promotion-managed release artifacts edited only through .dev.yaml plus Fastflow promotion, and if stable digest drift appears copy the intended change into the matching .dev.yaml, restore the stable artifact, and continue via promotion; run emitted child commands for real when the flow delegates work; and require canonical runtime, worktree, task, validation, verification, explicit system_update, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor and improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
   ref: "README.md#mocked-runtime-lifecycle-stepping",
 });
 
@@ -860,6 +861,11 @@ const CHILD_DONE_STATUSES = new Set([
   "done",
   "merged",
 ]);
+const CHILD_PREPARE_QUEUED_STATUSES = new Set([
+  "child_received",
+  "pending",
+  "queued",
+]);
 
 function prepareChildLaunch(
   body: Record<string, unknown>,
@@ -886,9 +892,13 @@ function prepareChildLaunch(
     optionalString(body.worktree_path) ||
     optionalString(task.worktree_path) ||
     taskAssignmentWorktreePath(repo, parentWtree, taskId);
+  const baseBranch =
+    optionalString(body.base_branch) ||
+    optionalString(body.target_branch) ||
+    parentWtree;
   const workspace = body.dry_run === true
     ? { branch_ref: branchRef, worktree_path: worktreePath, mode: "dry-run" }
-    : ensureTaskWorkspace(repo, branchRef, worktreePath);
+    : ensureTaskWorkspace(repo, branchRef, worktreePath, baseBranch);
   const runtime = optionalString(body.runtime) || "codex";
   const superviseStep = childPrepareUsesSuperviseStep(body);
   const parentContextRef = `${repo}/worktrees/${parentWtree}/${LOOPSHIP_RUNTIME_NAMESPACE}/tasks.yaml`;
@@ -896,6 +906,8 @@ function prepareChildLaunch(
   const initArgs = [
     ...(superviseStep ? ["stepper", "init"] : ["init"]),
     request,
+    "--repo",
+    repo,
     "--wtree",
     childWtree,
     "--source-branch",
@@ -964,11 +976,33 @@ function childPrepareUsesSuperviseStep(body: Record<string, unknown>): boolean {
 
 function isQueuedChildTask(task: Record<string, unknown>): boolean {
   const status = optionalString(task.status) || "child_received";
-  return (
-    !CHILD_DONE_STATUSES.has(status) &&
-    status !== "blocked" &&
-    status !== "failed"
-  );
+  return CHILD_PREPARE_QUEUED_STATUSES.has(status);
+}
+
+function childTaskId(task: Record<string, unknown>): string {
+  return optionalString(task.task_id) || optionalString(task.id) || "";
+}
+
+function childTaskDependencies(task: Record<string, unknown>): string[] {
+  const rawDependencies = Array.isArray(task.dependencies)
+    ? task.dependencies
+    : Array.isArray(task.depends_on)
+      ? task.depends_on
+      : [];
+  return rawDependencies
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+}
+
+function isReadyChildTask(
+  task: Record<string, unknown>,
+  statusById: Map<string, string>,
+): boolean {
+  if (!isQueuedChildTask(task)) return false;
+  return childTaskDependencies(task).every((dependencyId) => {
+    const dependencyStatus = statusById.get(dependencyId);
+    return typeof dependencyStatus === "string" && CHILD_DONE_STATUSES.has(dependencyStatus);
+  });
 }
 
 function executeChildPrepare(body: Record<string, unknown>): Record<string, unknown> {
@@ -987,9 +1021,15 @@ function executeChildPrepare(body: Record<string, unknown>): Record<string, unkn
       }; keep the assigned work local in the current child worktree and continue workflow edits through *.dev.yaml plus Fastflow promotion`,
     );
   }
+  const statusById = new Map<string, string>();
+  for (const task of childInputs) {
+    const taskId = childTaskId(task);
+    if (!taskId) continue;
+    statusById.set(taskId, optionalString(task.status) || "child_received");
+  }
   const selectedInputs = childPrepareUsesSuperviseStep(body)
-    ? childInputs.filter(isQueuedChildTask).slice(0, 1)
-    : childInputs;
+    ? childInputs.filter((task) => isReadyChildTask(task, statusById)).slice(0, 1)
+    : childInputs.filter((task) => isReadyChildTask(task, statusById));
   const preparedChildren = selectedInputs.map((task) => prepareChildLaunch(body, task));
   const first = preparedChildren[0] || {};
   return {
@@ -1110,17 +1150,39 @@ function nonLoopshipGitDirtyEntries(path: string): string[] {
   });
 }
 
+function durableLoopshipStagePaths(cwd: string): string[] {
+  const candidates = [
+    ".loopship/system.yaml",
+    ".loopship/signature.yaml",
+    ".loopship/docs",
+  ];
+  const tracked = runCommand("git", ["ls-files", "--", ...candidates], {
+    cwd,
+    timeoutMs: 15_000,
+  });
+  const trackedPaths =
+    tracked.status === 0
+      ? tracked.stdout
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+  const existingPaths = candidates.filter((path) => existsSync(resolve(cwd, path)));
+  return Array.from(new Set([...existingPaths, ...trackedPaths]));
+}
+
 function commitDurableLoopshipState(cwd: string, message: string): string | null {
   if (!existsSync(resolve(cwd, ".loopship"))) return null;
-  const add = runCommand("git", ["add", "--", ".loopship"], {
+  const durablePathspec = durableLoopshipStagePaths(cwd);
+  if (!durablePathspec.length) return null;
+  const add = runCommand("git", ["add", "-A", "--", ...durablePathspec], {
     cwd,
     timeoutMs: 30_000,
   });
   if (add.status !== 0) {
     throw new Error(add.stderr || add.stdout || "failed to stage .loopship state");
   }
-  const durablePathspec = [".loopship"];
-  const diff = runCommand("git", ["diff", "--cached", "--quiet", "--", ...durablePathspec], {
+  const diff = runCommand("git", ["diff", "--cached", "--quiet"], {
     cwd,
     timeoutMs: 15_000,
   });
@@ -1128,7 +1190,7 @@ function commitDurableLoopshipState(cwd: string, message: string): string | null
   if (diff.status !== 1) {
     throw new Error(diff.stderr || diff.stdout || "failed to inspect staged .loopship state");
   }
-  const commit = runCommand("git", ["commit", "-m", message, "--", ...durablePathspec], {
+  const commit = runCommand("git", ["commit", "-m", message], {
     cwd,
     timeoutMs: 60_000,
   });
@@ -1196,6 +1258,15 @@ function gitMergeIntoTarget(input: {
   targetBranch: string;
   targetWorktree: string;
 }): Record<string, unknown> {
+  const sourceWorktree = parseGitWorktrees(input.repo).find(
+    (entry) => entry.branch === input.sourceBranch,
+  )?.worktree;
+  if (sourceWorktree) {
+    commitDurableLoopshipState(
+      sourceWorktree,
+      `chore(loopship): record ${input.sourceBranch} durable state`,
+    );
+  }
   const workspace = ensureTaskWorkspace(
     input.repo,
     input.targetBranch,
@@ -1231,6 +1302,10 @@ function gitMergeIntoTarget(input: {
       `chore(loopship): record ${input.targetBranch} target state`,
     );
   }
+  removeUntrackedLoopshipGitignoreConflict(
+    workspace.worktree_path,
+    input.sourceBranch,
+  );
   const mergeArgs = ffOnly
     ? ["merge", "--ff-only", input.sourceBranch]
     : ["merge", "--no-ff", "--no-edit", input.sourceBranch];
@@ -1258,6 +1333,66 @@ function gitMergeIntoTarget(input: {
     landed_commit: gitRevParse(workspace.worktree_path, "HEAD"),
     strategy: ffOnly ? "fast-forward" : "merge-commit",
   };
+}
+
+function gitBranchPathText(
+  repo: string,
+  branch: string,
+  path: string,
+): string | null {
+  const result = runCommand("git", ["show", `${branch}:${path}`], {
+    cwd: repo,
+    timeoutMs: 15_000,
+  });
+  if (result.status !== 0) return null;
+  return result.stdout;
+}
+
+function gitWorktreeTracksPath(worktreePath: string, path: string): boolean {
+  const result = runCommand("git", ["ls-files", "--error-unmatch", "--", path], {
+    cwd: worktreePath,
+    timeoutMs: 15_000,
+  });
+  return result.status === 0;
+}
+
+function normalizeLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function isGeneratedLoopshipGitignoreReplacement(
+  targetText: string,
+  sourceText: string,
+): boolean {
+  const targetLines = normalizeLines(targetText);
+  const sourceLines = new Set(normalizeLines(sourceText));
+  return (
+    targetLines.length > 0 &&
+    targetLines[0] === "# fastflow runtime data" &&
+    targetLines.every((line) => sourceLines.has(line))
+  );
+}
+
+function removeUntrackedLoopshipGitignoreConflict(
+  targetWorktree: string,
+  sourceBranch: string,
+): void {
+  const relativePath = ".loopship/.gitignore";
+  const sourceText = gitBranchPathText(targetWorktree, sourceBranch, relativePath);
+  if (sourceText === null) return;
+  if (gitWorktreeTracksPath(targetWorktree, relativePath)) return;
+  const fullPath = resolve(targetWorktree, relativePath);
+  if (!existsSync(fullPath)) return;
+  const targetText = readFileSync(fullPath, "utf8");
+  if (!isGeneratedLoopshipGitignoreReplacement(targetText, sourceText)) {
+    throw new Error(
+      `cannot replace untracked landing target ${relativePath}; move or track it before landing`,
+    );
+  }
+  rmSync(fullPath, { force: true });
 }
 
 function verifiedRecordedReceipt(input: {

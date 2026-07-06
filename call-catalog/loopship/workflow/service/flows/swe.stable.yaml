@@ -248,7 +248,7 @@ do:
           current_stage: planning
           summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
           prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repo: "${state.steps.read_tasks.action.coordinator_worktree || inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           runtime: "${inputs.runtime || ''}"
           tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
@@ -313,7 +313,7 @@ do:
           current_stage: awaiting_user_answers
           summary: "Submit grouped user answers for the current clarification round."
           prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repo: "${state.steps.read_tasks.action.coordinator_worktree || inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           runtime: "${inputs.runtime || ''}"
           tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
@@ -627,20 +627,38 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:01642934a42a4cb3b540974517c37f26d6a4e20467097ae7b2df590318577de1"
+          digest: "sha256:04b794e8a253fd9b056c599be06045cf30d7cfa4d0f881a1104ad55c39f8ab5f"
       call: loopship.workflow.service.step.system-update
       with:
         version: 0.1.0
         input:
-          system_update: "${inputs.system_update || inputs.update || { schema_version: 1, mode: 'no_change', summary: 'No Loopship system document changes required.' }}"
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
+          repo: "${state.steps.read_tasks.action.coordinator_worktree || inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
+          quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
+          flow_id: "${state.steps.read_tasks.action.flow_id || 'swe'}"
+          flow_version: "${state.steps.read_tasks.action.flow_version || 1}"
+          current_stage: system_update_pending
+          summary: "Submit system doc updates. Loopship writes signed repo docs."
+          prompt: "${state.steps.read_tasks.action.prompt || inputs.prompt || ''}"
           runtime: "${inputs.runtime || ''}"
+          tasks: "${state.steps.read_tasks.action.tasks || []}"
+          question_rounds: "${state.steps.read_tasks.action.question_rounds || []}"
+          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
+          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || { status: '', checks: [] }}"
+          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || { status: '', acceptance_trace: [], risks: [] }}"
+          events: "${state.steps.query_events.action || []}"
+          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
+          parent_task_id: "${state.steps.read_tasks.action.parent_task_id || ''}"
+          parent_context_ref: "${state.steps.read_tasks.action.parent_context_ref || ''}"
+          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
+          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
           actor: "${inputs.actor || 'loopship'}"
-          target_branch: "${inputs.target_branch || state.steps.read_tasks.action.landing_target_branch || 'main'}"
-          target_worktree: "${inputs.target_worktree || state.steps.read_tasks.action.landing_target_worktree || ''}"
-          source_branch: "${inputs.source_branch || state.steps.read_tasks.action.coordinator_branch || ''}"
+          landing_target_branch: "${inputs.target_branch || state.steps.read_tasks.action.landing_target_branch || 'main'}"
+          landing_target_worktree: "${inputs.target_worktree || state.steps.read_tasks.action.landing_target_worktree || ''}"
+          requirements: []
       output:
         schema:
           document:
@@ -863,7 +881,7 @@ do:
             const transition = questions.length ? "questions" : "planned";
             const patch = questions.length ? { stage: targetStage, replan_reason: "", question_rounds: [...array(tasks.question_rounds), { questions }] } : { stage: targetStage, replan_reason: "", assumptions: stringList(payload.assumptions), constraints: stringList(payload.constraints), plan_detail: { classification: String(payload.classification || ""), scope: String(payload.scope || ""), summary: String(payload.summary || payload.scope || ""), rationale: String(payload.summary || payload.scope || ""), system_context: normalizeSystemContext(payload.system_context), high_impact_unknowns: stringList(payload.high_impact_unknowns), defaulted_unknowns: stringList(payload.defaulted_unknowns), verification_targets: stringList(payload.verification_targets), decomposition_rationale: String(payload.decomposition_rationale || payload.summary || "") }, tasks: array(object(payload.task_graph).tasks).map((task, index) => normalizePlanTask(tasks, task, index)) };
             const event = questions.length ? { event: "question_round", stage: targetStage, question_count: questions.length } : { event: "plan_submitted", stage: targetStage, classification: String(payload.classification || ""), task_count: array(object(payload.task_graph).tasks).length, verification_target_count: array(payload.verification_targets).length };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "planning", stage_after: targetStage, transition, step: "plan", step_workflow_task: "stage_planning", step_payload: payload, step_action: stageAction, state_patch: patch, events: eventList("planning", targetStage, transition, "plan", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "plan", stage_before: "planning", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "planning", stage_after: targetStage, transition, step: "plan", step_workflow_task: "stage_planning", step_payload: payload, step_action: payload, state_patch: patch, events: eventList("planning", targetStage, transition, "plan", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "plan", stage_before: "planning", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -920,7 +938,7 @@ do:
             const transition = questions.length ? "questions" : "planned";
             const patch = questions.length ? { stage: targetStage, replan_reason: "", question_rounds: [...array(tasks.question_rounds), { questions }] } : { stage: targetStage, replan_reason: "", assumptions: stringList(payload.assumptions), constraints: stringList(payload.constraints), plan_detail: { classification: String(payload.classification || ""), scope: String(payload.scope || ""), summary: String(payload.summary || payload.scope || ""), rationale: String(payload.summary || payload.scope || ""), system_context: normalizeSystemContext(payload.system_context), high_impact_unknowns: stringList(payload.high_impact_unknowns), defaulted_unknowns: stringList(payload.defaulted_unknowns), verification_targets: stringList(payload.verification_targets), decomposition_rationale: String(payload.decomposition_rationale || payload.summary || "") }, tasks: array(object(payload.task_graph).tasks).map((task, index) => normalizePlanTask(tasks, task, index)) };
             const event = questions.length ? { event: "question_round", stage: targetStage, question_count: questions.length } : { event: "plan_submitted", stage: targetStage, classification: String(payload.classification || ""), task_count: array(object(payload.task_graph).tasks).length, verification_target_count: array(payload.verification_targets).length };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "replanning", stage_after: targetStage, transition, step: "plan", step_workflow_task: "stage_replanning", step_payload: payload, step_action: stageAction, state_patch: patch, events: eventList("replanning", targetStage, transition, "plan", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "plan", stage_before: "replanning", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "replanning", stage_after: targetStage, transition, step: "plan", step_workflow_task: "stage_replanning", step_payload: payload, step_action: payload, state_patch: patch, events: eventList("replanning", targetStage, transition, "plan", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "plan", stage_before: "replanning", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -970,7 +988,7 @@ do:
             const transition = complete ? "answered" : "partial";
             const patch = { stage: targetStage, question_rounds: questionRounds };
             const event = { event: complete ? "answers_submitted" : "answers_partial", stage: targetStage, answer_count: array(payload.answers).length };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "awaiting_user_answers", stage_after: targetStage, transition, step: "questions", step_workflow_task: "stage_awaiting_user_answers", step_payload: payload, step_action: stageAction, state_patch: patch, events: eventList("awaiting_user_answers", targetStage, transition, "questions", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "questions", stage_before: "awaiting_user_answers", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "awaiting_user_answers", stage_after: targetStage, transition, step: "questions", step_workflow_task: "stage_awaiting_user_answers", step_payload: payload, step_action: payload, state_patch: patch, events: eventList("awaiting_user_answers", targetStage, transition, "questions", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "questions", stage_before: "awaiting_user_answers", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1014,7 +1032,7 @@ do:
             const targetStage = rejected ? "replanning" : isTerminalChild(tasks) ? "executing" : "task_graph_ready";
             const transition = rejected ? "rejected" : "approved";
             const event = { event: rejected ? "task_graph_rejected" : "task_graph_approved", stage: targetStage, replan_reason: rejected ? String(payload.replan_reason || "") : "" };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "plan_review", stage_after: targetStage, transition, step: "task_graph", step_workflow_task: "stage_plan_review", step_payload: payload, step_action: stageAction, state_patch: rejected ? { stage: targetStage, replan_reason: String(payload.replan_reason || "") } : { stage: targetStage, replan_reason: "" }, events: eventList("plan_review", targetStage, transition, "task_graph", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "task_graph", stage_before: "plan_review", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "plan_review", stage_after: targetStage, transition, step: "task_graph", step_workflow_task: "stage_plan_review", step_payload: payload, step_action: payload, state_patch: rejected ? { stage: targetStage, replan_reason: String(payload.replan_reason || "") } : { stage: targetStage, replan_reason: "" }, events: eventList("plan_review", targetStage, transition, "task_graph", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "task_graph", stage_before: "plan_review", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1048,15 +1066,22 @@ do:
           code: |-
             function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
             function array(value) { return Array.isArray(value) ? value : []; }
+            function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
+            function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
+            function taskId(value) { const row = object(value); return String(row.task_id || row.id || "").trim(); }
+            function preparedChildren(value) { const row = object(value); const listed = array(row.prepared_children).concat(array(row.children)).map((item) => object(item)).filter((item) => taskId(item)); if (listed.length) return listed; return taskId(row) ? [row] : []; }
+            function tasksAfterChildPrepare(tasks, value) { const prepared = preparedChildren(value); if (!prepared.length) return tasks; const byId = new Map(prepared.map((item) => [taskId(item), item])); return { ...tasks, tasks: array(tasks.tasks).map((task) => { const row = object(task); const launch = byId.get(taskId(row)); if (!launch) return task; return { ...row, status: "child_dispatched", child_wtree: String(launch.child_wtree || row.child_wtree || ""), branch_ref: String(launch.branch_ref || row.branch_ref || ""), worktree_path: String(launch.worktree_path || row.worktree_path || ""), merge_target: String(launch.merge_target || row.merge_target || ""), merge_lease_id: String(launch.merge_lease_id || row.merge_lease_id || "") }; }) }; }
             function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
             function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const tasks = object(state.steps.read_tasks?.action);
             const stageAction = object(state.steps.stage_task_graph_ready?.action);
-            const transition = terminalTaskState(tasks) === "all_done" ? "complete" : "partial";
+            const payload = findPayload(stageAction, (row) => array(object(row).prepared_children).length > 0 || array(object(row).children).length > 0 || "task_id" in object(row) || "child_wtree" in object(row));
+            const nextTasks = tasksAfterChildPrepare(tasks, payload);
+            const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
             const targetStage = transition === "complete" ? "validating" : "executing";
             const event = { event: "step_submitted", stage: targetStage, step: "executing" };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "task_graph_ready", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_task_graph_ready", step_payload: stageAction, step_action: stageAction, state_patch: { stage: targetStage }, events: eventList("task_graph_ready", targetStage, transition, "executing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "executing", stage_before: "task_graph_ready", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "task_graph_ready", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_task_graph_ready", step_payload: payload, step_action: payload, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks) }, events: eventList("task_graph_ready", targetStage, transition, "executing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "executing", stage_before: "task_graph_ready", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1169,10 +1194,12 @@ do:
             function array(value) { return Array.isArray(value) ? value : []; }
             function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
             function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
+            function taskId(value) { const row = object(value); return String(row.task_id || row.id || "").trim(); }
+            function taskDependencies(value) { const row = object(value); const raw = Array.isArray(row.dependencies) ? row.dependencies : Array.isArray(row.depends_on) ? row.depends_on : []; return raw.map((entry) => String(entry || "").trim()).filter(Boolean); }
             function tasksAfterChildResult(tasks, payload) { const taskId = String(payload.task_id || payload.id || ""); const items = array(tasks.tasks); if (!taskId || !items.length) return tasks; return { ...tasks, tasks: items.map((task) => { const row = object(task); if (String(row.id || "") !== taskId) return task; const status = String(payload.status || ""); return { ...row, status: status === "passed" ? "child_archived" : status === "blocked" ? "blocked" : "failed", child_wtree: String(payload.child_wtree || row.child_wtree || ""), branch_ref: String(payload.branch_ref || row.branch_ref || ""), worktree_path: String(payload.worktree_path || row.worktree_path || ""), merge_target: String(payload.merge_target || row.merge_target || ""), merge_lease_id: String(payload.merge_lease_id || row.merge_lease_id || ""), merge_commit: String(payload.merge_commit || row.merge_commit || "") }; }) }; }
             function childResultsAfterChildResult(tasks, payload) { const taskId = String(payload.task_id || payload.id || "").trim(); const childWtree = String(payload.child_wtree || "").trim(); if (!taskId || !childWtree) return array(tasks.child_results); const next = { task_id: taskId, child_wtree: childWtree, status: String(payload.status || "").trim(), evidence: array(payload.evidence).map((entry) => object(entry)).filter((entry) => String(entry.type || "").trim() && String(entry.ref || "").trim()), branch_ref: String(payload.branch_ref || "").trim(), worktree_path: String(payload.worktree_path || "").trim(), merge_target: String(payload.merge_target || "").trim(), merge_lease_id: String(payload.merge_lease_id || "").trim(), merge_commit: String(payload.merge_commit || "").trim() }; const existing = array(tasks.child_results).filter((entry) => { const row = object(entry); return !(String(row.task_id || "").trim() === taskId && String(row.child_wtree || "").trim() === childWtree); }); return [...existing, next]; }
             function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
-            function hasQueuedChildren(tasks) { return array(object(tasks).tasks).some((task) => { const status = String(object(task).status || "child_received"); return status === "child_received" || status === "pending" || status === "queued"; }); }
+            function hasReadyUndispatchedChildren(tasks) { const items = array(object(tasks).tasks).map((task) => object(task)); const statusById = new Map(items.map((task) => [taskId(task), String(task.status || "child_received")])); const done = new Set(["child_merged", "child_archived", "done", "merged"]); return items.some((task) => { const status = String(task.status || "child_received"); if (!(status === "child_received" || status === "pending" || status === "queued")) return false; return taskDependencies(task).every((dependencyId) => { const dependencyStatus = statusById.get(dependencyId); return typeof dependencyStatus === "string" && done.has(dependencyStatus); }); }); }
             function hasFailedChildren(tasks) { return array(object(tasks).tasks).some((task) => { const status = String(object(task).status || "child_received"); return status === "blocked" || status === "failed"; }); }
             function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
@@ -1181,12 +1208,12 @@ do:
             const payload = findPayload(stageAction, (row) => "child_wtree" in object(row) || "merge_commit" in object(row) || "task_id" in object(row));
             const nextTasks = tasksAfterChildResult(tasks, payload);
             const complete = terminalTaskState(nextTasks) === "all_done";
-            const queueNextChild = nextTasks.supervise_step === true && !complete && !hasFailedChildren(nextTasks) && hasQueuedChildren(nextTasks);
-            const transition = complete ? "complete" : queueNextChild ? "next_child" : "partial";
+            const queueNextChild = !complete && !hasFailedChildren(nextTasks) && hasReadyUndispatchedChildren(nextTasks);
+            const transition = complete ? "complete" : queueNextChild ? nextTasks.supervise_step === true ? "next_child" : "next_children" : "partial";
             const targetStage = complete ? "validating" : queueNextChild ? "task_graph_ready" : "executing";
             const patch = { stage: targetStage, tasks: array(nextTasks.tasks), child_results: childResultsAfterChildResult(tasks, payload) };
             const event = { event: "child_result_submitted", stage: targetStage, task_id: String(payload.task_id || payload.id || ""), child_wtree: String(payload.child_wtree || ""), status: String(payload.status || ""), merge_commit: String(payload.merge_commit || "") };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "child_result", step_workflow_task: "stage_executing", step_payload: payload, step_action: stageAction, state_patch: patch, events: eventList("executing", targetStage, transition, "child_result", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "child_result", stage_before: "executing", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "child_result", step_workflow_task: "stage_executing", step_payload: payload, step_action: payload, state_patch: patch, events: eventList("executing", targetStage, transition, "child_result", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "child_result", stage_before: "executing", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1231,7 +1258,7 @@ do:
             const targetStage = transition === "passed" ? "verification_pending" : transition === "failed_child" ? "validating" : "task_graph_ready";
             const patch = { stage: targetStage, validation_receipt: { status, checks: array(payload.checks) } };
             const event = { event: "validation_submitted", stage: targetStage, status, check_count: array(payload.checks).length };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "validating", stage_after: targetStage, transition, step: "validation", step_workflow_task: "stage_validating", step_payload: payload, step_action: stageAction, state_patch: patch, events: eventList("validating", targetStage, transition, "validation", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "validation", stage_before: "validating", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "validating", stage_after: targetStage, transition, step: "validation", step_workflow_task: "stage_validating", step_payload: payload, step_action: payload, state_patch: patch, events: eventList("validating", targetStage, transition, "validation", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "validation", stage_before: "validating", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1276,7 +1303,7 @@ do:
             const targetStage = transition === "passed" ? "system_update_pending" : "validating";
             const patch = { stage: targetStage, verification_receipt: { status, acceptance_trace: array(payload.acceptance_trace), risks: array(payload.risks) } };
             const event = { event: "verification_submitted", stage: targetStage, status, acceptance_count: array(payload.acceptance_trace).length, risk_count: array(payload.risks).length };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "verification_pending", stage_after: targetStage, transition, step: "verification", step_workflow_task: "stage_verification_pending", step_payload: payload, step_action: stageAction, state_patch: patch, events: eventList("verification_pending", targetStage, transition, "verification", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "verification", stage_before: "verification_pending", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "verification_pending", stage_after: targetStage, transition, step: "verification", step_workflow_task: "stage_verification_pending", step_payload: payload, step_action: payload, state_patch: patch, events: eventList("verification_pending", targetStage, transition, "verification", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "verification", stage_before: "verification_pending", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1309,10 +1336,11 @@ do:
           language: js
           code: |-
             function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
+            function array(value) { return Array.isArray(value) ? value : []; }
             function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const stageAction = object(state.steps.stage_system_update_pending?.action);
-            const event = { event: "system_update_submitted", stage: "landing_ready" };
+            const event = { event: "system_update_submitted", stage: "landing_ready", touched_count: array(stageAction.touched).length };
             return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "system_update_pending", stage_after: "landing_ready", transition: "updated", step: "system_update", step_workflow_task: "stage_system_update_pending", step_payload: stageAction, step_action: stageAction, state_patch: { stage: "landing_ready" }, events: eventList("system_update_pending", "landing_ready", "updated", "system_update", event), event_payload: { event: "stage_changed", stage: "landing_ready", transition: "updated", step: "system_update", stage_before: "system_update_pending", stage_after: "landing_ready" }, runtime: runtimeSnapshot() };
       output:
         schema:
@@ -1356,7 +1384,7 @@ do:
             const targetStage = status === "blocked" ? "landing_ready" : "archived";
             const transition = status === "blocked" ? "blocked" : "landed";
             const event = { event: "landing_submitted", stage: targetStage, status: String(payload.status || transition || "") };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "landing_ready", stage_after: targetStage, transition, step: "landing", step_workflow_task: "stage_landing_ready", step_payload: payload, step_action: stageAction, state_patch: { stage: targetStage, landed_commit: String(payload.receipt?.landed_commit || payload.landed_commit || ""), landing_strategy: String(payload.receipt?.strategy || payload.strategy || "") }, events: eventList("landing_ready", targetStage, transition, "landing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "landing", stage_before: "landing_ready", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "landing_ready", stage_after: targetStage, transition, step: "landing", step_workflow_task: "stage_landing_ready", step_payload: payload, step_action: payload, state_patch: { stage: targetStage, landed_commit: String(payload.receipt?.landed_commit || payload.landed_commit || ""), landing_strategy: String(payload.receipt?.strategy || payload.strategy || "") }, events: eventList("landing_ready", targetStage, transition, "landing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "landing", stage_before: "landing_ready", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:

@@ -228,14 +228,14 @@ describe("Loopship declarative Fastflow catalog", () => {
             if (actualDigest !== entry.expectedDigest) {
               throw new Error(
                 entry.path +
-                  " digest drifted from its scope index; direct edits to *.stable.yaml are malformed. Copy the changes into the matching *.dev.yaml and continue via Fastflow promotion."
+                  " digest drifted from its scope index; direct edits to *.stable.yaml are malformed. Copy the changes into the matching *.dev.yaml, restore the stable artifact, and continue via Fastflow promotion."
               );
             }
             const rootHash = workflow?.document?.metadata?.rootHash;
             if (typeof rootHash === "string" && rootHash.trim() && rootHash !== actualDigest) {
               throw new Error(
                 entry.path +
-                  " metadata.rootHash drifted; continue workflow edits in *.dev.yaml and refresh stable artifacts via promotion instead of hand-editing *.stable.yaml."
+                  " metadata.rootHash drifted; continue workflow edits in *.dev.yaml, restore the stable artifact, and refresh stable artifacts via promotion instead of hand-editing *.stable.yaml."
               );
             }
           }

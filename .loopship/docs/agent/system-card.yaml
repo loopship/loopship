@@ -54,7 +54,9 @@ responsibilities:
   respect-fastflow-release-authoring: |-
     Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files are
     promotion-managed release artifacts. Agents author workflow changes in `.dev.yaml` and
-    rely on promotion to refresh stable artifacts.
+    rely on promotion to refresh stable artifacts. If stable digest drift appears, copy the
+    intended change into the matching `.dev.yaml`, restore the stable artifact, and continue
+    via promotion.
   preserve-canonical-truth: |-
     Agents trust tasks.yaml, events.jsonl, emitted child commands, git worktree state,
     manifests, and signatures before terminal chatter or narrative summaries.

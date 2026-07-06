@@ -163,7 +163,9 @@ invariants:
   fastflow-release-authoring: |-
     Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files are
     promotion-managed release artifacts. Authors must continue edits in `.dev.yaml` and reach
-    stable only through Fastflow promotion.
+    stable only through Fastflow promotion. If stable digest drift is detected, copy the
+    intended change into the matching `.dev.yaml`, restore the stable artifact, and continue
+    via promotion.
 exceptions:
   ambiguous-question: |-
     Ambiguous planning questions must stay colocated with answers inside task records
