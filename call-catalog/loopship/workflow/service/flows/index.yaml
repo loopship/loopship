@@ -3,12 +3,13 @@ workflows:
   swe:
     stable:
       release: 3
-      digest: "sha256:0331ce3a42555f30de3a7ae33d4ab098835e083bdc5ca6e84eaace5731f445e9"
+      digest: "sha256:d18bb35ad3efbe3048b7e1c1f1613c6ff9d0ebd0f69b8a6ab37dedab9f90ff7c"
       summary: "Refactor SWE flow to native stage-local SWF branches"
       inputs:
         required: []
         optional: []
       requires:
+        - loopship.afn.service.git.head
         - loopship.workflow.service.step.archived
         - loopship.workflow.service.step.child-result
         - loopship.workflow.service.step.executing
@@ -23,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
 
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakkA1RsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvCeAD/VOUwy/YYr8R4UpqgyHZr
-    nfsodh81Ky9eN8M1b+hDnhYBAKXgzqsDuBteNH21k6Ib6yzLSIZIEcKhyJn4kn5/
-    NXcI
-    =XfZd
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakrKLRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuFrQD8CyhhlmiIzmxhdBNP4dnH
+    Wo+sxHwbVI7PGywWVoOPvVIA/37ICqJYcuhNuuxo38jv3zDf/ZpyheG4ryyeUEo9
+    9x0I
+    =2LMz
     -----END PGP SIGNATURE-----

@@ -154,6 +154,7 @@ const LANDING_STATUS_SCHEMA = {
 
 export const LOOPSHIP_AFN_CALLS = Object.freeze({
   childPrepare: "loopship.afn.service.child.prepare",
+  gitHead: "loopship.afn.service.git.head",
   systemApply: "loopship.afn.service.system.apply",
   landingApply: "loopship.afn.service.landing.apply",
 });
@@ -213,6 +214,31 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     metadata: {
       allowed_phases: ["action"],
       effects: ["worktree.prepare", "quest.prepare"],
+    },
+  },
+  {
+    call: LOOPSHIP_AFN_CALLS.gitHead,
+    summary: "Resolve a git ref to a commit for Loopship lifecycle evidence.",
+    inputs: {
+      required: ["repo"],
+      optional: ["cwd", "ref"],
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["repo"],
+        properties: {
+          repo: { type: "string", minLength: 1 },
+          cwd: { type: "string" },
+          ref: { type: "string" },
+        },
+      },
+    },
+    tags: ["loopship", "git", "commit", "evidence"],
+    preferWhen: ["A Loopship workflow needs a concrete commit as lifecycle evidence."],
+    avoidWhen: ["The workflow only needs to inspect non-git validation or verification output."],
+    metadata: {
+      allowed_phases: ["action"],
+      effects: ["git.read"],
     },
   },
   {
@@ -398,6 +424,19 @@ function ensureLoopshipRuntimeDocument(input: {
   const request = String(input.inputs.request ?? input.inputs.prompt ?? "").trim();
   if (!request) return;
   const wtree = String(input.inputs.wtree ?? "").trim() || defaultWtreeName(request);
+  const coordinatorBranch =
+    optionalString(input.inputs.sourceBranch) ||
+    optionalString(input.inputs.source_branch) ||
+    gitCurrentBranch(input.workspaceRoot) ||
+    wtree;
+  const landingTargetBranch =
+    optionalString(input.inputs.targetBranch) ||
+    optionalString(input.inputs.target_branch) ||
+    "main";
+  const landingTargetWorktree =
+    optionalString(input.inputs.targetWorktree) ||
+    optionalString(input.inputs.target_worktree) ||
+    landingTargetWorktreePath(repoRoot, landingTargetBranch);
   mkdirSync(runtimeDir, { recursive: true });
   writeFileSync(
     tasksPath,
@@ -409,10 +448,16 @@ function ensureLoopshipRuntimeDocument(input: {
       context_root: repoRoot,
       flow_id: input.flowId,
       runtime: String(input.inputs.runtime ?? ""),
-      coordinator_branch: wtree,
+      coordinator_branch: coordinatorBranch,
       coordinator_worktree: input.workspaceRoot,
-      landing_target_branch: "main",
-      landing_target_worktree: landingTargetWorktreePath(repoRoot, "main"),
+      parent_wtree: optionalString(input.inputs.parentWtree) || optionalString(input.inputs.parent_wtree),
+      parent_task_id:
+        optionalString(input.inputs.parentTaskId) || optionalString(input.inputs.parent_task_id),
+      parent_context_ref:
+        optionalString(input.inputs.parentContextRef) ||
+        optionalString(input.inputs.parent_context_ref),
+      landing_target_branch: landingTargetBranch,
+      landing_target_worktree: landingTargetWorktree,
       tasks: [],
       question_rounds: [],
     }),
@@ -843,6 +888,18 @@ function prepareChildLaunch(
         request,
         "--wtree",
         childWtree,
+        "--source-branch",
+        workspace.branch_ref,
+        "--parent-wtree",
+        parentWtree,
+        "--parent-task-id",
+        taskId,
+        "--parent-context-ref",
+        parentContextRef,
+        "--target-branch",
+        parentWtree,
+        "--target-worktree",
+        `${repo}/worktrees/${parentWtree}`,
         "--runtime",
         runtime,
       ]),
@@ -895,6 +952,20 @@ function gitRevParse(cwd: string, ref: string): string {
     throw new Error(proc.stderr || proc.stdout || `git rev-parse failed for ${ref}`);
   }
   return proc.stdout.trim();
+}
+
+function executeGitHead(body: Record<string, unknown>): Record<string, unknown> {
+  const repo = requireString(body.repo, "repo");
+  const cwd = optionalString(body.cwd) || repo;
+  const ref = optionalString(body.ref) || "HEAD";
+  const commit = gitRevParse(cwd, ref);
+  return {
+    schema_version: "loopship.git.head/v1",
+    repo,
+    cwd,
+    ref,
+    commit,
+  };
 }
 
 function gitCurrentBranch(cwd: string): string | null {
@@ -1429,6 +1500,7 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
       }
       validateBodyAgainstDescriptor(descriptor, body);
       if (call === LOOPSHIP_AFN_CALLS.childPrepare) return executeChildPrepare(body);
+      if (call === LOOPSHIP_AFN_CALLS.gitHead) return executeGitHead(body);
       if (call === LOOPSHIP_AFN_CALLS.systemApply) return executeSystemApply(body);
       if (call === LOOPSHIP_AFN_CALLS.landingApply) return executeLandingApply(body);
       throw new Error(`Loopship AFN '${call}' has no normal handler.`);

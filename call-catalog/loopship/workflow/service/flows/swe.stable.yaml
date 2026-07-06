@@ -188,6 +188,9 @@ do:
         - task_graph_ready:
             when: "${state.steps.resolve_stage.action.current_stage === \"task_graph_ready\"}"
             then: stage_task_graph_ready
+        - executing_leaf:
+            when: "${state.steps.resolve_stage.action.current_stage === \"executing\" && Array.isArray(state.steps.read_tasks.action.tasks) && state.steps.read_tasks.action.tasks.length > 0 && state.steps.read_tasks.action.tasks.every((task) => !String((task || {}).child_wtree || \"\").trim())}"
+            then: stage_leaf_git_head
         - executing:
             when: "${state.steps.resolve_stage.action.current_stage === \"executing\"}"
             then: stage_executing
@@ -210,7 +213,6 @@ do:
             when: "${state.steps.resolve_stage.action.current_stage === \"archived\"}"
             then: stage_archived
   - stage_planning:
-      if: "${state.steps.resolve_stage.action.current_stage === \"planning\"}"
       then: stage_result_planning
       metadata:
         description: "Run Loopship planning via the pinned plan step workflow."
@@ -273,7 +275,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_awaiting_user_answers:
-      if: "${state.steps.resolve_stage.action.current_stage === \"awaiting_user_answers\"}"
       then: stage_result_awaiting_user_answers
       metadata:
         description: "Run Loopship awaiting_user_answers via the pinned questions step workflow."
@@ -331,7 +332,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_plan_review:
-      if: "${state.steps.resolve_stage.action.current_stage === \"plan_review\"}"
       then: stage_result_plan_review
       metadata:
         description: "Run Loopship plan_review via the pinned task_graph step workflow."
@@ -389,7 +389,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_task_graph_ready:
-      if: "${state.steps.resolve_stage.action.current_stage === \"task_graph_ready\"}"
       then: stage_result_task_graph_ready
       metadata:
         description: "Run Loopship task_graph_ready via the pinned executing step workflow."
@@ -432,7 +431,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_executing:
-      if: "${state.steps.resolve_stage.action.current_stage === \"executing\"}"
       then: stage_result_executing
       metadata:
         description: "Run Loopship executing via the pinned child_result step workflow."
@@ -490,7 +488,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_validating:
-      if: "${state.steps.resolve_stage.action.current_stage === \"validating\"}"
       then: stage_result_validating
       metadata:
         description: "Run Loopship validating via the pinned validation step workflow."
@@ -548,7 +545,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_verification_pending:
-      if: "${state.steps.resolve_stage.action.current_stage === \"verification_pending\"}"
       then: stage_result_verification_pending
       metadata:
         description: "Run Loopship verification_pending via the pinned verification step workflow."
@@ -606,7 +602,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_system_update_pending:
-      if: "${state.steps.resolve_stage.action.current_stage === \"system_update_pending\"}"
       then: stage_result_system_update_pending
       metadata:
         description: "Run Loopship system_update_pending via the pinned system_update step workflow."
@@ -649,7 +644,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_landing_ready:
-      if: "${state.steps.resolve_stage.action.current_stage === \"landing_ready\"}"
       then: stage_result_landing_ready
       metadata:
         description: "Run Loopship landing_ready via the pinned landing step workflow."
@@ -693,7 +687,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_replanning:
-      if: "${state.steps.resolve_stage.action.current_stage === \"replanning\"}"
       then: stage_result_replanning
       metadata:
         description: "Run Loopship replanning via the pinned plan step workflow."
@@ -756,7 +749,6 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_archived:
-      if: "${state.steps.resolve_stage.action.current_stage === \"archived\"}"
       then: stage_result_archived
       metadata:
         description: "Run Loopship archived via the pinned archived step workflow."
@@ -1051,6 +1043,83 @@ do:
             type: object
             additionalProperties: true
         as: "${action.value}"
+  - stage_leaf_git_head:
+      then: stage_result_leaf_executing
+      metadata:
+        description: "Resolve the leaf child worktree HEAD commit for lifecycle evidence."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: loopship.afn.service.git.head
+      with:
+        body:
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          cwd: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+          ref: HEAD
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+  - stage_result_leaf_executing:
+      then: persist_stage
+      metadata:
+        description: "Record leaf child execution without requiring a nested child_result callback."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      run:
+        script:
+          language: js
+          code: |-
+            function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
+            function array(value) { return Array.isArray(value) ? value : []; }
+            function markLeafTasksDone(tasks, mergeCommit) { return { ...tasks, tasks: array(tasks.tasks).map((task) => { const row = object(task); if (String(row.child_wtree || "").trim()) return row; const status = String(row.status || "pending"); const nextStatus = status === "blocked" || status === "failed" ? status : "done"; return { ...row, status: nextStatus, merge_commit: String(row.merge_commit || mergeCommit || "") }; }) }; }
+            function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
+            function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
+            function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
+            const tasks = object(state.steps.read_tasks?.action);
+            const mergeCommit = String(object(state.steps.stage_leaf_git_head?.action).commit || "");
+            const nextTasks = markLeafTasksDone(tasks, mergeCommit);
+            const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
+            const targetStage = transition === "complete" ? "validating" : "executing";
+            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit }, step_action: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit }, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks) }, events: eventList("executing", targetStage, transition, "executing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "executing", stage_before: "executing", stage_after: targetStage }, runtime: runtimeSnapshot() };
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action.value}"
   - stage_result_executing:
       then: persist_stage
       metadata:
@@ -1334,7 +1403,7 @@ do:
             rootDir: .
           adapter: yaml
           document: tasks
-          patch: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).state_patch || {}}"
+          patch: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).state_patch || {}}"
       output:
         schema:
           document:
@@ -1369,7 +1438,7 @@ do:
             rootDir: .
           adapter: jsonl
           log: events
-          events: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).events || []}"
+          events: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).events || []}"
       output:
         schema:
           document:
@@ -1381,4 +1450,4 @@ output:
     document:
       type: object
       additionalProperties: true
-  as: "${state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}}"
+  as: "${state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}}"
