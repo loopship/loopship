@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 7
-      digest: "sha256:82b5b0c3d83dc410731287e4df7278bdf0da6bb09a5ca93c51e34609e789b725"
-      summary: "Remove unsupported system-update routing input from the SWE flow."
+      release: 8
+      digest: "sha256:43efdf37b2e41748870b63dd3e7c3960a4783e7c291dcfa25b32a38c4b6efe44"
+      summary: "Pass landing routing into landing.apply instead of system-update."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakthcRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsDVAD/cqQ+J06sWDVNBiYewe48
-    etQK4eWsa2gbl6VSsIcCwx8BAKtdbgtm9c++FNJxoFDh/igfF5YlxeI/QY7H8xq7
-    zdoE
-    =F/gC
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktjTRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsJAwEAgwsjYNvST7zJxAeTXvun
+    AWFYybFSNCaagqfsfF+0dbsA/1Skdb5AnuBecd7/8IiM1xMBPoiJftpu/XNKhPhV
+    qm0P
+    =GU1s
     -----END PGP SIGNATURE-----
