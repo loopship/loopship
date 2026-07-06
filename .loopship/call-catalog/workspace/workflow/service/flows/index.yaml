@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 12
-      digest: "sha256:c0adbcb7d3923b151574d1cec59236d311d4b845ebb1a45d4399519073ab6537"
-      summary: "Require explicit system_update review before landing and auto-land durable Loopship docs from terminal-child runs."
+      release: 13
+      digest: "sha256:dac5aa38d99cebb0dd128eaf72b8aa58442c7602af04c3d23dc01fe430580251"
+      summary: "Pin system_update release 3 and keep explicit system_update review before landing."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJAEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakukVBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsIfQD+NP9RXRAvkWBUKlIe5+4V
-    dc2p3x8wfPY33LyhaRBcH/wA9jLKeWCMFi3HZzpJcWnnJgBUfO9twYvJesoS/VsT
-    nAM=
-    =nIwI
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuqWRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsZ2gEA7f0xeGdMZw9oCn5SW2XP
+    CV6IMsHcZ+H1FcMVOkjhPQkA/2LLnjVhvsMlFZx7ZPe33vJdLncdsnqvJNTYA8KC
+    RQYO
+    =imKv
     -----END PGP SIGNATURE-----

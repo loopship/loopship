@@ -42,3 +42,5 @@ prefixes:
       service:
         step:
           tags: "loopship, step, archived, child_result, executing, landing, plan, questions, system_update, task_graph, validation, verification, child-result, child, result, system-update, system, update, task-graph, task, graph"
+        flows:
+          tags: "loopship, flow, swe, flows"
