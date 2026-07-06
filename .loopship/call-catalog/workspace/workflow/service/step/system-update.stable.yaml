@@ -201,7 +201,7 @@ do:
       with:
         body:
           repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}"
-          update: "${state.steps.system_update_request.action.answer.system_update || state.steps.system_update_request.action.decision.system_update || inputs.system_update || inputs.update || {}}"
+          update: "${(state.steps.system_update_request.action.answer && state.steps.system_update_request.action.answer.system_update) || (state.steps.system_update_request.action.decision && state.steps.system_update_request.action.decision.system_update) || inputs.system_update || inputs.update || {}}"
           actor: "${inputs.actor || 'loopship'}"
       output:
         schema:
