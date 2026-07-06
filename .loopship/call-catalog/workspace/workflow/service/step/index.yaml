@@ -192,9 +192,9 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 2
-      digest: "sha256:000c337c5eacdadd56a6e1d485c351fa6d72c9f4683d0a3f9805232d71f18bb1"
-      summary: "Require explicit system_update review before landing and auto-land durable Loopship docs from terminal-child runs."
+      release: 3
+      digest: "sha256:8e2267670b045ad6f1897dabf8ea7fb15e437016f105b7003d06a23fdb56eda6"
+      summary: "Inline system_update resume validation while keeping explicit system_update review before landing."
       inputs:
         required: []
         optional: []
@@ -303,9 +303,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakukUhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGslvgEAuFLdsIpEVOrHsnGSEDhQ
-    JkMYbVHnWBE9Co2VJSRWA7EA/AtNgJCDQBVY4pV470vT3ZZulW1D8kTEdakh6a3y
-    +PID
-    =vG1O
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakum1BsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsOZQEAyAodXnfGwB5fwyX+nCT/
+    F1mirIeVAxhLkOuy+bwMKgcA/RMIMcUX67xzrwveR6CdoU6FBIoSKhlcELopGIVo
+    9RwF
+    =889b
     -----END PGP SIGNATURE-----

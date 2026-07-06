@@ -127,7 +127,44 @@ do:
                 - system_update
               properties:
                 system_update:
-                  "$ref": "loopship://schemas/system-update.yaml"
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - schema_version
+                    - mode
+                    - summary
+                  properties:
+                    schema_version:
+                      const: 1
+                    mode:
+                      enum:
+                        - no_change
+                        - replace
+                    summary:
+                      type: string
+                      minLength: 1
+                    root:
+                      type: object
+                      additionalProperties: true
+                    external_docs:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                          - op
+                          - resource_ref
+                        properties:
+                          op:
+                            enum:
+                              - upsert
+                              - delete
+                          resource_ref:
+                            type: string
+                            minLength: 1
+                          document:
+                            type: object
+                            additionalProperties: true
       output:
         schema:
           document:
