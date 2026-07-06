@@ -1,0 +1,32 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+workflows:
+  swe:
+    stable:
+      release: 11
+      digest: "sha256:3ccf0425097a48270ab15fa347b174bf89ee055ae9ae8619fad186b9711a1bfb"
+      summary: "Unwrap wrapped executing-step output before persisting child_dispatched state for prepared children."
+      inputs:
+        required: []
+        optional: []
+      requires:
+        - loopship.afn.service.git.head
+        - loopship.workflow.service.step.archived
+        - loopship.workflow.service.step.child-result
+        - loopship.workflow.service.step.executing
+        - loopship.workflow.service.step.landing
+        - loopship.workflow.service.step.plan
+        - loopship.workflow.service.step.questions
+        - loopship.workflow.service.step.system-update
+        - loopship.workflow.service.step.task-graph
+        - loopship.workflow.service.step.validation
+        - loopship.workflow.service.step.verification
+stable_attestation:
+  signature: |-
+    -----BEGIN PGP SIGNATURE-----
+    
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuI1RsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtHjAEAuOv/iyM/+Y2fNb53VEAC
+    6tYedJR6ONwdSDp0Dstr8MkBALMGegPYayBqtjS8j1ucHlV81ffuklcgiE0cMnoq
+    ucsN
+    =+m/G
+    -----END PGP SIGNATURE-----
