@@ -1,0 +1,311 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+workflows:
+  archived:
+    stable:
+      release: 1
+      digest: "sha256:8b91368e3e620603559569d6702ee81240b464e8934a731e4c4034feee7cbe3c"
+      summary: "Report final quest state only."
+      inputs:
+        required: []
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - requirements
+      requires: []
+  child-result:
+    stable:
+      release: 1
+      digest: "sha256:bf9e8ed1fedabc132da414e97ddf6e81a272e286277d7ecbb0134d31a0ba7036"
+      summary: "Submit the result of a completed child quest back to the parent flow."
+      inputs:
+        required: []
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - requirements
+      requires: []
+  executing:
+    stable:
+      release: 2
+      digest: "sha256:f24f85241d816f088111e6fcf5f5618572d313cb1b2e986381ae8788d07a5d56"
+      summary: "Enforce terminal-child local execution, preserve quest evidence, and require dev-only workflow authoring."
+      inputs:
+        required:
+          - children
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - quest
+          - actor
+          - target_branch
+          - target_worktree
+          - source_branch
+          - receipt
+          - task
+          - update
+      requires:
+        - loopship.afn.service.child.prepare
+  landing:
+    stable:
+      release: 2
+      digest: "sha256:a67b2cd9c43c3ed05f654f6429fdf34f7a8a699a20073db9186f2d945cb91bc4"
+      summary: "Apply Loopship landing with caller-supplied routing context."
+      inputs:
+        required:
+          - status
+          - summary
+        optional:
+          - repo
+          - repoRoot
+          - wtree
+          - quest
+          - runtime
+          - actor
+          - target_branch
+          - target_worktree
+          - source_branch
+          - receipt
+          - task
+          - update
+      requires:
+        - loopship.afn.service.landing.apply
+  plan:
+    stable:
+      release: 4
+      digest: "sha256:effbf3ae89c4c5ce0c6b8d9e85b2cc28e569b32d08b7dd94a45a7886c5cfbefe"
+      summary: "Allow terminal-child planning fields through the embedded plan task schema."
+      inputs:
+        required: []
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - parent_task_id
+          - parent_context_ref
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - replan_reason
+          - requirements
+      requires: []
+  questions:
+    stable:
+      release: 1
+      digest: "sha256:d6dadaaf81ab5b7f1694317cd96daecc0ef4d8ba38b249ee3fa67228f05e25b3"
+      summary: "Submit grouped user answers for the current clarification round."
+      inputs:
+        required: []
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - requirements
+      requires: []
+  system-update:
+    stable:
+      release: 2
+      digest: "sha256:000c337c5eacdadd56a6e1d485c351fa6d72c9f4683d0a3f9805232d71f18bb1"
+      summary: "Require explicit system_update review before landing and auto-land durable Loopship docs from terminal-child runs."
+      inputs:
+        required: []
+        optional: []
+      requires:
+        - loopship.afn.service.system.apply
+  task-graph:
+    stable:
+      release: 1
+      digest: "sha256:d2f4f7a77c2d7225835a82930cef6a3325f695f4aeab069c45bb05cd5a7d0ea0"
+      summary: "Approve or reject the generated task graph, including a replan reason when rejected."
+      inputs:
+        required: []
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - requirements
+      requires: []
+  validation:
+    stable:
+      release: 1
+      digest: "sha256:2068e6b6c6004a26ebc7e7b71cc13d4aa9bcec2a579e9edc178ec6878a79dccb"
+      summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
+      inputs:
+        required: []
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - requirements
+      requires: []
+  verification:
+    stable:
+      release: 1
+      digest: "sha256:31f887a4d4c6183fd51f1334a15aaff85b99e46f63c612af93570080a2e784cf"
+      summary: "Submit acceptance trace, PR-style risk review, and residual risks."
+      inputs:
+        required: []
+        optional:
+          - schema_version
+          - kind
+          - wtree
+          - quest_id
+          - flow_id
+          - flow_version
+          - current_stage
+          - summary
+          - prompt
+          - repo
+          - repoRoot
+          - runtime
+          - tasks
+          - question_rounds
+          - plan_detail
+          - validation_receipt
+          - verification_receipt
+          - events
+          - parent_wtree
+          - coordinator_branch
+          - coordinator_worktree
+          - landing_target_branch
+          - landing_target_worktree
+          - requirements
+      requires: []
+stable_attestation:
+  signature: |-
+    -----BEGIN PGP SIGNATURE-----
+    
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakukUhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGslvgEAuFLdsIpEVOrHsnGSEDhQ
+    JkMYbVHnWBE9Co2VJSRWA7EA/AtNgJCDQBVY4pV470vT3ZZulW1D8kTEdakh6a3y
+    +PID
+    =vG1O
+    -----END PGP SIGNATURE-----

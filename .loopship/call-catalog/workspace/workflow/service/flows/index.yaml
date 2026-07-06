@@ -1,0 +1,32 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+workflows:
+  swe:
+    stable:
+      release: 12
+      digest: "sha256:c0adbcb7d3923b151574d1cec59236d311d4b845ebb1a45d4399519073ab6537"
+      summary: "Require explicit system_update review before landing and auto-land durable Loopship docs from terminal-child runs."
+      inputs:
+        required: []
+        optional: []
+      requires:
+        - loopship.afn.service.git.head
+        - workspace.workflow.service.step.archived
+        - workspace.workflow.service.step.child-result
+        - workspace.workflow.service.step.executing
+        - workspace.workflow.service.step.landing
+        - workspace.workflow.service.step.plan
+        - workspace.workflow.service.step.questions
+        - workspace.workflow.service.step.system-update
+        - workspace.workflow.service.step.task-graph
+        - workspace.workflow.service.step.validation
+        - workspace.workflow.service.step.verification
+stable_attestation:
+  signature: |-
+    -----BEGIN PGP SIGNATURE-----
+    
+    iJAEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakukVBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsIfQD+NP9RXRAvkWBUKlIe5+4V
+    dc2p3x8wfPY33LyhaRBcH/wA9jLKeWCMFi3HZzpJcWnnJgBUfO9twYvJesoS/VsT
+    nAM=
+    =nIwI
+    -----END PGP SIGNATURE-----

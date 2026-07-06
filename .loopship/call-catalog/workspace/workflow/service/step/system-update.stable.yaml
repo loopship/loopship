@@ -1,0 +1,186 @@
+document:
+  dsl: 1.0.3
+  namespace: service-step
+  name: system-update
+  version: 0.1.0
+  summary: "Submit system doc updates. Loopship writes signed repo docs."
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - step
+        - system_update
+input:
+  schema:
+    document:
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+      "$id": schemas/steps/system-update-step-request.yaml
+      title: "Loopship System Update Step Request"
+      type: object
+      additionalProperties: true
+do:
+  - system_update_request:
+      metadata:
+        description: "Request an explicit verified system_update payload before durable Loopship docs change."
+        inference: aitl.chat
+        validation:
+          post:
+            kind: js
+            expression: |
+              return {
+                ok: Boolean(
+                  state?.steps?.["system_update_request"]?.action?.decision ||
+                  state?.steps?.["system_update_request"]?.action?.answer
+                ),
+                evidence: { waiting_for_decision: true }
+              };
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: fastflow.afn.core.request.input
+      with:
+        body:
+          timeout_ms: 250
+          instruction: |-
+            # Loopship System Update Step
+
+            Act as the Loopship system-update owner. This instruction block is the
+            reusable step-local system prompt for durable knowledge updates.
+
+            ## Step-Local Callback Contract
+
+            This step is reusable across flows. The Fastflow orchestrator owns flow
+            transitions and continuation state. Return exactly one JSON payload matching
+            `schemas/steps/system-update-input.yaml`; do not emit command strings,
+            successor-state scaffolding, or guessed next-step fields.
+
+            Review the verified work, canonical receipts, and current Loopship docs before
+            answering. The system_update step is the only writer for `.loopship/system.yaml`,
+            `.loopship/docs/**/*.yaml`, and `.loopship/signature.yaml`.
+
+            Use `mode: "replace"` whenever verified durable knowledge changed or those
+            canonical docs are missing, stale, or incomplete for the verified behavior.
+            Use `mode: "no_change"` only when verification proves no durable semantic
+            change is required and the existing canonical docs already cover the result.
+          request:
+            schema:
+              "$schema": "https://json-schema.org/draft/2020-12/schema"
+              "$id": schemas/steps/system-update-step-request.yaml
+              title: "Loopship System Update Step Request"
+              type: object
+              additionalProperties: true
+            build:
+              kind: js
+              using:
+                - inputs
+                - state
+                - env
+              code: |-
+                const quest = (state && state.steps && state.steps.read_tasks && state.steps.read_tasks.action) || {};
+                const queriedEvents = (state && state.steps && state.steps.query_events && state.steps.query_events.action) || [];
+                const array = (value) => Array.isArray(value) ? value : [];
+                const object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+                return {
+                  schema_version: inputs.schema_version || "loopship.step.request/v1",
+                  kind: inputs.kind || "quest_step_request",
+                  wtree: String(inputs.wtree || quest.wtree || ""),
+                  quest_id: String(inputs.quest_id || quest.quest_id || inputs.wtree || quest.wtree || ""),
+                  flow_id: String(inputs.flow_id || quest.flow_id || "swe"),
+                  flow_version: Number(inputs.flow_version || quest.flow_version || 1),
+                  current_stage: String(inputs.current_stage || quest.stage || ""),
+                  summary: String(inputs.summary || "Submit system doc updates. Loopship writes signed repo docs."),
+                  prompt: String(inputs.prompt || quest.prompt || ""),
+                  repo: String(inputs.repo || inputs.repoRoot || quest.context_root || env.PWD || ""),
+                  repoRoot: String(inputs.repoRoot || inputs.repo || quest.context_root || env.PWD || ""),
+                  runtime: String(inputs.runtime || ""),
+                  tasks: array(inputs.tasks).length ? array(inputs.tasks) : array(quest.tasks),
+                  question_rounds: array(inputs.question_rounds).length ? array(inputs.question_rounds) : array(quest.question_rounds),
+                  plan_detail: Object.keys(object(inputs.plan_detail)).length ? object(inputs.plan_detail) : object(quest.plan_detail),
+                  validation_receipt: Object.keys(object(inputs.validation_receipt)).length ? object(inputs.validation_receipt) : object(quest.validation_receipt),
+                  verification_receipt: Object.keys(object(inputs.verification_receipt)).length ? object(inputs.verification_receipt) : object(quest.verification_receipt),
+                  events: array(inputs.events).length ? array(inputs.events) : array(queriedEvents),
+                  parent_wtree: String(inputs.parent_wtree || quest.parent_wtree || ""),
+                  parent_task_id: String(inputs.parent_task_id || quest.parent_task_id || ""),
+                  parent_context_ref: String(inputs.parent_context_ref || quest.parent_context_ref || ""),
+                  coordinator_branch: String(inputs.coordinator_branch || quest.coordinator_branch || ""),
+                  coordinator_worktree: String(inputs.coordinator_worktree || quest.coordinator_worktree || ""),
+                  landing_target_branch: String(inputs.landing_target_branch || quest.landing_target_branch || ""),
+                  landing_target_worktree: String(inputs.landing_target_worktree || quest.landing_target_worktree || ""),
+                  requirements: array(inputs.requirements)
+                };
+          answer:
+            schema:
+              "$schema": "https://json-schema.org/draft/2020-12/schema"
+              "$id": schemas/steps/system-update-input.yaml
+              title: "Loopship V3 System Update Input"
+              type: object
+              additionalProperties: false
+              required:
+                - system_update
+              properties:
+                system_update:
+                  "$ref": "loopship://schemas/system-update.yaml"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+  - system_update_apply:
+      input:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        from: "${inputs}"
+      metadata:
+        description: "Apply the explicit verified system_update payload to canonical Loopship docs."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: loopship.afn.service.system.apply
+      with:
+        body:
+          repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}"
+          update: "${state.steps.system_update_request.action.answer.system_update || state.steps.system_update_request.action.decision.system_update || inputs.system_update || inputs.update || {}}"
+          actor: "${inputs.actor || 'loopship'}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+            properties:
+              schema_version:
+                type: string
+        as: "${action}"
+output:
+  schema:
+    document:
+      type: object
+      additionalProperties: true
+      properties:
+        schema_version:
+          type: string
+  as: "${state.steps.system_update_apply.action}"
