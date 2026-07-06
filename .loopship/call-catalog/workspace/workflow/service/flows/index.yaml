@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 15
-      digest: "sha256:c4a712e1fe94e1de179cc2322a47ec8290ccba5f9ad7b94524da5c11f5c61a2d"
-      summary: "Use guarded system_update release 4 and compact stage results so terminal-child hook resumes stay parseable."
+      release: 16
+      digest: "sha256:95bd4c7b7f860adfdd9f1d7379f2511342db48865a240f51c83c63a59b0427d7"
+      summary: "Write system_update docs into the active coordinator worktree before landing terminal-child results."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuwvxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuoBAD/fKJpxV2UkqQqWZQBimCq
-    rFAGQaPAH8zKzqA/lHQT1bQBAO0aj7He9NdOEzrAqiO3ZseqR83f/GMgz0X1ZRhu
-    loAJ
-    =zhL6
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuzrBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtprQD+KfeaIJSNzkIAx0yjvT2v
+    iTpf7wpkFGrU4RbMlVaaUSkA/ikPXqVzW1pM4GczlAijqTgDFxeP8AQsGT3QjQDj
+    CgYB
+    =alH/
     -----END PGP SIGNATURE-----
