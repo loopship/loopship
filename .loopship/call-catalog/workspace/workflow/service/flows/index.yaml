@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 13
-      digest: "sha256:dac5aa38d99cebb0dd128eaf72b8aa58442c7602af04c3d23dc01fe430580251"
-      summary: "Pin system_update release 3 and keep explicit system_update review before landing."
+      release: 14
+      digest: "sha256:be8982f8d84912d87eedffbdde3585fa6cb6379a4395e1dfaebb293216f2cf04"
+      summary: "Compact stage-result step_action payloads so native hook artifacts stay parseable while keeping explicit system_update review."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuqWRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsZ2gEA7f0xeGdMZw9oCn5SW2XP
-    CV6IMsHcZ+H1FcMVOkjhPQkA/2LLnjVhvsMlFZx7ZPe33vJdLncdsnqvJNTYA8KC
-    RQYO
-    =imKv
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuuNBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGurugEAiVpu8XPJ3jgfgpbdElLi
+    xgpeWxdytu1KQnGvMIBq0g4BANhsTjjK2sjEtyN12GqwriRNUt1x4C9F550QbKnT
+    u3UM
+    =ZD5m
     -----END PGP SIGNATURE-----
