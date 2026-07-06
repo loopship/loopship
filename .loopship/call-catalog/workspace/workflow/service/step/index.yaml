@@ -192,9 +192,9 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 3
-      digest: "sha256:8e2267670b045ad6f1897dabf8ea7fb15e437016f105b7003d06a23fdb56eda6"
-      summary: "Inline system_update resume validation while keeping explicit system_update review before landing."
+      release: 4
+      digest: "sha256:04b794e8a253fd9b056c599be06045cf30d7cfa4d0f881a1104ad55c39f8ab5f"
+      summary: "Guard system_update apply input resolution so explicit resume decisions always reach canonical doc writes."
       inputs:
         required: []
         optional: []
@@ -303,9 +303,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakum1BsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsOZQEAyAodXnfGwB5fwyX+nCT/
-    F1mirIeVAxhLkOuy+bwMKgcA/RMIMcUX67xzrwveR6CdoU6FBIoSKhlcELopGIVo
-    9RwF
-    =889b
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuwWxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGstKQD+LWGc9I5thOvNJ8CKZAga
+    wv3D9XfiLuJ1krH4Rn6DNkoA/RE0Sv7DhYsT/2KIrIuPfPv0klpSQAfgDszqladM
+    6/8J
+    =uN9E
     -----END PGP SIGNATURE-----
