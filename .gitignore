@@ -46,6 +46,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # ignored worktree-local loopship runtime
 /.loopship/runtime/
 /.loopship/.gitignore
+/.loopship/call-catalog/
 /.loopship/cache
 /.loopship/data/
 /.loopship/workflows/

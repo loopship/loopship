@@ -2112,7 +2112,7 @@ export function ensureGitRootCommit(repoRoot: string): void {
   }
 }
 
-function parseGitWorktrees(repoRoot: string): Array<{
+export function parseGitWorktrees(repoRoot: string): Array<{
   worktree: string;
   branch: string | null;
 }> {
@@ -2179,6 +2179,61 @@ function isRuntimeScaffoldOnlyDirectory(path: string): boolean {
   }
 }
 
+function gitRefCommit(repoRoot: string, ref: string): string | null {
+  const proc = runCommand("git", ["rev-parse", "--verify", ref], {
+    cwd: repoRoot,
+    timeoutMs: 10_000,
+  });
+  return proc.status === 0 ? proc.stdout.trim() || null : null;
+}
+
+function gitWorkspaceClean(worktreePath: string): boolean {
+  const proc = runCommand("git", ["status", "--short"], {
+    cwd: worktreePath,
+    timeoutMs: 10_000,
+  });
+  return proc.status === 0 && !proc.stdout.trim();
+}
+
+function syncWorkspaceToBaseIfSafe(
+  repoRoot: string,
+  worktreePath: string,
+  branchRef: string,
+  baseRef?: string,
+): void {
+  const base = String(baseRef ?? "").trim();
+  if (!base) return;
+  const branchCommit = gitRefCommit(repoRoot, branchRef);
+  const baseCommit = gitRefCommit(repoRoot, base);
+  if (!branchCommit || !baseCommit || branchCommit === baseCommit) return;
+  const divergence = runCommand(
+    "git",
+    ["rev-list", "--left-right", "--count", `${base}...${branchRef}`],
+    {
+      cwd: repoRoot,
+      timeoutMs: 10_000,
+    },
+  );
+  if (divergence.status !== 0) return;
+  const [behindCountRaw, aheadCountRaw] = divergence.stdout.trim().split(/\s+/);
+  const behindCount = Number.parseInt(behindCountRaw ?? "0", 10) || 0;
+  const aheadCount = Number.parseInt(aheadCountRaw ?? "0", 10) || 0;
+  if (behindCount === 0 || aheadCount !== 0 || !gitWorkspaceClean(worktreePath)) {
+    return;
+  }
+  const reset = runCommand("git", ["reset", "--hard", base], {
+    cwd: worktreePath,
+    timeoutMs: 30_000,
+  });
+  if (reset.status !== 0) {
+    throw new Error(
+      reset.stderr ||
+        reset.stdout ||
+        `failed to fast-forward ${branchRef} to ${base}`,
+    );
+  }
+}
+
 export function coordinatorWorktreePath(
   repoRoot: string,
   wtree: string,
@@ -2197,6 +2252,7 @@ function ensureNamedWorkspace(
   repoRoot: string,
   branchRef: string,
   desiredPath: string,
+  baseRef?: string,
 ): QuestWorkspace {
   if (!hasGitCommit(repoRoot)) {
     mkdirSync(desiredPath, { recursive: true });
@@ -2212,6 +2268,12 @@ function ensureNamedWorkspace(
     (entry) => resolve(entry.worktree) === desiredPath,
   );
   if (existingByPath) {
+    syncWorkspaceToBaseIfSafe(
+      repoRoot,
+      existingByPath.worktree,
+      existingByPath.branch ?? branchRef,
+      baseRef,
+    );
     return {
       branch_ref: existingByPath.branch ?? branchRef,
       worktree_path: existingByPath.worktree,
@@ -2223,6 +2285,12 @@ function ensureNamedWorkspace(
     (entry) => entry.branch === branchRef,
   );
   if (existingByBranch) {
+    syncWorkspaceToBaseIfSafe(
+      repoRoot,
+      existingByBranch.worktree,
+      branchRef,
+      baseRef,
+    );
     return {
       branch_ref: branchRef,
       worktree_path: existingByBranch.worktree,
@@ -2253,6 +2321,12 @@ function ensureNamedWorkspace(
         timeoutMs: 10_000,
       },
     ).status === 0;
+  const startRef = String(baseRef ?? "").trim() || "HEAD";
+  if (!branchExists && startRef !== "HEAD" && !gitRefCommit(repoRoot, startRef)) {
+    throw new Error(
+      `cannot create worktree ${desiredPath} from missing base ref ${startRef}`,
+    );
+  }
   const proc = branchExists
     ? runCommand("git", ["worktree", "add", desiredPath, branchRef], {
         cwd: repoRoot,
@@ -2260,7 +2334,7 @@ function ensureNamedWorkspace(
       })
     : runCommand(
         "git",
-        ["worktree", "add", "-b", branchRef, desiredPath, "HEAD"],
+        ["worktree", "add", "-b", branchRef, desiredPath, startRef],
         {
           cwd: repoRoot,
           timeoutMs: 30_000,
@@ -2291,8 +2365,9 @@ export function ensureTaskWorkspace(
   repoRoot: string,
   branchRef: string,
   worktreePath: string,
+  baseRef?: string,
 ): QuestWorkspace {
-  return ensureNamedWorkspace(repoRoot, branchRef, resolve(worktreePath));
+  return ensureNamedWorkspace(repoRoot, branchRef, resolve(worktreePath), baseRef);
 }
 
 function renderLoopshipShim(loopshipScriptAbs: string): string {

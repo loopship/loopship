@@ -215,6 +215,7 @@ function assertWorkflowSpecTerminalChildRules(): void {
     "Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files",
     "promotion-managed release artifacts",
     "Workflow validation rejects stable workflow digest drift",
+    "restore the stable artifact",
   ]) {
     assertContains(text, needle, scope);
   }
@@ -231,6 +232,7 @@ function assertAgentSystemCardTerminalChildRules(): void {
     "Do not hand-edit Fastflow `*.stable.yaml` workflow files or call-catalog `index.yaml`",
     "Do not let a terminal child quest dispatch child worktrees",
     "malformed stable workflow edits",
+    "restore the stable artifact",
   ]) {
     assertContains(text, needle, scope);
   }
@@ -241,9 +243,14 @@ function assertSystemUpdatePrompt(): void {
   const scope = "system_update side-effect workflow";
   for (const needle of [
     "Submit system doc updates. Loopship writes signed repo docs.",
+    "fastflow.afn.core.request.input",
     "loopship.afn.service.system.apply",
     "schemas/steps/system-update-input.yaml",
     "schema_version",
+    ".loopship/system.yaml",
+    ".loopship/docs/**/*.yaml",
+    ".loopship/signature.yaml",
+    "Use `mode: \"no_change\"` only when",
   ]) {
     assertContains(text, needle, scope);
   }
@@ -264,6 +271,64 @@ function assertSystemUpdatePrompt(): void {
     ".loopship/docs/*.yaml",
   ]) {
     assertNotContains(text, needle, scope);
+  }
+}
+
+function assertStepPromptLifecycleCoherency(): void {
+  for (const [name, title, contractPhrase] of [
+    ["questions", "# Loopship Questions Step", "do not include command strings, successor-state scaffolding"],
+    ["task-graph", "# Loopship Task Graph Step", "do not include command strings, successor-state scaffolding"],
+    ["child-result", "# Loopship Child Result Step", "do not include command strings, successor-state scaffolding"],
+    ["validation", "# Loopship Validation Step", "do not include command strings, successor-state scaffolding"],
+    ["verification", "# Loopship Verification Step", "do not include command strings, successor-state scaffolding"],
+    ["system-update", "# Loopship System Update Step", "do not emit command strings"],
+  ] as const) {
+    const text = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", `${name}.stable.yaml`));
+    const scope = `${name} step prompt`;
+    assertContains(text, title, scope);
+    assertContains(text, "## Step-Local Callback Contract", scope);
+    assertContains(text, "The Fastflow orchestrator owns flow", scope);
+    assertContains(text, "Return exactly one JSON payload", scope);
+    assertContains(text, contractPhrase, scope);
+  }
+
+  const executing = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "executing.stable.yaml"));
+  assertContains(executing, "Prepare ready child worktrees for coordinator quests only", "executing step workflow");
+  assertContains(executing, "terminal child quests must not dispatch nested child worktrees", "executing step workflow");
+
+  const landing = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "landing.stable.yaml"));
+  assertContains(landing, "loopship.afn.service.landing.apply", "landing step workflow");
+  assertContains(landing, "target_branch", "landing step workflow");
+  assertContains(landing, "target_worktree", "landing step workflow");
+  assertContains(landing, "source_branch", "landing step workflow");
+}
+
+function assertSweFlowLifecycleGuards(): void {
+  const text = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "flows", "swe.stable.yaml"));
+  const scope = "SWE flow lifecycle guards";
+  for (const needle of [
+    "stage_result_awaiting_user_answers",
+    "answers_partial",
+    "const targetStage = complete ? \"planning\" : \"awaiting_user_answers\"",
+    "stage_result_plan_review",
+    "replan_reason",
+    "const targetStage = rejected ? \"replanning\"",
+    "stage_leaf_git_head",
+    "stage_result_leaf_executing",
+    "childResultsAfterChildResult",
+    "evidence: array(payload.evidence)",
+    "stage_result_landing_ready",
+    "landed_commit",
+    "landing_strategy",
+  ]) {
+    assertContains(text, needle, scope);
+  }
+
+  const scriptCount = (text.match(/\bscript:/g) ?? []).length;
+  if (scriptCount > 43) {
+    throw new Error(
+      `SWE flow script count grew from the audited baseline: expected <=43 script blocks, found ${scriptCount}`,
+    );
   }
 }
 
@@ -477,6 +542,8 @@ function main(): number {
   assertReadmeCommandSurface();
   assertPlanPrompt();
   assertSystemUpdatePrompt();
+  assertStepPromptLifecycleCoherency();
+  assertSweFlowLifecycleGuards();
   assertCanonicalArchitectureDocs();
   assertWorkflowSpecTerminalChildRules();
   assertAgentSystemCardTerminalChildRules();

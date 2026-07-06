@@ -192,25 +192,12 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 1
-      digest: "sha256:01642934a42a4cb3b540974517c37f26d6a4e20467097ae7b2df590318577de1"
-      summary: "Submit system doc updates. Loopship writes signed repo docs."
+      release: 4
+      digest: "sha256:04b794e8a253fd9b056c599be06045cf30d7cfa4d0f881a1104ad55c39f8ab5f"
+      summary: "Guard system_update apply input resolution so explicit resume decisions always reach canonical doc writes."
       inputs:
-        required:
-          - system_update
-        optional:
-          - repo
-          - repoRoot
-          - wtree
-          - quest
-          - runtime
-          - actor
-          - target_branch
-          - target_worktree
-          - source_branch
-          - receipt
-          - task
-          - update
+        required: []
+        optional: []
       requires:
         - loopship.afn.service.system.apply
   task-graph:
@@ -316,9 +303,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktRyxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtGXwD/Y4U7a+np7ZrGTi4b5L00
-    Ehl8y93905TjcpDYTennjNkBAMyVJeTYopdbZOtoeKWOIO8FUCZKUuBre+cj1MDp
-    w6gD
-    =CJN0
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuwYBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGv3zgD/VGBxQ0U5NhVJ2asyfW02
+    a/VZEhvQwLgQXSWcB10RRy0BANuriGSFJ+AST6f/IQ1YvtD6Ay+Vr9rkT7L+6Pf5
+    n8sG
+    =ZfwP
     -----END PGP SIGNATURE-----

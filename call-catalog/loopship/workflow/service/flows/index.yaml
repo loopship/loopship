@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 9
-      digest: "sha256:cafdb9d12957e2a12d98b1ab6208dc24f1720d66f472cad5614372101a0a3555"
-      summary: "Move landing next_stage routing onto the landing step."
+      release: 17
+      digest: "sha256:446285f165f99d83c6caaaacc9c83b14280bf562b5bd6ee2176b0f03c9318199"
+      summary: "Write terminal-child system_update docs into the active worktree before landing back to the parent."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaktk/xsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuY6gD9EiHGltu9jGT+f5W1CR5t
-    iNrL6RNTy5Jdtzyv1v98OjkBAJmaiJge7xaAvPqLbPrlytgMcdFOlOmXWOl5UxdL
-    laoF
-    =1Ffr
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaku2JxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvtCgD9FZwZbh2g7b1KEcC1pHyD
+    ChzGMm7Fa/b+RkHICXnceTIBAN87vplVWwfpsYNvs0qMNQC57moJM8Xscb3f+4UY
+    DGwA
+    =nw2p
     -----END PGP SIGNATURE-----
