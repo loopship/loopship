@@ -365,7 +365,9 @@ function runGit(cwd: string, args: string[]): string {
 function createGitFixture(prefix: string): { root: string; repo: string } {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const repo = join(root, "repo");
-  const init = runCommand("git", ["init", repo], { timeoutMs: 15_000 });
+  const init = runCommand("git", ["init", "--initial-branch=main", repo], {
+    timeoutMs: 15_000,
+  });
   expect(init.status, init.stderr || init.stdout).toBe(0);
   runGit(repo, ["config", "user.email", "loopship-test@example.invalid"]);
   runGit(repo, ["config", "user.name", "Loopship Fastflow Test"]);
