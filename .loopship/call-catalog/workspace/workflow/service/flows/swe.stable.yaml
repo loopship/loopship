@@ -313,7 +313,7 @@ do:
           current_stage: awaiting_user_answers
           summary: "Submit grouped user answers for the current clarification round."
           prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repo: "${state.steps.read_tasks.action.coordinator_worktree || inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           runtime: "${inputs.runtime || ''}"
           tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
@@ -634,7 +634,7 @@ do:
         input:
           schema_version: loopship.step.request/v1
           kind: quest_step_request
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          repo: "${state.steps.read_tasks.action.coordinator_worktree || inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
           quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
