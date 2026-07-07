@@ -442,10 +442,10 @@ function ensureLoopshipRuntimeDocument(input: {
   if (!request) return;
   const wtree = String(input.inputs.wtree ?? "").trim() || defaultWtreeName(request);
   const coordinatorBranch =
-    optionalString(input.inputs.sourceBranch) ||
-    optionalString(input.inputs.source_branch) ||
     gitCurrentBranch(input.workspaceRoot) ||
-    wtree;
+    wtree ||
+    optionalString(input.inputs.sourceBranch) ||
+    optionalString(input.inputs.source_branch);
   const landingTargetBranch =
     optionalString(input.inputs.targetBranch) ||
     optionalString(input.inputs.target_branch) ||
