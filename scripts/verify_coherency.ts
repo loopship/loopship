@@ -327,6 +327,7 @@ function assertSweFlowLifecycleGuards(): void {
     "const targetStage = effectiveRejected ? \"replanning\"",
     "task_graph_ready_leaf",
     "isTerminalChild(tasks) ? \"executing\" : \"task_graph_ready\"",
+    "merge_commit: String(mergeCommit || row.merge_commit || \"\")",
     "stage_leaf_git_head",
     "stage_result_leaf_executing",
     "childResultsAfterChildResult",
