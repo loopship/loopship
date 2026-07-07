@@ -206,6 +206,7 @@ export type QuestState = {
   plan_detail: QuestPlanDetail;
   validation_receipt: QuestValidationReceipt;
   verification_receipt: QuestVerificationReceipt;
+  local_work_receipt?: Record<string, unknown>;
   child_results: QuestChildResult[];
   tasks: QuestTask[];
 };
@@ -435,6 +436,11 @@ function sortJson(value: unknown): unknown {
 function canonicalYamlDigest(path: string): string {
   const parsed = parseYaml(readText(path));
   return hashText(JSON.stringify(sortJson(parsed)));
+}
+
+function managedFileDigest(path: string): string {
+  if (/\.(ya?ml)$/i.test(path)) return canonicalYamlDigest(path);
+  return hashText(readText(path));
 }
 
 const LOCAL_MANIFEST_PRIVATE_KEY = `[REDACTED PRIVATE KEY]`;
@@ -910,7 +916,7 @@ function canonicalManagedEntries(repoRoot: string): Array<{
     schema: "self",
     schema_path: path,
     role: "canonical",
-  }));
+  })).filter((entry) => existsSync(resolve(repoRoot, entry.path)));
   const resourceEntries = systemResources(repoRoot)
     .filter((entry) => entry.role === "canonical")
     .filter((entry) => entry.location !== LOOPSHIP_ROOT_MANIFEST_FILE)
@@ -954,7 +960,7 @@ export function writeSystemManifest(
     path: entry.path,
     schema: entry.schema,
     role: entry.role,
-    digest: canonicalYamlDigest(resolve(repoRoot, entry.path)),
+    digest: managedFileDigest(resolve(repoRoot, entry.path)),
   }));
   const receiptHead = hashText(
     [
@@ -1064,7 +1070,7 @@ export function verifyRootManifest(repoRoot: string): {
       errors.push(`root signature references missing file: ${entry.path}`);
       continue;
     }
-    if (canonicalYamlDigest(fullPath) !== String(actual.digest ?? "")) {
+    if (managedFileDigest(fullPath) !== String(actual.digest ?? "")) {
       errors.push(`unauthorized/tampered root file: ${fullPath}`);
     }
   }
@@ -1473,6 +1479,10 @@ export function renderTasksYaml(state: QuestState): string {
         state.validation_receipt ?? defaultQuestValidationReceipt(),
       verification_receipt:
         state.verification_receipt ?? defaultQuestVerificationReceipt(),
+      ...(state.local_work_receipt &&
+      typeof state.local_work_receipt === "object"
+        ? { local_work_receipt: state.local_work_receipt }
+        : {}),
       child_results: Array.isArray(state.child_results) ? state.child_results : [],
       tasks: Array.isArray(state.tasks) ? state.tasks : [],
     },
@@ -1637,6 +1647,11 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
               : [],
           }
         : defaultQuestVerificationReceipt(),
+    ...(raw.local_work_receipt &&
+    typeof raw.local_work_receipt === "object" &&
+    !Array.isArray(raw.local_work_receipt)
+      ? { local_work_receipt: raw.local_work_receipt as Record<string, unknown> }
+      : {}),
     child_results: normalizeQuestChildResults(raw.child_results),
     tasks: normalizeTaskList(raw.tasks),
   };
@@ -1988,6 +2003,10 @@ export function applyLandingReceipt(
       state.validation_receipt ?? defaultQuestValidationReceipt(),
     verification_receipt:
       state.verification_receipt ?? defaultQuestVerificationReceipt(),
+    ...(state.local_work_receipt &&
+    typeof state.local_work_receipt === "object"
+      ? { local_work_receipt: state.local_work_receipt }
+      : {}),
     child_results: Array.isArray(state.child_results) ? state.child_results : [],
     tasks: Array.isArray(state.tasks) ? state.tasks : [],
   };

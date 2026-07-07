@@ -234,7 +234,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:effbf3ae89c4c5ce0c6b8d9e85b2cc28e569b32d08b7dd94a45a7886c5cfbefe"
+          digest: "sha256:d382bae14d5bab2921a5e3a7095c7e4cc1a237d128f2aab9c178fce2c4a303a7"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
@@ -299,7 +299,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:d6dadaaf81ab5b7f1694317cd96daecc0ef4d8ba38b249ee3fa67228f05e25b3"
+          digest: "sha256:c148837eda2d41990ae817e4a4d2a777105dc0edb904ab6d103acf31b5af482f"
       call: loopship.workflow.service.step.questions
       with:
         version: 0.1.0
@@ -356,7 +356,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:d2f4f7a77c2d7225835a82930cef6a3325f695f4aeab069c45bb05cd5a7d0ea0"
+          digest: "sha256:257a9a2e22159b3ad8bd6db20ba2cb2da94fb779e14ad9533cd16a8acfe8f3d1"
       call: loopship.workflow.service.step.task-graph
       with:
         version: 0.1.0
@@ -456,7 +456,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:bf9e8ed1fedabc132da414e97ddf6e81a272e286277d7ecbb0134d31a0ba7036"
+          digest: "sha256:2328d11fb655526c7aff8a9c866be93c100b100878671204ee42eb397293bb8a"
       call: loopship.workflow.service.step.child-result
       with:
         version: 0.1.0
@@ -513,7 +513,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:2068e6b6c6004a26ebc7e7b71cc13d4aa9bcec2a579e9edc178ec6878a79dccb"
+          digest: "sha256:4d75790590dac127845f936eb88524c2e69db8c3d35184cbf2520265244d36c1"
       call: loopship.workflow.service.step.validation
       with:
         version: 0.1.0
@@ -570,7 +570,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:31f887a4d4c6183fd51f1334a15aaff85b99e46f63c612af93570080a2e784cf"
+          digest: "sha256:0a3db8a8e14b6cf321102b7d97af43293101fe37fd592f912a00818d69626fb9"
       call: loopship.workflow.service.step.verification
       with:
         version: 0.1.0
@@ -627,7 +627,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:04b794e8a253fd9b056c599be06045cf30d7cfa4d0f881a1104ad55c39f8ab5f"
+          digest: "sha256:5ec976217ce409e5ec85256b39d336d7cf5bd6f13b19029172c84e0e5a0086e9"
       call: loopship.workflow.service.step.system-update
       with:
         version: 0.1.0
@@ -731,7 +731,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:effbf3ae89c4c5ce0c6b8d9e85b2cc28e569b32d08b7dd94a45a7886c5cfbefe"
+          digest: "sha256:d382bae14d5bab2921a5e3a7095c7e4cc1a237d128f2aab9c178fce2c4a303a7"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
@@ -796,7 +796,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:8b91368e3e620603559569d6702ee81240b464e8934a731e4c4034feee7cbe3c"
+          digest: "sha256:07069497de8d832b6169af3656ea6e02699d0f0581726224bb5c2236437df9a7"
       call: loopship.workflow.service.step.archived
       with:
         version: 0.1.0
@@ -1021,6 +1021,7 @@ do:
           language: js
           code: |-
             function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
+            function array(value) { return Array.isArray(value) ? value : []; }
             function normalizePrompt(value) { return String(value || "").toLowerCase().replace(/^loopship:\s*/, "").replace(/[^a-z0-9]+/g, " ").trim(); }
             function isTerminalChild(tasks) { return Boolean(String(tasks.parent_wtree || "").trim()) || Boolean(String(tasks.parent_task_id || "").trim()) || Boolean(String(tasks.parent_context_ref || "").trim()) || normalizePrompt(tasks.prompt).startsWith("execute child task "); }
             function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
@@ -1029,10 +1030,13 @@ do:
             const stageAction = object(state.steps.stage_plan_review?.action);
             const payload = object(object(stageAction.decision).decision || object(stageAction.decision) || stageAction);
             const rejected = payload.approved === false || payload.rejected === true;
-            const targetStage = rejected ? "replanning" : isTerminalChild(tasks) ? "executing" : "task_graph_ready";
-            const transition = rejected ? "rejected" : "approved";
-            const event = { event: rejected ? "task_graph_rejected" : "task_graph_approved", stage: targetStage, replan_reason: rejected ? String(payload.replan_reason || "") : "" };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "plan_review", stage_after: targetStage, transition, step: "task_graph", step_workflow_task: "stage_plan_review", step_payload: payload, step_action: payload, state_patch: rejected ? { stage: targetStage, replan_reason: String(payload.replan_reason || "") } : { stage: targetStage, replan_reason: "" }, events: eventList("plan_review", targetStage, transition, "task_graph", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "task_graph", stage_before: "plan_review", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            const emptyApproved = !rejected && payload.approved === true && array(tasks.tasks).length === 0;
+            const effectiveRejected = rejected || emptyApproved;
+            const replanReason = rejected ? String(payload.replan_reason || "") : emptyApproved ? "approved task graph is empty; replan with at least one concrete local or child task before execution" : "";
+            const targetStage = effectiveRejected ? "replanning" : isTerminalChild(tasks) ? "executing" : "task_graph_ready";
+            const transition = effectiveRejected ? "rejected" : "approved";
+            const event = { event: effectiveRejected ? "task_graph_rejected" : "task_graph_approved", stage: targetStage, replan_reason: replanReason };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "plan_review", stage_after: targetStage, transition, step: "task_graph", step_workflow_task: "stage_plan_review", step_payload: payload, step_action: payload, state_patch: effectiveRejected ? { stage: targetStage, replan_reason: replanReason } : { stage: targetStage, replan_reason: "" }, events: eventList("plan_review", targetStage, transition, "task_graph", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "task_graph", stage_before: "plan_review", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1149,16 +1153,19 @@ do:
             function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
             function array(value) { return Array.isArray(value) ? value : []; }
             function markLeafTasksDone(tasks, mergeCommit) { return { ...tasks, tasks: array(tasks.tasks).map((task) => { const row = object(task); if (String(row.child_wtree || "").trim()) return row; const status = String(row.status || "pending"); const nextStatus = status === "blocked" || status === "failed" ? status : "done"; return { ...row, status: nextStatus, merge_commit: String(row.merge_commit || mergeCommit || "") }; }) }; }
+            function localTaskIds(tasks) { return array(object(tasks).tasks).map((task) => object(task)).filter((task) => !String(task.child_wtree || "").trim()).map((task, index) => String(task.id || task.task_id || "task-" + (index + 1)).trim()).filter(Boolean); }
+            function localWorkReceipt(tasks, mergeCommit) { const coveredTaskIds = localTaskIds(tasks); return { mode: "shared-head-commit", worktree_path: String(tasks.coordinator_worktree || ""), commit: mergeCommit, covered_task_ids: coveredTaskIds }; }
             function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
             function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const tasks = object(state.steps.read_tasks?.action);
             const mergeCommit = String(object(state.steps.stage_leaf_git_head?.action).commit || "");
             const nextTasks = markLeafTasksDone(tasks, mergeCommit);
+            const receipt = localWorkReceipt(tasks, mergeCommit);
             const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
             const targetStage = transition === "complete" ? "validating" : "executing";
-            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit }, step_action: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit }, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks) }, events: eventList("executing", targetStage, transition, "executing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "executing", stage_before: "executing", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, covered_task_ids: receipt.covered_task_ids };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, local_work_receipt: receipt }, step_action: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, local_work_receipt: receipt }, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks), local_work_receipt: receipt }, events: eventList("executing", targetStage, transition, "executing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "executing", stage_before: "executing", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:

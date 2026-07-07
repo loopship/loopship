@@ -10,6 +10,21 @@ document:
         - loopship
         - step
         - plan
+    inference:
+      groups:
+        loopship_planning:
+          timeoutMs: 600000
+          on:
+            - unavailable
+            - timeout
+            - transport_error
+            - invalid_json
+            - invalid_output
+            - abstain
+          try:
+            - llm.cli.codex.gpt-5.5.max
+            - aitl.chat
+            - hitl.review
 input:
   schema:
     document:
@@ -319,7 +334,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
-        inference: aitl.chat
+        inference: loopship_planning
         validation:
           post:
             kind: js

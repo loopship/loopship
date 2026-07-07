@@ -1152,6 +1152,7 @@ function nonLoopshipGitDirtyEntries(path: string): string[] {
 
 function durableLoopshipStagePaths(cwd: string): string[] {
   const candidates = [
+    ".loopship/.gitignore",
     ".loopship/system.yaml",
     ".loopship/signature.yaml",
     ".loopship/docs",
