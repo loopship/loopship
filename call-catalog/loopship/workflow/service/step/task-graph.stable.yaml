@@ -1,3 +1,5 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-step
@@ -369,6 +371,10 @@ do:
             
             Approve only when dependencies, scope files, concurrency groups, and child
             CLI-agent assignment fields are deterministic.
+            For broad or full-system work, approve only after the graph recursively
+            splits feature areas into the smallest independently ownable unit tasks that
+            can run concurrently without dependency, ownership, shared-file, acceptance,
+            or merge-safety conflicts.
             Prefer maximal useful independence so multiple ready tasks can run in
             parallel. Dependent tasks should wait instead of being emitted as partially
             blocked child work.
@@ -382,6 +388,10 @@ do:
             Reject graphs that over-split tiny work. Setup-only tasks, trivial test-only
             tasks, and micro-refactors should be folded into the nearest implementation
             task unless they need separate ownership or materially different acceptance.
+            
+            Reject broad feature-bundle tasks when their API routes, UI surfaces, data
+            adapters, domain modules, or verification paths can be split into smaller
+            independently ownable leaf tasks with clear acceptance and dependency edges.
             
             Reject graphs that would cause a child task to split again. Child quests are
             leaf workers and should receive one independently completable assignment.
