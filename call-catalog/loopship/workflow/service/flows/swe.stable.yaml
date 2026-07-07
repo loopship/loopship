@@ -187,6 +187,9 @@ do:
         - plan_review:
             when: "${state.steps.resolve_stage.action.current_stage === \"plan_review\"}"
             then: stage_plan_review
+        - task_graph_ready_leaf:
+            when: "${state.steps.resolve_stage.action.current_stage === \"task_graph_ready\" && (String(state.steps.read_tasks.action.parent_wtree || \"\").trim() || String(state.steps.read_tasks.action.parent_task_id || \"\").trim() || String(state.steps.read_tasks.action.parent_context_ref || \"\").trim() || String(state.steps.read_tasks.action.prompt || \"\").replace(/^loopship:\\s*/i, \"\").trim().toLowerCase().startsWith(\"execute child task \")) && Array.isArray(state.steps.read_tasks.action.tasks) && state.steps.read_tasks.action.tasks.length > 0 && state.steps.read_tasks.action.tasks.every((task) => !String((task || {}).child_wtree || \"\").trim())}"
+            then: stage_leaf_git_head
         - task_graph_ready:
             when: "${state.steps.resolve_stage.action.current_stage === \"task_graph_ready\"}"
             then: stage_task_graph_ready
