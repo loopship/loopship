@@ -678,16 +678,23 @@ do:
             
             ## Task Graph Sizing
             
-            - Prefer the smallest task graph that can finish deterministically.
+            - Prefer the most parallel, recursively decomposed task graph that can
+              finish deterministically. Stop splitting only when dependencies,
+              ownership boundaries, shared-file conflicts, acceptance coupling, or
+              merge safety make a smaller child task counterproductive.
+            - For broad or full-system work, recursively split feature areas into the
+              smallest independently ownable unit tasks so all ready siblings can run
+              concurrently.
             - Prefer maximal useful independence so multiple child worktrees can run in
               parallel when the work is clearly independent and the file scope is
               disjoint.
             - For tiny utilities, one-file tools, and narrow greenfield apps, keep the
               graph to 1-2 tasks unless a split is required by file ownership, merge
               safety, or materially different acceptance criteria.
-            - For a small prototype or first version, keep the graph to 1-3 concrete
-              tasks. Do not split scaffolding, implementation, and final verification
-              into separate child tasks unless the acceptance boundaries genuinely differ.
+            - For a small prototype or first version, keep the graph compact only when
+              the work is genuinely narrow. Do not split scaffolding, implementation,
+              and final verification into separate child tasks unless the acceptance
+              boundaries genuinely differ.
             - When the request still requires implementation work, the task graph must
               contain at least one concrete task. Do not submit an empty `task_graph`
               just because the scope is small; omit it only for clarification rounds.
