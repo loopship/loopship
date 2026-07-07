@@ -166,8 +166,46 @@ const LANDING_STATUS_SCHEMA = {
   enum: ["landed", "blocked"],
 } as const;
 
+const STAGE_RESULT_BUILD_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "schema_version",
+    "flow_id",
+    "stage_before",
+    "stage_after",
+    "transition",
+    "step",
+    "step_workflow_task",
+    "step_payload",
+    "step_action",
+    "state_patch",
+    "events",
+    "runtime",
+  ],
+  properties: {
+    schema_version: { const: "loopship.stage-result.build/v1" },
+    flow_id: { type: "string", minLength: 1 },
+    stage_before: { type: "string", minLength: 1 },
+    stage_after: { type: "string", minLength: 1 },
+    transition: { type: "string", minLength: 1 },
+    step: { type: "string", minLength: 1 },
+    step_workflow_task: { type: "string", minLength: 1 },
+    step_payload: { type: "object", additionalProperties: true },
+    step_action: { type: "object", additionalProperties: true },
+    state_patch: { type: "object", additionalProperties: true },
+    events: {
+      type: "array",
+      items: { type: "object", additionalProperties: true },
+    },
+    runtime: { type: "object", additionalProperties: true },
+    as_check: { type: "boolean" },
+  },
+} as const;
+
 export const LOOPSHIP_AFN_CALLS = Object.freeze({
   childPrepare: "loopship.afn.service.child.prepare",
+  flowStageResultBuild: "loopship.afn.service.flow.stage-result-build",
   gitHead: "loopship.afn.service.git.head",
   systemApply: "loopship.afn.service.system.apply",
   landingApply: "loopship.afn.service.landing.apply",
@@ -230,6 +268,34 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     metadata: {
       allowed_phases: ["action"],
       effects: ["worktree.prepare", "quest.prepare"],
+    },
+  },
+  {
+    call: LOOPSHIP_AFN_CALLS.flowStageResultBuild,
+    summary: "Build a generic Loopship flow stage-result envelope from flow-owned transition data.",
+    inputs: {
+      required: [
+        "schema_version",
+        "flow_id",
+        "stage_before",
+        "stage_after",
+        "transition",
+        "step",
+        "step_workflow_task",
+        "step_payload",
+        "step_action",
+        "state_patch",
+        "events",
+        "runtime",
+      ],
+      optional: ["as_check"],
+      schema: STAGE_RESULT_BUILD_SCHEMA,
+    },
+    tags: ["loopship", "flow", "stage-result", "envelope"],
+    preferWhen: ["A Loopship flow needs to normalize a stage transition into the standard result envelope."],
+    avoidWhen: ["The workflow needs to decide stage transitions, interpret task graphs, or mutate runtime state."],
+    metadata: {
+      allowed_phases: ["action", "verification"],
     },
   },
   {
@@ -1087,6 +1153,101 @@ function executeGitHead(body: Record<string, unknown>): Record<string, unknown> 
   };
 }
 
+function stageChangedEventPayload(input: {
+  stageAfter: string;
+  stageBefore: string;
+  step: string;
+  transition: string;
+}): Record<string, unknown> {
+  return {
+    event: "stage_changed",
+    stage: input.stageAfter,
+    transition: input.transition,
+    step: input.step,
+    stage_before: input.stageBefore,
+    stage_after: input.stageAfter,
+  };
+}
+
+function normalizeStageResultEvent(
+  event: Record<string, unknown>,
+  transitionContext: Record<string, unknown>,
+): Record<string, unknown> {
+  const payload = isPlainObject(event.payload) ? event.payload : event;
+  return {
+    schema_version: optionalString(event.schema_version) || "1.0.0",
+    payload: {
+      ...payload,
+      ...transitionContext,
+    },
+  };
+}
+
+function executeFlowStageResultBuild(body: Record<string, unknown>): Record<string, unknown> {
+  const flowId = requireString(body.flow_id, "flow_id");
+  const stageBefore = requireString(body.stage_before, "stage_before");
+  const stageAfter = requireString(body.stage_after, "stage_after");
+  const transition = requireString(body.transition, "transition");
+  const step = requireString(body.step, "step");
+  const stepWorkflowTask = requireString(body.step_workflow_task, "step_workflow_task");
+  const stepPayload = isPlainObject(body.step_payload) ? body.step_payload : {};
+  const stepAction = isPlainObject(body.step_action) ? body.step_action : stepPayload;
+  const statePatch = isPlainObject(body.state_patch) ? body.state_patch : {};
+  const runtime = isPlainObject(body.runtime) ? body.runtime : {};
+  const eventPayload = stageChangedEventPayload({
+    stageAfter,
+    stageBefore,
+    step,
+    transition,
+  });
+  const transitionContext = {
+    transition,
+    step,
+    stage_before: stageBefore,
+    stage_after: stageAfter,
+  };
+  const events = Array.isArray(body.events)
+    ? body.events
+        .filter(isPlainObject)
+        .map((event) => normalizeStageResultEvent(event, transitionContext))
+    : [];
+  const result = {
+    schema_version: "loopship.stage-result/v1",
+    flow_id: flowId,
+    stage_before: stageBefore,
+    stage_after: stageAfter,
+    transition,
+    step,
+    step_workflow_task: stepWorkflowTask,
+    step_payload: clone(stepPayload),
+    step_action: clone(stepAction),
+    state_patch: clone(statePatch),
+    events: [
+      ...events,
+      {
+        schema_version: "1.0.0",
+        payload: eventPayload,
+      },
+    ],
+    event_payload: eventPayload,
+    runtime: clone(runtime),
+  };
+  if (body.as_check === true) {
+    return {
+      ok: true,
+      evidence: {
+        schema_version: result.schema_version,
+        flow_id: result.flow_id,
+        stage_before: result.stage_before,
+        stage_after: result.stage_after,
+        transition: result.transition,
+        event_count: result.events.length,
+      },
+    };
+  }
+  return result;
+}
+
 function gitCurrentBranch(cwd: string): string | null {
   const proc = runCommand("git", ["branch", "--show-current"], {
     cwd,
@@ -1724,6 +1885,7 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
       }
       validateBodyAgainstDescriptor(descriptor, body);
       if (call === LOOPSHIP_AFN_CALLS.childPrepare) return executeChildPrepare(body);
+      if (call === LOOPSHIP_AFN_CALLS.flowStageResultBuild) return executeFlowStageResultBuild(body);
       if (call === LOOPSHIP_AFN_CALLS.gitHead) return executeGitHead(body);
       if (call === LOOPSHIP_AFN_CALLS.systemApply) return executeSystemApply(body);
       if (call === LOOPSHIP_AFN_CALLS.landingApply) return executeLandingApply(body);
