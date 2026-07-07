@@ -1294,7 +1294,7 @@ describe("Loopship Fastflow-native bridge", () => {
             coordinator_worktree: "/tmp/repo/worktrees/child-terminal",
             tasks: [
               { id: "ui", title: "Build UI", status: "pending", child_wtree: "" },
-              { id: "tests", title: "Add tests", status: "pending", child_wtree: "" },
+              { id: "tests", title: "Add tests", status: "done", child_wtree: "", merge_commit: "old" },
             ],
           },
         },
