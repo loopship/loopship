@@ -182,8 +182,18 @@ function assertPlanPrompt(): void {
     "durable_implications",
     "AF/OF improve the reasoning process here",
     "not output fields",
+    "Emit as many independent material questions in the current `questions`",
+    "Do not cap the Loopship `questions` payload to UI limits such as three",
+    "Supervisors and humans answer or escalate planner questions",
+    "instead of substituting a supervisor-made",
   ]) {
     assertContains(text, needle, scope);
+  }
+  for (const needle of [
+    "1-3 question round",
+    "Keep each round to 1-3",
+  ]) {
+    assertNotContains(text, needle, scope);
   }
   for (const needle of [
     "control_plane.assertions",
@@ -331,6 +341,32 @@ function assertSweFlowLifecycleGuards(): void {
     throw new Error(
       `SWE flow script count grew from the audited baseline: expected <=43 script blocks, found ${scriptCount}`,
     );
+  }
+}
+
+function assertFastflowSessionTimeout(): void {
+  const text = readText(resolve(PACKAGE_ROOT, "scripts", "loopship_fastflow.ts"));
+  assertContains(
+    text,
+    "timeoutMs: 900_000",
+    "Loopship Fastflow node-session timeout must exceed 600s inference groups",
+  );
+  assertContains(
+    text,
+    "instead of inventing replacement planner clarification payloads",
+    "Loopship supervisor guidance must keep planner question generation separate from answer submission",
+  );
+
+  const lifecycleText = readText(resolve(PACKAGE_ROOT, "scripts", "loopship_fastflow_lifecycle.ts"));
+  const lifecycleScope = "Loopship Fastflow lifecycle wrapper";
+  assertContains(lifecycleText, "systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT", lifecycleScope);
+  assertContains(lifecycleText, "callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT]", lifecycleScope);
+  for (const needle of [
+    "SCRATCH_CALL_CATALOG_ROOT",
+    "syncPromotedWorkspaceRelease",
+    "workspace.workflow.service",
+  ]) {
+    assertNotContains(lifecycleText, needle, lifecycleScope);
   }
 }
 
@@ -546,6 +582,7 @@ function main(): number {
   assertSystemUpdatePrompt();
   assertStepPromptLifecycleCoherency();
   assertSweFlowLifecycleGuards();
+  assertFastflowSessionTimeout();
   assertCanonicalArchitectureDocs();
   assertWorkflowSpecTerminalChildRules();
   assertAgentSystemCardTerminalChildRules();
