@@ -1469,6 +1469,7 @@ describe("Loopship Fastflow-native bridge", () => {
         target_commit: "parent123",
         status: "recorded",
         covered_task_ids: ["ui", "tests"],
+        pending_task_ids: [],
       },
     });
     expect(result.step_payload).toMatchObject({
@@ -1476,6 +1477,7 @@ describe("Loopship Fastflow-native bridge", () => {
       merge_commit: "abc123",
       local_work_receipt: {
         covered_task_ids: ["ui", "tests"],
+        pending_task_ids: [],
       },
     });
   });
