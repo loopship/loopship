@@ -4,13 +4,14 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 29
-      digest: "sha256:d700af9e46021734b2c79475d0e44f0cea518e6390483fbb65b202990cd8c5d9"
-      summary: "Compute terminal child receipt pending tasks after marking local tasks done."
+      release: 30
+      digest: "sha256:6411e98a27056b2305bc594722612b23526699210c1d4e7a7cc97690c805d251"
+      summary: "Build stage-result envelopes through reusable flow AFN."
       inputs:
         required: []
         optional: []
       requires:
+        - loopship.afn.service.flow.stage-result-build
         - loopship.afn.service.git.head
         - loopship.workflow.service.step.archived
         - loopship.workflow.service.step.child-result
@@ -26,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak09vhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGubjgEAoSVJv+vBHmFkiDl5bHMI
-    t1Hz4cLnvxJMByFYmiQtsNEBANXbj0kiUlBpBi8VwXJh1v7Gwwilj4VE+sZqk8Sx
-    AOgA
-    =he0m
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak2JmBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGu3TwEA+l4rKQJYARjzvgbI6KIA
+    jtZy1M0NNGY6hWwJ1fQNP+sA/3ErqkqsPhF5GTiK1kor1NNlQNzijimK/Ktp+cJu
+    xdQD
+    =Q0cT
     -----END PGP SIGNATURE-----
