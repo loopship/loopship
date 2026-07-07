@@ -55,7 +55,7 @@ export const LOOPSHIP_SUPERVISOR_GUIDANCE = Object.freeze({
   id: "loopship-supervisor",
   version: PACKAGE_JSON.version || "0.0.0",
   summary:
-    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; treat *.stable.yaml workflows and call-catalog index.yaml files as promotion-managed release artifacts edited only through .dev.yaml plus Fastflow promotion, and if stable digest drift appears copy the intended change into the matching .dev.yaml, restore the stable artifact, and continue via promotion; run emitted child commands for real when the flow delegates work; and require canonical runtime, worktree, task, validation, verification, explicit system_update, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor and improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
+    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; treat *.stable.yaml workflows and call-catalog index.yaml files as promotion-managed release artifacts edited only through .dev.yaml plus Fastflow promotion, and if stable digest drift appears copy the intended change into the matching .dev.yaml, restore the stable artifact, and continue via promotion; run emitted child commands for real when the flow delegates work; and require canonical runtime, worktree, task, validation, verification, explicit system_update, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor; when upfront scoping misses material clarification, reject or re-run scoping instead of inventing replacement planner clarification payloads. Improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
   ref: "README.md#mocked-runtime-lifecycle-stepping",
 });
 
@@ -756,7 +756,7 @@ function runFastflowNodeSession(input: {
   try {
     const proc = runCommand("node", [scriptPath, requestPath], {
       cwd: LOOPSHIP_ROOT,
-      timeoutMs: 180_000,
+      timeoutMs: 900_000,
     });
     if (proc.status !== 0) {
       throw new Error(proc.stderr || proc.stdout || "Fastflow session command failed");

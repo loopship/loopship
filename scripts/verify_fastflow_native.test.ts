@@ -37,7 +37,6 @@ import {
   ensureLoopshipFastflowWorkflowCatalog,
   loopshipFlowWorkflowRef,
 } from "./loopship_fastflow.ts";
-import { syncPromotedWorkspaceRelease } from "./loopship_fastflow_lifecycle.ts";
 import { nativeResumeRequest, runDoctor } from "./loopship.ts";
 import { runCommand } from "./loopship_utils.ts";
 
@@ -1632,177 +1631,13 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("promotion sync copies batch stable files and catalog indexes into the packaged catalog", async () => {
-    const root = mkdtempSync(join(process.cwd(), "tmp", "loopship-promotion-sync-"));
-    const scratchCatalog = join(root, "scratch", "call-catalog");
-    const rootedCatalog = join(root, "packaged", "call-catalog");
-    try {
-      mkdirSync(join(scratchCatalog, "loopship", "workflow", "service", "step"), { recursive: true });
-      mkdirSync(join(scratchCatalog, "workspace", "workflow", "service", "flows"), { recursive: true });
-      mkdirSync(rootedCatalog, { recursive: true });
-      writeFileSync(
-        join(rootedCatalog, "index.yaml"),
-        [
-          "schemaVersion: fastflow/call-catalog-manifest/v3",
-          'pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml"',
-          "release_auth:",
-          "  trusted_releasers:",
-          "    - provider: github",
-          "      user: test",
-          "prefixes:",
-          "  loopship:",
-          "    afn:",
-          "      service:",
-          "        child:",
-          '          tags: "child"',
-          "",
-        ].join("\n"),
-      );
-      writeFileSync(
-        join(scratchCatalog, "index.yaml"),
-        [
-          "schemaVersion: fastflow/call-catalog-manifest/v3",
-          'pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml"',
-          "prefixes:",
-          "  loopship:",
-          "    workflow:",
-          "      service:",
-          "        step:",
-          '          tags: "step, alpha"',
-          "  workspace:",
-          "    workflow:",
-          "      service:",
-          "        flows:",
-          '          tags: "flows, beta"',
-          "",
-        ].join("\n"),
-      );
-      const alphaStablePath = join(
-        scratchCatalog,
-        "loopship",
-        "workflow",
-        "service",
-        "step",
-        "alpha.stable.yaml",
-      );
-      const betaStablePath = join(
-        scratchCatalog,
-        "workspace",
-        "workflow",
-        "service",
-        "flows",
-        "beta.stable.yaml",
-      );
-      writeFileSync(
-        alphaStablePath,
-        [
-          "document:",
-          '  dsl: "1.0.3"',
-          "  namespace: service-step",
-          "  name: alpha",
-          '  version: "1.0.0"',
-          "do: []",
-          "",
-        ].join("\n"),
-      );
-      writeFileSync(
-        betaStablePath,
-        [
-          "document:",
-          '  dsl: "1.0.3"',
-          "  namespace: service-flows",
-          "  name: beta",
-          '  version: "1.0.0"',
-          "do:",
-          "  - call_alpha:",
-          "      call: workspace.workflow.service.step.alpha",
-          "",
-        ].join("\n"),
-      );
-      writeFileSync(
-        join(scratchCatalog, "loopship", "workflow", "service", "step", "index.yaml"),
-        [
-          "schemaVersion: fastflow/call-catalog-scope/v2",
-          "workflows:",
-          "  alpha:",
-          "    stable:",
-          "      release: 2",
-          `      digest: "sha256:${"0".repeat(64)}"`,
-          '      summary: "Promote alpha."',
-          "      inputs:",
-          "        required: []",
-          "        optional: []",
-          "      requires: []",
-          "",
-        ].join("\n"),
-      );
-      writeFileSync(
-        join(scratchCatalog, "workspace", "workflow", "service", "flows", "index.yaml"),
-        [
-          "schemaVersion: fastflow/call-catalog-scope/v2",
-          "workflows:",
-          "  beta:",
-          "    stable:",
-          "      release: 3",
-          `      digest: "sha256:${"0".repeat(64)}"`,
-          '      summary: "Promote beta."',
-          "      inputs:",
-          "        required: []",
-          "        optional: []",
-          "      requires:",
-          "        - workspace.workflow.service.step.alpha",
-          "",
-        ].join("\n"),
-      );
-
-      const syncResult = await syncPromotedWorkspaceRelease(
-        {
-          promoted: true,
-          releases: [
-            {
-              workflowRef: "loopship.workflow.service.step.alpha",
-              stablePath: alphaStablePath,
-              release: 2,
-            },
-            {
-              workflowRef: "workspace.workflow.service.flows.beta",
-              stablePath: betaStablePath,
-              release: 3,
-            },
-          ],
-        },
-        {
-          scratchCallCatalogRoot: scratchCatalog,
-          loopshipCallCatalogRoot: rootedCatalog,
-          refreshAttestation: false,
-        },
-      ) as any;
-
-      expect(syncResult?.synced).toBe(true);
-      expect(syncResult.items).toHaveLength(2);
-      expect(existsSync(join(rootedCatalog, "loopship", "workflow", "service", "step", "alpha.stable.yaml"))).toBe(true);
-      const rootedBetaStable = readFileSync(
-        join(rootedCatalog, "loopship", "workflow", "service", "flows", "beta.stable.yaml"),
-        "utf8",
-      );
-      expect(rootedBetaStable).toContain("loopship.workflow.service.step.alpha");
-      expect(rootedBetaStable).not.toContain("workspace.workflow.service.step.alpha");
-      const rootManifest = parseYaml(readFileSync(join(rootedCatalog, "index.yaml"), "utf8")) as any;
-      expect(rootManifest.release_auth.trusted_releasers[0].user).toBe("test");
-      expect(rootManifest.prefixes.loopship.afn.service.child.tags).toBe("child");
-      expect(rootManifest.prefixes.loopship.workflow.service.step.tags).toBe("step, alpha");
-      expect(rootManifest.prefixes.loopship.workflow.service.flows.tags).toBe("flows, beta");
-      expect(rootManifest.prefixes.workspace).toBeUndefined();
-      const betaIndex = parseYaml(
-        readFileSync(join(rootedCatalog, "loopship", "workflow", "service", "flows", "index.yaml"), "utf8"),
-      ) as any;
-      expect(betaIndex.workflows.beta.stable.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
-      expect(betaIndex.workflows.beta.stable.requires).toEqual([
-        "loopship.workflow.service.step.alpha",
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  test("lifecycle promotion uses the Loopship registry directly", () => {
+    const text = readFileSync(join(process.cwd(), "scripts", "loopship_fastflow_lifecycle.ts"), "utf8");
+    expect(text).toContain("systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT");
+    expect(text).toContain("callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT]");
+    expect(text).not.toContain("SCRATCH_CALL_CATALOG_ROOT");
+    expect(text).not.toContain("syncPromotedWorkspaceRelease");
+    expect(text).not.toContain("workspace.workflow.service");
   });
 
   test("ships the root Fastflow call catalog", async () => {
