@@ -2066,6 +2066,81 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test("landing.apply skips ignored untracked Loopship gitignore while committing docs", async () => {
+    const fixture = createGitFixture("loopship-native-landing-ignored-loopship-gitignore-");
+    try {
+      writeFileSync(
+        join(fixture.repo, ".gitignore"),
+        [".loopship/runtime/", ".loopship/.gitignore", ""].join("\n"),
+        "utf8",
+      );
+      runGit(fixture.repo, ["add", ".gitignore"]);
+      runGit(fixture.repo, ["commit", "-m", "ignore loopship runtime helpers"]);
+
+      const adapters = createLoopshipFastflowAdapters();
+      const workspace = ensureTaskWorkspace(
+        fixture.repo,
+        "codex/demo",
+        join(fixture.repo, "worktrees", "demo"),
+        "main",
+      );
+      const { files, state } = createQuest({
+        repoRoot: fixture.repo,
+        wtree: "demo",
+        prompt: "loopship: native landing",
+        resolutionSource: "test",
+        workspace,
+        flowId: "swe",
+        initialStage: "initial",
+      });
+      const coordinatorWorktree = String(state.coordinator_worktree);
+      mkdirSync(join(coordinatorWorktree, ".loopship", "runtime"), { recursive: true });
+      writeFileSync(
+        join(coordinatorWorktree, ".loopship", ".gitignore"),
+        ["# fastflow runtime data", "runtime/", "cache", "data/", "catalog.db", ""].join("\n"),
+      );
+      writeFileSync(join(coordinatorWorktree, ".loopship", "system.yaml"), "schema_version: 1\n");
+      writeFileSync(join(coordinatorWorktree, ".loopship", "signature.yaml"), "schema_version: 1\n");
+      writeFileSync(join(coordinatorWorktree, ".loopship", "runtime", "tasks.yaml"), "stage: demo\n");
+      writeFileSync(join(coordinatorWorktree, "FEATURE.md"), "# feature\n", "utf8");
+      runGit(coordinatorWorktree, ["add", "FEATURE.md"]);
+      runGit(coordinatorWorktree, ["commit", "-m", "feature"]);
+
+      const result = await (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingApply,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "demo",
+              source_branch: "codex/demo",
+              next_stage: "archived",
+            },
+          },
+        },
+      });
+
+      expect(result).toMatchObject({
+        schema_version: "loopship.landing.apply/v1",
+        status: "landed",
+        next_stage: "archived",
+      });
+      const trackedLoopship = runGit(fixture.repo, ["ls-files", "--", ".loopship"])
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .sort();
+      expect(trackedLoopship).toEqual([
+        ".loopship/signature.yaml",
+        ".loopship/system.yaml",
+      ]);
+      expect(existsSync(join(fixture.repo, ".loopship", ".gitignore"))).toBe(false);
+      const landedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
+      expect(landedState.stage).toBe("archived");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   test("system update signs non-Loopship repo resources without requiring packaged schemas", () => {
     const fixture = createGitFixture("loopship-native-system-update-external-repo-");
     try {

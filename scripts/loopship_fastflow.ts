@@ -1168,7 +1168,16 @@ function durableLoopshipStagePaths(cwd: string): string[] {
           .map((line) => line.trim())
           .filter(Boolean)
       : [];
-  const existingPaths = candidates.filter((path) => existsSync(resolve(cwd, path)));
+  const trackedSet = new Set(trackedPaths);
+  const existingPaths = candidates.filter((path) => {
+    if (!existsSync(resolve(cwd, path))) return false;
+    if (trackedSet.has(path)) return true;
+    const ignored = runCommand("git", ["check-ignore", "--quiet", "--", path], {
+      cwd,
+      timeoutMs: 15_000,
+    });
+    return ignored.status !== 0;
+  });
   return Array.from(new Set([...existingPaths, ...trackedPaths]));
 }
 
