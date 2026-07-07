@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 24
-      digest: "sha256:ea383bc8bda8d6ba0600a591b7059f354d78761146ebde96834c4d551d4f85b7"
-      summary: "Preserve explicit task graph rejections through handoff wrappers."
+      release: 25
+      digest: "sha256:7ffb500f8d9131988a15b62100dd8a15e8c0f791a4ce6fb13f1f114f335d99ce"
+      summary: "Require terminal child local commits before leaf completion."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakzhdRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvLVAEA/N8x9nZqBKuekgYntp1X
-    tTNR1z7k83z/nrcd7I1tZk8A/RaHZdGPfVtVWkDXFf/u/enw7tg4xGcQjJMKkW8V
-    3hQH
-    =L24b
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakzvehsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGskOgD6Av1rFsPPicufYiXl8gQf
+    TilS7TxfxZ26XL1/WRwlUYQA/jQ65sNL13ecVkYRRprMyEy7Nel9rWqla+mUgU5a
+    lL0N
+    =NTDi
     -----END PGP SIGNATURE-----
