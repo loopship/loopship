@@ -1329,6 +1329,71 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("failed terminal child validation returns to local execution", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_validating");
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        read_tasks: {
+          action: {
+            prompt: "loopship: execute child task scanner-core: implement scanner core",
+            parent_wtree: "parent",
+            parent_task_id: "scanner-core",
+            parent_context_ref: "/tmp/repo/worktrees/parent/.loopship/runtime/tasks.yaml",
+            tasks: [
+              {
+                id: "implement-scanner-core",
+                status: "done",
+                child_wtree: "",
+                merge_commit: "old",
+              },
+            ],
+          },
+        },
+        stage_validating: {
+          action: {
+            status: "failed",
+            checks: [
+              {
+                name: "implementation evidence",
+                status: "failed",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(result.stage_after).toBe("executing");
+    expect(result.transition).toBe("failed");
+    expect(result.state_patch).toMatchObject({
+      stage: "executing",
+      validation_receipt: {
+        status: "failed",
+      },
+    });
+  });
+
   test(
     "terminal child quests complete local execution without emitting child init commands",
     { timeout: 600_000 },
