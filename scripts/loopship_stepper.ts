@@ -134,7 +134,7 @@ function readJsonSource(raw: string | null, label: string): Record<string, unkno
   return value as Record<string, unknown>;
 }
 
-function nativeResumeRequest(value: Record<string, unknown>): Record<string, unknown> | null {
+export function nativeResumeRequest(value: Record<string, unknown>): Record<string, unknown> | null {
   const nextCall =
     value.nextCall && typeof value.nextCall === "object" && !Array.isArray(value.nextCall)
       ? (value.nextCall as Record<string, unknown>)
@@ -160,9 +160,16 @@ function nativeResumeRequest(value: Record<string, unknown>): Record<string, unk
       request[field] = fieldValue.trim();
     }
   }
-  for (const field of ["supervisorDecision", "decision", "response"]) {
-    if (source[field] !== undefined) request[field] = source[field];
-    else if (value[field] !== undefined) request[field] = value[field];
+  const supervisorDecision = source.supervisorDecision ?? value.supervisorDecision;
+  if (supervisorDecision !== undefined) request.supervisorDecision = supervisorDecision;
+  const response = source.response ?? value.response;
+  if (response !== undefined) {
+    request.response = response;
+    return request;
+  }
+  const decision = source.decision ?? value.decision;
+  if (decision !== undefined) {
+    request.response = { answer: decision };
   }
   return request;
 }
