@@ -125,9 +125,9 @@ workflows:
         - loopship.afn.service.landing.apply
   plan:
     stable:
-      release: 6
-      digest: "sha256:8f4c8f0773a2f1a5d87f05a36b12cff848bb4067c280f4f63e7cebf66018f68b"
-      summary: "Let planner-owned clarification rounds ask every material question before decomposition."
+      release: 7
+      digest: "sha256:e6d5daed6bac0cbc8ef3f41ca52ec2a5d5636e5c335dff03bbb6c7980e32c5d2"
+      summary: "Require recursive parallel task decomposition for broad plans."
       inputs:
         required: []
         optional:
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakxusRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvjtwEAwGTwwQZo3NliVNEK8tim
-    A+WJCLAzX6sfJdd+0/p2ipEBAJsZF+SPUwL3gzQipbtrbiY9zWTgvCe+fcpugi4W
-    5u4D
-    =C5sL
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakz4WBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt1qAD+KQ/Dgp+su7+ojBcSIZkR
+    4zAH/qE01ukbi1LO0kwqa0cA/R5oCPh7j7Gchx23LGSTjWQy++D1hhOG8Y2D4TxD
+    qRcC
+    =MVUD
     -----END PGP SIGNATURE-----
