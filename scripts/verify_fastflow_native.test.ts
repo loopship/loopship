@@ -602,6 +602,30 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test(
+    "records the actual coordinator branch when source branch differs",
+    { timeout: 60_000 },
+    async () => {
+      const fixture = createGitFixture("loopship-native-source-branch-state-");
+      try {
+        const wtree = "source-branch-state";
+        await startQuestStage(fixture.repo, "loopship: build demo", wtree, [
+          "--source-branch",
+          "main",
+        ]);
+        const workspace = join(fixture.repo, "worktrees", wtree);
+        expect(runGit(workspace, ["branch", "--show-current"])).toBe(wtree);
+        const tasks = parseTasksYaml(
+          readFileSync(join(workspace, ".loopship", "runtime", "tasks.yaml"), "utf8"),
+        );
+        expect(tasks.coordinator_branch).toBe(wtree);
+        expect(tasks.landing_target_branch).toBe("main");
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    },
+  );
+
   test("native runtime facade does not hardcode workflow step identifiers", () => {
     const files = [
       "scripts/loopship.ts",
