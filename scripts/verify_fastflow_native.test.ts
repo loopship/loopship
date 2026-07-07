@@ -997,7 +997,7 @@ describe("Loopship Fastflow-native bridge", () => {
         branch_ref: planned.coordinator_branch,
         worktree_path: planned.coordinator_worktree,
         child_wtree: "",
-        merge_target: planned.coordinator_branch,
+        merge_target: planned.landing_target_branch,
         merge_lease_id: "",
       });
     } finally {
