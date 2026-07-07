@@ -1179,6 +1179,79 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test("explicit task graph rejections replan through handoff wrappers", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_plan_review");
+    const readTasks = {
+      prompt: "loopship: create a subscription billing portal",
+      tasks: [
+        {
+          id: "foundation",
+          status: "child_received",
+        },
+      ],
+    };
+
+    for (const action of [
+      {
+        decision: {
+          approved: false,
+          replan_reason: "split bundled acceptance work",
+        },
+      },
+      {
+        answer: {
+          approved: false,
+          replan_reason: "split bundled acceptance work",
+        },
+      },
+      {
+        response: {
+          answer: {
+            approved: false,
+            replan_reason: "split bundled acceptance work",
+          },
+        },
+      },
+    ]) {
+      const result = executeWorkflowTaskScript(task, {
+        steps: {
+          resolve_stage: {
+            action: {
+              runtime: {
+                tasks: readTasks,
+                manifest: null,
+                events: [],
+              },
+            },
+          },
+          query_events: { action: [] },
+          read_tasks: { action: readTasks },
+          stage_plan_review: {
+            action,
+          },
+        },
+      });
+
+      expect(result.stage_after).toBe("replanning");
+      expect(result.transition).toBe("rejected");
+      expect(result.state_patch).toMatchObject({
+        stage: "replanning",
+        replan_reason: "split bundled acceptance work",
+      });
+    }
+  });
+
   test("requeues newly unblocked children without redispatching running siblings", () => {
     const workflow = loadYamlWorkflow(
       join(
