@@ -325,6 +325,7 @@ function assertSweFlowLifecycleGuards(): void {
     "const emptyApproved = !rejected && payload.approved === true && array(tasks.tasks).length === 0",
     "approved task graph is empty; replan with at least one concrete local or child task before execution",
     "const targetStage = effectiveRejected ? \"replanning\"",
+    "task_graph_ready_leaf",
     "isTerminalChild(tasks) ? \"executing\" : \"task_graph_ready\"",
     "stage_leaf_git_head",
     "stage_result_leaf_executing",

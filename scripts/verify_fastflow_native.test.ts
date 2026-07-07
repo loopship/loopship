@@ -695,6 +695,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
     expect(leafRoute).toBeGreaterThan(0);
     expect(parentRoute).toBeGreaterThan(leafRoute);
+    expect(text).toContain("- task_graph_ready_leaf:");
     expect(text).toContain("then: stage_leaf_git_head");
     expect(text).toContain("call: loopship.afn.service.git.head");
     expect(text).toContain("leaf_execution_recorded");
