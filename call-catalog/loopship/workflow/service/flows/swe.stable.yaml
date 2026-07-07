@@ -1188,7 +1188,7 @@ do:
               return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: "executing", transition: "blocked", step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, step_action: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, state_patch: { stage: "executing", tasks: array(tasks.tasks), local_work_receipt: receipt }, events: eventList("executing", "executing", "blocked", "executing", event), event_payload: { event: "stage_changed", stage: "executing", transition: "blocked", step: "executing", stage_before: "executing", stage_after: "executing" }, runtime: runtimeSnapshot() };
             }
             const nextTasks = markLeafTasksDone(tasks, mergeCommit);
-            const receipt = localWorkReceipt(tasks, mergeCommit, targetCommit, "recorded");
+            const receipt = localWorkReceipt(nextTasks, mergeCommit, targetCommit, "recorded");
             const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
             const targetStage = transition === "complete" ? "validating" : "executing";
             const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, covered_task_ids: receipt.covered_task_ids };

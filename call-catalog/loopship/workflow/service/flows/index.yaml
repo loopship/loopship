@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 28
-      digest: "sha256:b2e667f1140833e7fa68eef79c909b97b3a49d96fbbb4cbb5eb4ab53cdf4dcc5"
-      summary: "Default terminal child task merge targets to the parent landing branch."
+      release: 29
+      digest: "sha256:d700af9e46021734b2c79475d0e44f0cea518e6390483fbb65b202990cd8c5d9"
+      summary: "Compute terminal child receipt pending tasks after marking local tasks done."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak02/BsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvZ+QD/cQGHXRbYbd+NRQfRDuGZ
-    +H3i9w7QAq/pp/F38056F2MA/RHQDtqg2SndnzGf91ok5TCkD2QRW5gnA4W2gclZ
-    ZD0N
-    =S8Fg
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak09vhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGubjgEAoSVJv+vBHmFkiDl5bHMI
+    t1Hz4cLnvxJMByFYmiQtsNEBANXbj0kiUlBpBi8VwXJh1v7Gwwilj4VE+sZqk8Sx
+    AOgA
+    =he0m
     -----END PGP SIGNATURE-----
