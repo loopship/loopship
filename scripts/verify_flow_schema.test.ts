@@ -219,11 +219,11 @@ describe("Loopship declarative Fastflow catalog", () => {
       runNodeCheck(
         `
           import { readFileSync } from "node:fs";
-          import { parse as parseYaml } from "yaml";
           import { hashSwfWorkflow } from ${JSON.stringify(fastflowImport("src/lib/swf-compat.mjs"))};
+          import { parseYamlFile } from ${JSON.stringify(fastflowImport("src/lib/workflow-release-ledger.mjs"))};
           const entries = JSON.parse(readFileSync(process.argv[2], "utf8"));
           for (const entry of entries) {
-            const workflow = parseYaml(readFileSync(entry.path, "utf8"));
+            const workflow = parseYamlFile(entry.path);
             const actualDigest = "sha256:" + hashSwfWorkflow(workflow);
             if (actualDigest !== entry.expectedDigest) {
               throw new Error(

@@ -2,9 +2,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 17
-      digest: "sha256:446285f165f99d83c6caaaacc9c83b14280bf562b5bd6ee2176b0f03c9318199"
-      summary: "Write terminal-child system_update docs into the active worktree before landing back to the parent."
+      release: 19
+      digest: "sha256:77e26de12cc33a214ad783fecf0fb2c32a9bdb8818aa202ad352bb3c15f83a61"
+      summary: "Refresh SWE flow step digest pins after inference routing promotion."
       inputs:
         required: []
         optional: []
@@ -24,9 +24,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaku2JxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvtCgD9FZwZbh2g7b1KEcC1pHyD
-    ChzGMm7Fa/b+RkHICXnceTIBAN87vplVWwfpsYNvs0qMNQC57moJM8Xscb3f+4UY
-    DGwA
-    =nw2p
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakv1CxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGut8QEApgfbyhWbhzsPBZjiD3ci
+    38lEtjTwwrXtWsTHUf/4ICQBAP2biuZqANKyOqkRjiE860/vVd/KVM4lGecIKQDh
+    HGcI
+    =kp0E
     -----END PGP SIGNATURE-----

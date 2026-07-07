@@ -10,6 +10,21 @@ document:
         - loopship
         - step
         - task_graph
+    inference:
+      groups:
+        loopship_review:
+          timeoutMs: 600000
+          on:
+            - unavailable
+            - timeout
+            - transport_error
+            - invalid_json
+            - invalid_output
+            - abstain
+          try:
+            - llm.cli.codex.gpt-5.3-codex-spark.max
+            - aitl.chat
+            - hitl.review
 input:
   schema:
     document:
@@ -313,7 +328,7 @@ do:
         from: "${inputs}"
       metadata:
         description: "Approve or reject the generated task graph, including a replan reason when rejected."
-        inference: aitl.chat
+        inference: loopship_review
         validation:
           post:
             kind: js

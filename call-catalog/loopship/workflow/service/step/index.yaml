@@ -1,10 +1,12 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   archived:
     stable:
-      release: 1
-      digest: "sha256:8b91368e3e620603559569d6702ee81240b464e8934a731e4c4034feee7cbe3c"
-      summary: "Report final quest state only."
+      release: 2
+      digest: "sha256:07069497de8d832b6169af3656ea6e02699d0f0581726224bb5c2236437df9a7"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional:
@@ -35,9 +37,9 @@ workflows:
       requires: []
   child-result:
     stable:
-      release: 1
-      digest: "sha256:bf9e8ed1fedabc132da414e97ddf6e81a272e286277d7ecbb0134d31a0ba7036"
-      summary: "Submit the result of a completed child quest back to the parent flow."
+      release: 2
+      digest: "sha256:2328d11fb655526c7aff8a9c866be93c100b100878671204ee42eb397293bb8a"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional:
@@ -123,9 +125,9 @@ workflows:
         - loopship.afn.service.landing.apply
   plan:
     stable:
-      release: 4
-      digest: "sha256:effbf3ae89c4c5ce0c6b8d9e85b2cc28e569b32d08b7dd94a45a7886c5cfbefe"
-      summary: "Allow terminal-child planning fields through the embedded plan task schema."
+      release: 5
+      digest: "sha256:d382bae14d5bab2921a5e3a7095c7e4cc1a237d128f2aab9c178fce2c4a303a7"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional:
@@ -159,9 +161,9 @@ workflows:
       requires: []
   questions:
     stable:
-      release: 1
-      digest: "sha256:d6dadaaf81ab5b7f1694317cd96daecc0ef4d8ba38b249ee3fa67228f05e25b3"
-      summary: "Submit grouped user answers for the current clarification round."
+      release: 2
+      digest: "sha256:c148837eda2d41990ae817e4a4d2a777105dc0edb904ab6d103acf31b5af482f"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional:
@@ -192,9 +194,9 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 4
-      digest: "sha256:04b794e8a253fd9b056c599be06045cf30d7cfa4d0f881a1104ad55c39f8ab5f"
-      summary: "Guard system_update apply input resolution so explicit resume decisions always reach canonical doc writes."
+      release: 5
+      digest: "sha256:5ec976217ce409e5ec85256b39d336d7cf5bd6f13b19029172c84e0e5a0086e9"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional: []
@@ -202,9 +204,9 @@ workflows:
         - loopship.afn.service.system.apply
   task-graph:
     stable:
-      release: 1
-      digest: "sha256:d2f4f7a77c2d7225835a82930cef6a3325f695f4aeab069c45bb05cd5a7d0ea0"
-      summary: "Approve or reject the generated task graph, including a replan reason when rejected."
+      release: 2
+      digest: "sha256:257a9a2e22159b3ad8bd6db20ba2cb2da94fb779e14ad9533cd16a8acfe8f3d1"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional:
@@ -235,9 +237,9 @@ workflows:
       requires: []
   validation:
     stable:
-      release: 1
-      digest: "sha256:2068e6b6c6004a26ebc7e7b71cc13d4aa9bcec2a579e9edc178ec6878a79dccb"
-      summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
+      release: 2
+      digest: "sha256:4d75790590dac127845f936eb88524c2e69db8c3d35184cbf2520265244d36c1"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional:
@@ -268,9 +270,9 @@ workflows:
       requires: []
   verification:
     stable:
-      release: 1
-      digest: "sha256:31f887a4d4c6183fd51f1334a15aaff85b99e46f63c612af93570080a2e784cf"
-      summary: "Submit acceptance trace, PR-style risk review, and residual risks."
+      release: 2
+      digest: "sha256:0a3db8a8e14b6cf321102b7d97af43293101fe37fd592f912a00818d69626fb9"
+      summary: "Bind Loopship step inference to Codex registry routes."
       inputs:
         required: []
         optional:
@@ -303,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakuwYBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGv3zgD/VGBxQ0U5NhVJ2asyfW02
-    a/VZEhvQwLgQXSWcB10RRy0BANuriGSFJ+AST6f/IQ1YvtD6Ay+Vr9rkT7L+6Pf5
-    n8sG
-    =ZfwP
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakwQMBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt91gD8DGqzYGG7HQOcVvig0hVV
+    ImZ/FeeXsojMX1SYtr/0WHQBAK+8ScddDHzIhVZrD9KnMtN25QAEVbvSRJdF7cWb
+    2S4G
+    =d+1l
     -----END PGP SIGNATURE-----

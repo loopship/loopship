@@ -10,6 +10,21 @@ document:
         - loopship
         - step
         - system_update
+    inference:
+      groups:
+        loopship_review:
+          timeoutMs: 600000
+          on:
+            - unavailable
+            - timeout
+            - transport_error
+            - invalid_json
+            - invalid_output
+            - abstain
+          try:
+            - llm.cli.codex.gpt-5.3-codex-spark.max
+            - aitl.chat
+            - hitl.review
 input:
   schema:
     document:
@@ -22,7 +37,7 @@ do:
   - system_update_request:
       metadata:
         description: "Request an explicit verified system_update payload before durable Loopship docs change."
-        inference: aitl.chat
+        inference: loopship_review
         validation:
           post:
             kind: js

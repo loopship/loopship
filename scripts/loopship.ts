@@ -17,6 +17,7 @@ import {
   shellQuote,
   tsShellCommand,
   writeJson,
+  writeText,
 } from "./loopship_utils.ts";
 import type { Runtime } from "./loopship_utils.ts";
 import {
@@ -269,6 +270,7 @@ function parseDoctorArgs(argv: string[]): DoctorArgs {
 
 function installCodexHook(repoRoot: string, cmd: string): string {
   const path = resolve(repoRoot, ".codex", "hooks.json");
+  ensureGitInfoExcludeEntries(repoRoot, [".codex/hooks.json"]);
   const cfg = (readJson(path) ?? {}) as Record<string, any>;
   const hooks = (cfg.hooks ??= {}) as Record<string, any[]>;
   const groups = (hooks.Stop ??= []) as Array<Record<string, unknown>>;
@@ -312,6 +314,7 @@ function installCodexHook(repoRoot: string, cmd: string): string {
 
 function installGeminiHook(repoRoot: string, cmd: string): string {
   const path = resolve(repoRoot, ".gemini", "settings.json");
+  ensureGitInfoExcludeEntries(repoRoot, [".gemini/settings.json"]);
   const cfg = (readJson(path) ?? {}) as Record<string, any>;
   (cfg.hooksConfig ??= {}).enabled = true;
   const hooks = (cfg.hooks ??= {}) as Record<string, any[]>;
@@ -357,6 +360,7 @@ function installGeminiHook(repoRoot: string, cmd: string): string {
 
 function installCopilotHook(repoRoot: string, cmd: string): string {
   const path = resolve(repoRoot, ".github", "hooks", "loopship.json");
+  ensureGitInfoExcludeEntries(repoRoot, [".github/hooks/loopship.json"]);
   writeJson(path, {
     version: 1,
     hooks: {
@@ -491,6 +495,36 @@ function readJsonArg(json: string | null): Record<string, any> {
 
 function simpleHookCommand(binPath: string, runtime: string): string {
   return [shellQuote(binPath), "hook", "--runtime", runtime].join(" ");
+}
+
+function gitInfoExcludePath(repoRoot: string): string | null {
+  try {
+    const stdout = child_process.execSync("git rev-parse --git-path info/exclude", {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const path = stdout.trim();
+    return path ? resolve(repoRoot, path) : null;
+  } catch {
+    return null;
+  }
+}
+
+function ensureGitInfoExcludeEntries(repoRoot: string, entries: string[]): void {
+  const path = gitInfoExcludePath(repoRoot);
+  if (!path) return;
+  const text = readText(path);
+  const existing = new Set(
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
+  const missing = entries.filter((entry) => !existing.has(entry));
+  if (!missing.length) return;
+  const prefix = text && !text.endsWith("\n") ? `${text}\n` : text;
+  writeText(path, `${prefix}${missing.join("\n")}\n`);
 }
 
 function readHookJsonArg(json: string | null): Record<string, any> {

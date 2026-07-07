@@ -20,9 +20,11 @@ import {
   ensureCoordinatorWorkspace,
   ensureTaskWorkspace,
   ensureSystemScaffold,
+  applySystemUpdate,
   parseTasksYaml,
   renderTasksYaml,
   taskAssignmentChildWtree,
+  verifyRootManifest,
   type QuestState,
 } from "./loopship_core.ts";
 import {
@@ -35,10 +37,27 @@ import {
   ensureLoopshipFastflowWorkflowCatalog,
   loopshipFlowWorkflowRef,
 } from "./loopship_fastflow.ts";
-import { nativeResumeRequest } from "./loopship.ts";
+import { syncPromotedWorkspaceRelease } from "./loopship_fastflow_lifecycle.ts";
+import { nativeResumeRequest, runDoctor } from "./loopship.ts";
 import { runCommand } from "./loopship_utils.ts";
 
 const LOOPSHIP_SCRIPT = resolve(process.cwd(), "scripts", "loopship.ts");
+const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
+  Object.fromEntries(
+    [
+      "llm.cli.codex.gpt-5.5.max",
+      "llm.cli.codex.gpt-5.3-codex-spark.max",
+      "llm.cli.codex.gpt-5.3-codex-spark.high",
+    ].map((routeRef) => [
+      routeRef,
+      {
+        client: "handoff",
+        resolverPath: "aitl.chat",
+        routeRef,
+      },
+    ]),
+  ),
+);
 
 function parseCallId(call: string): {
   registry: string;
@@ -397,6 +416,13 @@ function runLoopshipCli(
 ): { status: number | null; stdout: string; stderr: string } {
   return runCommand("bun", [LOOPSHIP_SCRIPT, ...args], {
     cwd: repo,
+    env: {
+      INFERENCE_CLIENT: "handoff",
+      INFERENCE_PROVIDER: "",
+      INFERENCE_MODEL: "",
+      OPENAI_API_KEY: "",
+      INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+    },
     timeoutMs: 600_000,
     input: input ? JSON.stringify(input) : undefined,
   });
@@ -558,6 +584,23 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       },
     });
+  });
+
+  test("doctor fix excludes generated Codex hook config from git status", () => {
+    const fixture = createGitFixture("loopship-native-codex-hook-exclude-");
+    try {
+      const status = runDoctor(["--repo", fixture.repo, "--runtime", "codex", "--fix"]);
+      expect(status).toBe(0);
+      expect(existsSync(join(fixture.repo, ".codex", "hooks.json"))).toBe(true);
+      expect(runGit(fixture.repo, ["check-ignore", ".codex/hooks.json"])).toBe(
+        ".codex/hooks.json",
+      );
+      expect(runGit(fixture.repo, ["status", "--short", "--untracked-files=all"])).toBe(
+        "",
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
   });
 
   test("native runtime facade does not hardcode workflow step identifiers", () => {
@@ -802,6 +845,36 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("binds lifecycle inference steps to registry-backed Codex route groups", () => {
+    const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
+    const expected = new Map([
+      ["plan", ["loopship_planning", "llm.cli.codex.gpt-5.5.max"]],
+      ["questions", ["loopship_planning", "llm.cli.codex.gpt-5.5.max"]],
+      ["task-graph", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
+      ["child-result", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
+      ["validation", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
+      ["verification", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
+      ["system-update", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
+      ["archived", ["loopship_mechanical", "llm.cli.codex.gpt-5.3-codex-spark.high"]],
+    ]);
+
+    for (const [name, [groupName, routeRef]] of expected) {
+      const workflow = loadYamlWorkflow(join(stepRoot, `${name}.stable.yaml`));
+      const document = workflow.document as Record<string, unknown>;
+      const metadata = document.metadata as Record<string, any>;
+      const group = metadata?.inference?.groups?.[groupName];
+      expect(group, name).toBeTruthy();
+      expect(group.try, name).toEqual(expect.arrayContaining([routeRef, "aitl.chat", "hitl.review"]));
+      let stepUsesGroup = false;
+      walk(workflow, (value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return;
+        const metadata = (value as Record<string, any>).metadata;
+        if (metadata?.inference === groupName) stepUsesGroup = true;
+      });
+      expect(stepUsesGroup, name).toBe(true);
+    }
+  });
+
   test("rewrites terminal child plans into local execution state", () => {
     const fixture = createGitFixture("loopship-terminal-child-plan-");
     try {
@@ -1023,6 +1096,65 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("approved empty task graphs replan for coordinator and terminal child quests", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_plan_review");
+
+    for (const readTasks of [
+      {
+        prompt: "loopship: build a customer support dashboard",
+        tasks: [],
+      },
+      {
+        prompt: "loopship: execute child task dashboard-ui: build the assigned UI",
+        parent_wtree: "parent",
+        parent_task_id: "dashboard-ui",
+        parent_context_ref: "/tmp/repo/worktrees/parent/.loopship/runtime/tasks.yaml",
+        tasks: [],
+      },
+    ]) {
+      const result = executeWorkflowTaskScript(task, {
+        steps: {
+          resolve_stage: {
+            action: {
+              runtime: {
+                tasks: readTasks,
+                manifest: null,
+                events: [],
+              },
+            },
+          },
+          query_events: { action: [] },
+          read_tasks: { action: readTasks },
+          stage_plan_review: {
+            action: {
+              decision: { approved: true },
+            },
+          },
+        },
+      });
+
+      expect(result.stage_after).toBe("replanning");
+      expect(result.transition).toBe("rejected");
+      expect(result.state_patch).toMatchObject({
+        stage: "replanning",
+      });
+      expect(String((result.state_patch as Record<string, unknown>).replan_reason || "")).toContain(
+        "empty",
+      );
+    }
+  });
+
   test("requeues newly unblocked children without redispatching running siblings", () => {
     const workflow = loadYamlWorkflow(
       join(
@@ -1127,6 +1259,75 @@ describe("Loopship Fastflow-native bridge", () => {
     });
     expect(unsupervised.stage_after).toBe("task_graph_ready");
     expect(unsupervised.transition).toBe("next_children");
+  });
+
+  test("multi-task terminal child execution records one shared local-work receipt", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_leaf_executing");
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        read_tasks: {
+          action: {
+            parent_wtree: "parent",
+            parent_task_id: "dashboard",
+            parent_context_ref: "/tmp/repo/worktrees/parent/.loopship/runtime/tasks.yaml",
+            coordinator_worktree: "/tmp/repo/worktrees/child-terminal",
+            tasks: [
+              { id: "ui", title: "Build UI", status: "pending", child_wtree: "" },
+              { id: "tests", title: "Add tests", status: "pending", child_wtree: "" },
+            ],
+          },
+        },
+        stage_leaf_git_head: {
+          action: {
+            commit: "abc123",
+          },
+        },
+      },
+    });
+
+    expect(result.stage_after).toBe("validating");
+    expect(JSON.stringify(result)).not.toContain("prepared_children");
+    expect(result.state_patch).toMatchObject({
+      stage: "validating",
+      tasks: [
+        { id: "ui", status: "done", merge_commit: "abc123" },
+        { id: "tests", status: "done", merge_commit: "abc123" },
+      ],
+      local_work_receipt: {
+        mode: "shared-head-commit",
+        worktree_path: "/tmp/repo/worktrees/child-terminal",
+        commit: "abc123",
+        covered_task_ids: ["ui", "tests"],
+      },
+    });
+    expect(result.step_payload).toMatchObject({
+      task_count: 2,
+      merge_commit: "abc123",
+      local_work_receipt: {
+        covered_task_ids: ["ui", "tests"],
+      },
+    });
   });
 
   test(
@@ -1302,6 +1503,10 @@ describe("Loopship Fastflow-native bridge", () => {
       );
       expect(childState.stage).toBe("archived");
       expect(String(childState.landed_commit || "")).toMatch(/^[0-9a-f]{40}$/);
+      expect(childState.local_work_receipt).toMatchObject({
+        mode: "shared-head-commit",
+        covered_task_ids: ["implement-timer-ui"],
+      });
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -1422,6 +1627,179 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(manifest.release_auth?.trusted_releasers?.length).toBeGreaterThan(0);
       expect(manifest.prefixes.loopship.workflow.service.step.tags).toContain("step");
       expect(manifest.prefixes.loopship.workflow.service.flows.tags).toContain("flow");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("promotion sync copies batch stable files and catalog indexes into the packaged catalog", async () => {
+    const root = mkdtempSync(join(process.cwd(), "tmp", "loopship-promotion-sync-"));
+    const scratchCatalog = join(root, "scratch", "call-catalog");
+    const rootedCatalog = join(root, "packaged", "call-catalog");
+    try {
+      mkdirSync(join(scratchCatalog, "loopship", "workflow", "service", "step"), { recursive: true });
+      mkdirSync(join(scratchCatalog, "workspace", "workflow", "service", "flows"), { recursive: true });
+      mkdirSync(rootedCatalog, { recursive: true });
+      writeFileSync(
+        join(rootedCatalog, "index.yaml"),
+        [
+          "schemaVersion: fastflow/call-catalog-manifest/v3",
+          'pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml"',
+          "release_auth:",
+          "  trusted_releasers:",
+          "    - provider: github",
+          "      user: test",
+          "prefixes:",
+          "  loopship:",
+          "    afn:",
+          "      service:",
+          "        child:",
+          '          tags: "child"',
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(scratchCatalog, "index.yaml"),
+        [
+          "schemaVersion: fastflow/call-catalog-manifest/v3",
+          'pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml"',
+          "prefixes:",
+          "  loopship:",
+          "    workflow:",
+          "      service:",
+          "        step:",
+          '          tags: "step, alpha"',
+          "  workspace:",
+          "    workflow:",
+          "      service:",
+          "        flows:",
+          '          tags: "flows, beta"',
+          "",
+        ].join("\n"),
+      );
+      const alphaStablePath = join(
+        scratchCatalog,
+        "loopship",
+        "workflow",
+        "service",
+        "step",
+        "alpha.stable.yaml",
+      );
+      const betaStablePath = join(
+        scratchCatalog,
+        "workspace",
+        "workflow",
+        "service",
+        "flows",
+        "beta.stable.yaml",
+      );
+      writeFileSync(
+        alphaStablePath,
+        [
+          "document:",
+          '  dsl: "1.0.3"',
+          "  namespace: service-step",
+          "  name: alpha",
+          '  version: "1.0.0"',
+          "do: []",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        betaStablePath,
+        [
+          "document:",
+          '  dsl: "1.0.3"',
+          "  namespace: service-flows",
+          "  name: beta",
+          '  version: "1.0.0"',
+          "do:",
+          "  - call_alpha:",
+          "      call: workspace.workflow.service.step.alpha",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(scratchCatalog, "loopship", "workflow", "service", "step", "index.yaml"),
+        [
+          "schemaVersion: fastflow/call-catalog-scope/v2",
+          "workflows:",
+          "  alpha:",
+          "    stable:",
+          "      release: 2",
+          `      digest: "sha256:${"0".repeat(64)}"`,
+          '      summary: "Promote alpha."',
+          "      inputs:",
+          "        required: []",
+          "        optional: []",
+          "      requires: []",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(scratchCatalog, "workspace", "workflow", "service", "flows", "index.yaml"),
+        [
+          "schemaVersion: fastflow/call-catalog-scope/v2",
+          "workflows:",
+          "  beta:",
+          "    stable:",
+          "      release: 3",
+          `      digest: "sha256:${"0".repeat(64)}"`,
+          '      summary: "Promote beta."',
+          "      inputs:",
+          "        required: []",
+          "        optional: []",
+          "      requires:",
+          "        - workspace.workflow.service.step.alpha",
+          "",
+        ].join("\n"),
+      );
+
+      const syncResult = await syncPromotedWorkspaceRelease(
+        {
+          promoted: true,
+          releases: [
+            {
+              workflowRef: "loopship.workflow.service.step.alpha",
+              stablePath: alphaStablePath,
+              release: 2,
+            },
+            {
+              workflowRef: "workspace.workflow.service.flows.beta",
+              stablePath: betaStablePath,
+              release: 3,
+            },
+          ],
+        },
+        {
+          scratchCallCatalogRoot: scratchCatalog,
+          loopshipCallCatalogRoot: rootedCatalog,
+          refreshAttestation: false,
+        },
+      ) as any;
+
+      expect(syncResult?.synced).toBe(true);
+      expect(syncResult.items).toHaveLength(2);
+      expect(existsSync(join(rootedCatalog, "loopship", "workflow", "service", "step", "alpha.stable.yaml"))).toBe(true);
+      const rootedBetaStable = readFileSync(
+        join(rootedCatalog, "loopship", "workflow", "service", "flows", "beta.stable.yaml"),
+        "utf8",
+      );
+      expect(rootedBetaStable).toContain("loopship.workflow.service.step.alpha");
+      expect(rootedBetaStable).not.toContain("workspace.workflow.service.step.alpha");
+      const rootManifest = parseYaml(readFileSync(join(rootedCatalog, "index.yaml"), "utf8")) as any;
+      expect(rootManifest.release_auth.trusted_releasers[0].user).toBe("test");
+      expect(rootManifest.prefixes.loopship.afn.service.child.tags).toBe("child");
+      expect(rootManifest.prefixes.loopship.workflow.service.step.tags).toBe("step, alpha");
+      expect(rootManifest.prefixes.loopship.workflow.service.flows.tags).toBe("flows, beta");
+      expect(rootManifest.prefixes.workspace).toBeUndefined();
+      const betaIndex = parseYaml(
+        readFileSync(join(rootedCatalog, "loopship", "workflow", "service", "flows", "index.yaml"), "utf8"),
+      ) as any;
+      expect(betaIndex.workflows.beta.stable.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(betaIndex.workflows.beta.stable.requires).toEqual([
+        "loopship.workflow.service.step.alpha",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1734,6 +2112,10 @@ describe("Loopship Fastflow-native bridge", () => {
       const coordinatorWorktree = String(state.coordinator_worktree);
       mkdirSync(join(coordinatorWorktree, ".loopship", "docs", "software"), { recursive: true });
       mkdirSync(join(coordinatorWorktree, ".loopship", "runtime"), { recursive: true });
+      writeFileSync(
+        join(coordinatorWorktree, ".loopship", ".gitignore"),
+        ["# fastflow runtime data", "runtime/", "cache", "data/", "catalog.db", ""].join("\n"),
+      );
       writeFileSync(join(coordinatorWorktree, ".loopship", "system.yaml"), "schema_version: 1\n");
       writeFileSync(
         join(coordinatorWorktree, ".loopship", "docs", "software", "architecture.yaml"),
@@ -1766,6 +2148,7 @@ describe("Loopship Fastflow-native bridge", () => {
         .filter(Boolean)
         .sort();
       expect(trackedLoopship).toEqual([
+        ".loopship/.gitignore",
         ".loopship/docs/software/architecture.yaml",
         ".loopship/signature.yaml",
         ".loopship/system.yaml",
@@ -1777,6 +2160,81 @@ describe("Loopship Fastflow-native bridge", () => {
       );
       const landedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
       expect(landedState.stage).toBe("archived");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("system update signs non-Loopship repo resources without requiring packaged schemas", () => {
+    const fixture = createGitFixture("loopship-native-system-update-external-repo-");
+    try {
+      writeFileSync(join(fixture.repo, "README.md"), "# Support dashboard\n\nOpen index.html.\n");
+      const root = {
+        schema_version: 2,
+        id: "support-dashboard",
+        title: "Support Dashboard",
+        kinds: ["software"],
+        text: "Browser-only support dashboard fixture.\nIt proves system signatures work in repos without packaged Loopship schemas.",
+        scope_in: ["Static local dashboard files."],
+        scope_out: ["Packaged Loopship schema files copied into the target repo."],
+        objects: [
+          {
+            id: "support-dashboard",
+            kind: "unit",
+            text: "Support dashboard application.\nThe fixture is intentionally tiny.",
+            state: "active",
+          },
+        ],
+        assertions: [
+          {
+            id: "external-repo-signature",
+            kind: "behaviour",
+            level: "must",
+            text: "System update must sign target repo resources without requiring packaged schemas in that repo.\nNon-YAML resources must not be parsed as YAML.",
+            links: {
+              about: ["object:support-dashboard"],
+              supported_by: ["resource:readme"],
+            },
+            state: "active",
+          },
+        ],
+        resources: [
+          {
+            id: "readme",
+            kind: "document",
+            role: "canonical",
+            location: "README.md",
+            schema_ref: "loopship://schemas/docs/software-architecture.yaml",
+            text: "README evidence for the support dashboard fixture.\nThis markdown file is a canonical resource but is not YAML.",
+            links: { about: ["object:support-dashboard"] },
+            state: "active",
+          },
+        ],
+      };
+
+      const touched = applySystemUpdate(
+        fixture.repo,
+        {
+          schema_version: 1,
+          mode: "replace",
+          summary: "Create system root for external repo fixture.",
+          root,
+          external_docs: [],
+        },
+        "test-system-update",
+      );
+
+      expect(touched).toContain(join(fixture.repo, ".loopship", "system.yaml"));
+      expect(touched).toContain(join(fixture.repo, ".loopship", "signature.yaml"));
+      const manifest = parseYaml(
+        readFileSync(join(fixture.repo, ".loopship", "signature.yaml"), "utf8"),
+      ) as Record<string, unknown>;
+      const entries = Array.isArray(manifest.entries)
+        ? (manifest.entries as Array<Record<string, unknown>>)
+        : [];
+      expect(entries.some((entry) => entry.path === "README.md")).toBe(true);
+      expect(entries.some((entry) => entry.path === "schemas/system.yaml")).toBe(false);
+      expect(verifyRootManifest(fixture.repo)).toMatchObject({ ok: true, errors: [] });
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
