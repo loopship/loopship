@@ -1777,6 +1777,7 @@ function normalizePlanTask(
   const terminalChild = isTerminalChildQuestState(state);
   const coordinatorBranch = String(state.coordinator_branch ?? "main");
   const coordinatorWorktree = String(state.coordinator_worktree ?? contextRoot);
+  const landingTargetBranch = String(state.landing_target_branch ?? coordinatorBranch);
   return {
     id,
     title: String(input.title ?? input.name ?? id),
@@ -1798,9 +1799,7 @@ function normalizePlanTask(
       ? ""
       : String(input.child_wtree ?? taskAssignmentChildWtree(wtree, id)),
     concurrency_group: String(input.concurrency_group ?? ""),
-    merge_target: terminalChild
-      ? coordinatorBranch
-      : String(input.merge_target ?? coordinatorBranch),
+    merge_target: String(input.merge_target ?? (terminalChild ? landingTargetBranch : coordinatorBranch)),
     merge_lease_id: terminalChild
       ? ""
       : String(input.merge_lease_id ?? taskAssignmentMergeLeaseId(wtree, id)),
