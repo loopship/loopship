@@ -1100,7 +1100,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_leaf_git_head:
-      then: stage_result_leaf_executing
+      then: stage_leaf_target_git_head
       metadata:
         description: "Resolve the leaf child worktree HEAD commit for lifecycle evidence."
         validation:
@@ -1126,6 +1126,39 @@ do:
           repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
           cwd: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
           ref: HEAD
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+  - stage_leaf_target_git_head:
+      then: stage_result_leaf_executing
+      metadata:
+        description: "Resolve the landing target HEAD so leaf execution cannot complete without a new local commit."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: loopship.afn.service.git.head
+      with:
+        body:
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          cwd: "${state.steps.read_tasks.action.context_root || inputs.repo || inputs.repoRoot || env.PWD || ''}"
+          ref: "${state.steps.read_tasks.action.landing_target_branch || state.steps.read_tasks.action.parent_wtree || 'main'}"
       output:
         schema:
           document:
@@ -1159,20 +1192,29 @@ do:
           code: |-
             function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
             function array(value) { return Array.isArray(value) ? value : []; }
+            function isDoneStatus(status) { return new Set(["child_merged", "child_archived", "done", "merged"]).has(String(status || "")); }
             function markLeafTasksDone(tasks, mergeCommit) { return { ...tasks, tasks: array(tasks.tasks).map((task) => { const row = object(task); if (String(row.child_wtree || "").trim()) return row; const status = String(row.status || "pending"); const nextStatus = status === "blocked" || status === "failed" ? status : "done"; return { ...row, status: nextStatus, merge_commit: String(mergeCommit || row.merge_commit || "") }; }) }; }
             function localTaskIds(tasks) { return array(object(tasks).tasks).map((task) => object(task)).filter((task) => !String(task.child_wtree || "").trim()).map((task, index) => String(task.id || task.task_id || "task-" + (index + 1)).trim()).filter(Boolean); }
-            function localWorkReceipt(tasks, mergeCommit) { const coveredTaskIds = localTaskIds(tasks); return { mode: "shared-head-commit", worktree_path: String(tasks.coordinator_worktree || ""), commit: mergeCommit, covered_task_ids: coveredTaskIds }; }
+            function pendingLocalTaskIds(tasks) { return array(object(tasks).tasks).map((task) => object(task)).filter((task) => !String(task.child_wtree || "").trim() && !isDoneStatus(task.status)).map((task, index) => String(task.id || task.task_id || "task-" + (index + 1)).trim()).filter(Boolean); }
+            function localWorkReceipt(tasks, mergeCommit, targetCommit, status) { const missing = status === "missing_local_commit"; return { mode: "shared-head-commit", worktree_path: String(tasks.coordinator_worktree || ""), commit: mergeCommit, target_commit: targetCommit, status, covered_task_ids: missing ? [] : localTaskIds(tasks), pending_task_ids: pendingLocalTaskIds(tasks) }; }
             function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
             function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const tasks = object(state.steps.read_tasks?.action);
             const mergeCommit = String(object(state.steps.stage_leaf_git_head?.action).commit || "");
+            const targetCommit = String(object(state.steps.stage_leaf_target_git_head?.action).commit || "");
+            const pendingTaskIds = pendingLocalTaskIds(tasks);
+            if (pendingTaskIds.length && (!mergeCommit || (targetCommit && mergeCommit === targetCommit))) {
+              const receipt = localWorkReceipt(tasks, mergeCommit, targetCommit, "missing_local_commit");
+              const event = { event: "leaf_execution_missing_commit", stage: "executing", task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, pending_task_ids: pendingTaskIds };
+              return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: "executing", transition: "blocked", step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, step_action: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, state_patch: { stage: "executing", tasks: array(tasks.tasks), local_work_receipt: receipt }, events: eventList("executing", "executing", "blocked", "executing", event), event_payload: { event: "stage_changed", stage: "executing", transition: "blocked", step: "executing", stage_before: "executing", stage_after: "executing" }, runtime: runtimeSnapshot() };
+            }
             const nextTasks = markLeafTasksDone(tasks, mergeCommit);
-            const receipt = localWorkReceipt(tasks, mergeCommit);
+            const receipt = localWorkReceipt(tasks, mergeCommit, targetCommit, "recorded");
             const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
             const targetStage = transition === "complete" ? "validating" : "executing";
-            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, covered_task_ids: receipt.covered_task_ids };
-            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, local_work_receipt: receipt }, step_action: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, local_work_receipt: receipt }, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks), local_work_receipt: receipt }, events: eventList("executing", targetStage, transition, "executing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "executing", stage_before: "executing", stage_after: targetStage }, runtime: runtimeSnapshot() };
+            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, covered_task_ids: receipt.covered_task_ids };
+            return { schema_version: "loopship.stage-result/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, step_action: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks), local_work_receipt: receipt }, events: eventList("executing", targetStage, transition, "executing", event), event_payload: { event: "stage_changed", stage: targetStage, transition, step: "executing", stage_before: "executing", stage_after: targetStage }, runtime: runtimeSnapshot() };
       output:
         schema:
           document:
