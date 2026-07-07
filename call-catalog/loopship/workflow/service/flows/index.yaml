@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 23
-      digest: "sha256:f135392f2fde5cd5bd5db6f25d507e790e9d6a9552f0495c9dd431554f836c93"
-      summary: "Refresh terminal child local task merge commits from HEAD."
+      release: 24
+      digest: "sha256:ea383bc8bda8d6ba0600a591b7059f354d78761146ebde96834c4d551d4f85b7"
+      summary: "Preserve explicit task graph rejections through handoff wrappers."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakyFsRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvecQEAyE4HYiFddxxCCKWsujUQ
-    kCSGRyz18Ip1SzakZwno+C0BAOIf1zlYJ+Wf4Fhq+zTzT86nJU/a2Fb8Fq/pdKbt
-    ovwB
-    =c2x9
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakzhdRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvLVAEA/N8x9nZqBKuekgYntp1X
+    tTNR1z7k83z/nrcd7I1tZk8A/RaHZdGPfVtVWkDXFf/u/enw7tg4xGcQjJMKkW8V
+    3hQH
+    =L24b
     -----END PGP SIGNATURE-----

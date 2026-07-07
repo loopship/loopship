@@ -1031,9 +1031,11 @@ do:
             function isTerminalChild(tasks) { return Boolean(String(tasks.parent_wtree || "").trim()) || Boolean(String(tasks.parent_task_id || "").trim()) || Boolean(String(tasks.parent_context_ref || "").trim()) || normalizePrompt(tasks.prompt).startsWith("execute child task "); }
             function eventList(stageBefore, targetStage, transition, step, event) { return [{ schema_version: "1.0.0", payload: { ...event, transition, step, stage_before: stageBefore, stage_after: targetStage } }, { schema_version: "1.0.0", payload: { event: "stage_changed", stage: targetStage, transition, step, stage_before: stageBefore, stage_after: targetStage } }]; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
+            function matchesTaskGraphReview(value) { const row = object(value); return typeof row.approved === "boolean" || typeof row.rejected === "boolean"; }
+            function findTaskGraphReviewPayload(value, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findTaskGraphReviewPayload(item, depth + 1); if (matchesTaskGraphReview(found)) return found; } return {}; } const row = object(value); if (matchesTaskGraphReview(row)) return row; for (const key of ["decision", "output", "result", "workflow", "action", "value", "answer", "response"]) { if (key in row) { const found = findTaskGraphReviewPayload(row[key], depth + 1); if (matchesTaskGraphReview(found)) return found; } } for (const item of Object.values(row)) { const found = findTaskGraphReviewPayload(item, depth + 1); if (matchesTaskGraphReview(found)) return found; } return {}; }
             const tasks = object(state.steps.read_tasks?.action);
             const stageAction = object(state.steps.stage_plan_review?.action);
-            const payload = object(object(stageAction.decision).decision || object(stageAction.decision) || stageAction);
+            const payload = findTaskGraphReviewPayload(stageAction);
             const rejected = payload.approved === false || payload.rejected === true;
             const emptyApproved = !rejected && payload.approved === true && array(tasks.tasks).length === 0;
             const effectiveRejected = rejected || emptyApproved;
