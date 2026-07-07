@@ -146,7 +146,8 @@ function pauseToken(value: JsonObject): PauseToken | null {
   const systemInstructions = String(value.systemInstructions ?? "");
   if (
     !systemInstructions.includes("loopship-supervisor") ||
-    !systemInstructions.includes("native Fastflow decision")
+    !systemInstructions.includes("native Fastflow decision") ||
+    !systemInstructions.includes("must not author, patch, or correct target-app child implementation inline")
   ) {
     fail(`stepper interaction must include supervisor guidance: ${JSON.stringify(value)}`);
   }

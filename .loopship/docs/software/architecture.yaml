@@ -343,11 +343,12 @@ risks:
       be resolved.
   supervisor-overreach:
     text: |-
-      The root coordinator may be tempted to implement child work inline or recursively split
-      child tasks.
+      The root coordinator or benchmark supervisor may be tempted to implement, patch, or
+      correct target-app child work inline instead of supervising Loopship/Fastflow state.
     mitigation: |-
       Child execution prompts, integration tests, and durable agent guidance enforce dedicated
-      leaf child sessions and coordinator-only root behavior.
+      leaf child sessions, coordinator-only root behavior, and a strict boundary where
+      workflow-native CLI/inference agents own child code generation and fixes.
   agent-narration-drift:
     text: |-
       Agent summaries and terminal chatter can claim progress that canonical quest state does

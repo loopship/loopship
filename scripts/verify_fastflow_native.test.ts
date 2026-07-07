@@ -826,6 +826,12 @@ describe("Loopship Fastflow-native bridge", () => {
     });
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("native Fastflow decision");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("terminal child quests");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(
+      "must not author, patch, or correct target-app child implementation inline",
+    );
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(
+      "workflow-native CLI/inference agents to own child code generation and fixes",
+    );
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("*.stable.yaml workflows");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(".dev.yaml plus Fastflow promotion");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("restore the stable artifact");
