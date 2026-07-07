@@ -125,9 +125,9 @@ workflows:
         - loopship.afn.service.landing.apply
   plan:
     stable:
-      release: 5
-      digest: "sha256:d382bae14d5bab2921a5e3a7095c7e4cc1a237d128f2aab9c178fce2c4a303a7"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      release: 6
+      digest: "sha256:8f4c8f0773a2f1a5d87f05a36b12cff848bb4067c280f4f63e7cebf66018f68b"
+      summary: "Let planner-owned clarification rounds ask every material question before decomposition."
       inputs:
         required: []
         optional:
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakwQMBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt91gD8DGqzYGG7HQOcVvig0hVV
-    ImZ/FeeXsojMX1SYtr/0WHQBAK+8ScddDHzIhVZrD9KnMtN25QAEVbvSRJdF7cWb
-    2S4G
-    =d+1l
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakxusRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvjtwEAwGTwwQZo3NliVNEK8tim
+    A+WJCLAzX6sfJdd+0/p2ipEBAJsZF+SPUwL3gzQipbtrbiY9zWTgvCe+fcpugi4W
+    5u4D
+    =C5sL
     -----END PGP SIGNATURE-----
