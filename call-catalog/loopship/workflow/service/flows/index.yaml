@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 27
-      digest: "sha256:0ca7358052591da0d79dce4e01522cdb987ede9c326efb5f604a5dd802426df2"
-      summary: "Reduce SWE stage resolver script footprint with declarative set step."
+      release: 28
+      digest: "sha256:b2e667f1140833e7fa68eef79c909b97b3a49d96fbbb4cbb5eb4ab53cdf4dcc5"
+      summary: "Default terminal child task merge targets to the parent landing branch."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak0whxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvCAAEA5jUQo6+lWiEu+vwf9x+8
-    w+GbReUrsjXxhYJFdxV9QPoA+wQHhUTBULaMe0nlPtnSqGEJW8pRmtU+8LUme0Ys
-    CsgL
-    =Out9
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak02/BsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvZ+QD/cQGHXRbYbd+NRQfRDuGZ
+    +H3i9w7QAq/pp/F38056F2MA/RHQDtqg2SndnzGf91ok5TCkD2QRW5gnA4W2gclZ
+    ZD0N
+    =S8Fg
     -----END PGP SIGNATURE-----
