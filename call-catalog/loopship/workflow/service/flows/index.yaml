@@ -1,10 +1,12 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 19
-      digest: "sha256:77e26de12cc33a214ad783fecf0fb2c32a9bdb8818aa202ad352bb3c15f83a61"
-      summary: "Refresh SWE flow step digest pins after inference routing promotion."
+      release: 20
+      digest: "sha256:fcd4ebbb24966e5ffac08b2a975f70195746fa2a69541dbbbdfb859c2f58f522"
+      summary: "Refresh SWE flow plan step digest pin after plan release 6."
       inputs:
         required: []
         optional: []
@@ -24,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakv1CxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGut8QEApgfbyhWbhzsPBZjiD3ci
-    38lEtjTwwrXtWsTHUf/4ICQBAP2biuZqANKyOqkRjiE860/vVd/KVM4lGecIKQDh
-    HGcI
-    =kp0E
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakxwhxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuxAQD/Tz4YiX0/aysXI/H662e3
+    JBPvwRhTpnll2sUER8J9Xz8A/Rx7uC1dDk5Nxrb/lejKyarcYmM8rkkrzOmvlFGN
+    JB4J
+    =Eotl
     -----END PGP SIGNATURE-----

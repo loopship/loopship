@@ -1,3 +1,5 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-flows
@@ -234,7 +236,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:d382bae14d5bab2921a5e3a7095c7e4cc1a237d128f2aab9c178fce2c4a303a7"
+          digest: "sha256:8f4c8f0773a2f1a5d87f05a36b12cff848bb4067c280f4f63e7cebf66018f68b"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
@@ -731,7 +733,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:d382bae14d5bab2921a5e3a7095c7e4cc1a237d128f2aab9c178fce2c4a303a7"
+          digest: "sha256:8f4c8f0773a2f1a5d87f05a36b12cff848bb4067c280f4f63e7cebf66018f68b"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
