@@ -27,6 +27,8 @@ prefixes:
       service:
         child:
           tags: "child, worktree, quest, prepare"
+        flow:
+          tags: "flow, stage-result, envelope"
         git:
           tags: "git, commit, evidence, head"
         landing:
