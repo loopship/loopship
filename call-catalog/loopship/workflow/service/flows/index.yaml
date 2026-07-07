@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 25
-      digest: "sha256:7ffb500f8d9131988a15b62100dd8a15e8c0f791a4ce6fb13f1f114f335d99ce"
-      summary: "Require terminal child local commits before leaf completion."
+      release: 26
+      digest: "sha256:76a44f192d500037226bfbf1f4c605f88ee7aa7905524671cfdbd0cd5e4eda0d"
+      summary: "Refresh SWE step digest pins after recursive decomposition prompts."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakzvehsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGskOgD6Av1rFsPPicufYiXl8gQf
-    TilS7TxfxZ26XL1/WRwlUYQA/jQ65sNL13ecVkYRRprMyEy7Nel9rWqla+mUgU5a
-    lL0N
-    =NTDi
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakz45xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsfKAEAoSVif3u7dFzVC0tteiS9
+    qTcJ057mA+FN39sIv34AD2ABAMJQa8zuIsV1JcLm18yMtTrmb7o3SNqYX8dNPK8C
+    1eoP
+    =wAN7
     -----END PGP SIGNATURE-----
