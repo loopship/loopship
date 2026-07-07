@@ -729,6 +729,19 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(text).toContain("stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action");
   });
 
+  test("planning prompts require recursive parallel decomposition for broad systems", () => {
+    const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
+    const planText = readFileSync(join(stepRoot, "plan.stable.yaml"), "utf8");
+    const taskGraphText = readFileSync(join(stepRoot, "task-graph.stable.yaml"), "utf8");
+
+    expect(planText).toContain("recursively decomposed task graph");
+    expect(planText).toContain("smallest independently ownable unit tasks");
+    expect(planText).toContain("all ready siblings can run");
+    expect(taskGraphText).toContain("recursively");
+    expect(taskGraphText).toContain("smallest independently ownable unit tasks");
+    expect(taskGraphText).toContain("Reject broad feature-bundle tasks");
+  });
+
   test("keeps child assignment keys compact and deterministic", () => {
     const longParent =
       "build-a-small-feature-that-intentionally-decomposes-into-frontend-and-backend-child-tasks";
