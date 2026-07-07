@@ -1,0 +1,84 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+calls:
+  - call: loopship.afn.service.flow.stage-result-build
+    summary: "Build a generic Loopship flow stage-result envelope from flow-owned transition data."
+    inputs:
+      required:
+        - schema_version
+        - flow_id
+        - stage_before
+        - stage_after
+        - transition
+        - step
+        - step_workflow_task
+        - step_payload
+        - step_action
+        - state_patch
+        - events
+        - runtime
+      optional:
+        - as_check
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - schema_version
+          - flow_id
+          - stage_before
+          - stage_after
+          - transition
+          - step
+          - step_workflow_task
+          - step_payload
+          - step_action
+          - state_patch
+          - events
+          - runtime
+        properties:
+          schema_version:
+            const: loopship.stage-result.build/v1
+          flow_id:
+            type: string
+            minLength: 1
+          stage_before:
+            type: string
+            minLength: 1
+          stage_after:
+            type: string
+            minLength: 1
+          transition:
+            type: string
+            minLength: 1
+          step:
+            type: string
+            minLength: 1
+          step_workflow_task:
+            type: string
+            minLength: 1
+          step_payload:
+            type: object
+            additionalProperties: true
+          step_action:
+            type: object
+            additionalProperties: true
+          state_patch:
+            type: object
+            additionalProperties: true
+          events:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+          runtime:
+            type: object
+            additionalProperties: true
+          as_check:
+            type: boolean
+    preferWhen:
+      - "A Loopship flow needs to normalize a stage transition into the standard result envelope."
+    avoidWhen:
+      - "The workflow needs to decide stage transitions, interpret task graphs, or mutate runtime state."
+    metadata:
+      allowed_phases:
+        - action
+        - verification

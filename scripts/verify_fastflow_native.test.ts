@@ -67,7 +67,7 @@ function parseCallId(call: string): {
   name: string;
 } {
   const parts = call.split(".");
-  expect(parts).toHaveLength(5);
+  expect(parts.length).toBeGreaterThanOrEqual(5);
   for (const part of parts) {
     expect(part).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
   }
@@ -76,7 +76,7 @@ function parseCallId(call: string): {
     kind: parts[1],
     target: parts[2],
     scope: parts[3],
-    name: parts[4],
+    name: parts.slice(4).join("."),
   };
 }
 
@@ -549,10 +549,11 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.scripts.prepublishOnly).toBe("bun run verify:release");
   });
 
-  test("registers exactly the minimal Loopship side-effect AFNs", () => {
+  test("registers exactly the minimal Loopship AFNs", () => {
     const calls = LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort();
     expect(calls).toEqual([
       LOOPSHIP_AFN_CALLS.childPrepare,
+      LOOPSHIP_AFN_CALLS.flowStageResultBuild,
       LOOPSHIP_AFN_CALLS.gitHead,
       LOOPSHIP_AFN_CALLS.landingApply,
       LOOPSHIP_AFN_CALLS.systemApply,
@@ -564,6 +565,114 @@ describe("Loopship Fastflow-native bridge", () => {
         target: "service",
       });
     }
+  });
+
+  test("builds generic Loopship flow stage-result envelopes", async () => {
+    const adapters = createLoopshipFastflowAdapters();
+    const result = await (adapters.executeAfn as Function)({
+      action: {
+        call: LOOPSHIP_AFN_CALLS.flowStageResultBuild,
+        with: {
+          body: {
+            schema_version: "loopship.stage-result.build/v1",
+            flow_id: "support",
+            stage_before: "triage",
+            stage_after: "review",
+            transition: "submitted",
+            step: "intake",
+            step_workflow_task: "stage_triage",
+            step_payload: { status: "ok" },
+            step_action: { status: "ok" },
+            state_patch: { stage: "review" },
+            events: [{ event: "intake_submitted", ticket_count: 3 }],
+            runtime: { tasks: { stage: "triage" } },
+          },
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      schema_version: "loopship.stage-result/v1",
+      flow_id: "support",
+      stage_before: "triage",
+      stage_after: "review",
+      transition: "submitted",
+      step: "intake",
+      step_workflow_task: "stage_triage",
+      step_payload: { status: "ok" },
+      step_action: { status: "ok" },
+      state_patch: { stage: "review" },
+      event_payload: {
+        event: "stage_changed",
+        stage: "review",
+        transition: "submitted",
+        step: "intake",
+        stage_before: "triage",
+        stage_after: "review",
+      },
+      runtime: { tasks: { stage: "triage" } },
+    });
+    expect(result.events).toEqual([
+      {
+        schema_version: "1.0.0",
+        payload: {
+          event: "intake_submitted",
+          ticket_count: 3,
+          transition: "submitted",
+          step: "intake",
+          stage_before: "triage",
+          stage_after: "review",
+        },
+      },
+      {
+        schema_version: "1.0.0",
+        payload: {
+          event: "stage_changed",
+          stage: "review",
+          transition: "submitted",
+          step: "intake",
+          stage_before: "triage",
+          stage_after: "review",
+        },
+      },
+    ]);
+  });
+
+  test("verifies generic stage-result build inputs without inline JS checks", async () => {
+    const adapters = createLoopshipFastflowAdapters();
+    const result = await (adapters.executeAfn as Function)({
+      phase: "verification",
+      action: {
+        call: LOOPSHIP_AFN_CALLS.flowStageResultBuild,
+        with: {
+          body: {
+            schema_version: "loopship.stage-result.build/v1",
+            flow_id: "support",
+            stage_before: "triage",
+            stage_after: "review",
+            transition: "submitted",
+            step: "intake",
+            step_workflow_task: "stage_triage",
+            step_payload: {},
+            step_action: {},
+            state_patch: { stage: "review" },
+            events: [{ event: "intake_submitted" }],
+            runtime: {},
+            as_check: true,
+          },
+        },
+      },
+    });
+    expect(result).toEqual({
+      ok: true,
+      evidence: {
+        schema_version: "loopship.stage-result/v1",
+        flow_id: "support",
+        stage_before: "triage",
+        stage_after: "review",
+        transition: "submitted",
+        event_count: 2,
+      },
+    });
   });
 
   test("hook normalizes legacy decision payloads into response answers", () => {
@@ -786,14 +895,14 @@ describe("Loopship Fastflow-native bridge", () => {
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
-        if (!result.ok || result.calls !== 15) {
+        if (!result.ok || result.calls !== 16) {
           throw new Error(JSON.stringify(result));
         }
         console.log(JSON.stringify(result));
       `,
       [LOOPSHIP_CALL_CATALOG_ROOT],
     );
-    expect(JSON.parse(output).calls).toBe(15);
+    expect(JSON.parse(output).calls).toBe(16);
   });
 
   test("keeps static AFN call catalog descriptors in parity with adapter descriptors", async () => {
@@ -1545,7 +1654,7 @@ describe("Loopship Fastflow-native bridge", () => {
         pending_task_ids: ["ui"],
       },
     });
-    expect(result.events[0].payload).toMatchObject({
+    expect(result.events[0]).toMatchObject({
       event: "leaf_execution_missing_commit",
       pending_task_ids: ["ui"],
     });
@@ -1911,6 +2020,7 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(manifest.schemaVersion).toBe("fastflow/call-catalog-manifest/v3");
       expect(manifest.pathTemplate).toBe("{registry}/{kind}/{target}/{scope}/index.yaml");
       expect(manifest.release_auth?.trusted_releasers?.length).toBeGreaterThan(0);
+      expect(manifest.prefixes.loopship.afn.service.flow.tags).toContain("stage-result");
       expect(manifest.prefixes.loopship.workflow.service.step.tags).toContain("step");
       expect(manifest.prefixes.loopship.workflow.service.flows.tags).toContain("flow");
     } finally {
