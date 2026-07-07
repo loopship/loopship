@@ -38,6 +38,7 @@ import {
   loopshipFlowWorkflowRef,
 } from "./loopship_fastflow.ts";
 import { nativeResumeRequest, runDoctor } from "./loopship.ts";
+import { nativeResumeRequest as nativeStepperResumeRequest } from "./loopship_stepper.ts";
 import { runCommand } from "./loopship_utils.ts";
 
 const LOOPSHIP_SCRIPT = resolve(process.cwd(), "scripts", "loopship.ts");
@@ -580,6 +581,30 @@ describe("Loopship Fastflow-native bridge", () => {
       response: {
         answer: {
           approved: true,
+        },
+      },
+    });
+  });
+
+  test("stepper normalizes handoff decisions into response answers", () => {
+    expect(
+      nativeStepperResumeRequest({
+        sessionId: "session-123",
+        nonce: "nonce-123",
+        workspaceRoot: "/tmp/demo",
+        decision: { system_update: { schema_version: 1, mode: "no_change", summary: "Covered." } },
+      }),
+    ).toEqual({
+      sessionId: "session-123",
+      nonce: "nonce-123",
+      workspaceRoot: "/tmp/demo",
+      response: {
+        answer: {
+          system_update: {
+            schema_version: 1,
+            mode: "no_change",
+            summary: "Covered.",
+          },
         },
       },
     });
