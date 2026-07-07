@@ -204,9 +204,9 @@ workflows:
         - loopship.afn.service.system.apply
   task-graph:
     stable:
-      release: 2
-      digest: "sha256:257a9a2e22159b3ad8bd6db20ba2cb2da94fb779e14ad9533cd16a8acfe8f3d1"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      release: 3
+      digest: "sha256:0b91052928aaa130f1e02507b674f5df83e2631f67550ec7cc9624e04b111d33"
+      summary: "Reject broad task graphs without recursive parallel splits."
       inputs:
         required: []
         optional:
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakz4WBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt1qAD+KQ/Dgp+su7+ojBcSIZkR
-    4zAH/qE01ukbi1LO0kwqa0cA/R5oCPh7j7Gchx23LGSTjWQy++D1hhOG8Y2D4TxD
-    qRcC
-    =MVUD
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakz4ZxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvlnwD9E3UHz8ZBaiTIdDsBPD63
+    +pwOoK3nDq3R3GWkenv8jwkBAKs/8/eOg1xtRovVFgO3ZAhui1RJ+MaBkBqnBQd/
+    CccJ
+    =lRsF
     -----END PGP SIGNATURE-----
