@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 21
-      digest: "sha256:71bd94e38d609accd685fd04d8e158428c9e8ae192e9628e88d45ea33e676efb"
-      summary: "Route failed terminal child validation back to local execution."
+      release: 22
+      digest: "sha256:a5ddacbb8371066d46dca6765da2ab69499f4eacea60e3fd8d4a9d579b1e210d"
+      summary: "Route terminal child task graph retry to local execution."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakyBfRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuXmwEAy65dlGIeItPiLzUic6ob
-    NA1GMC2je1tmSs4/RjphXhwA/jKYlytq2FpDgCdusE/3eMfvMxN+n3/9jI5SJAw8
-    t/IL
-    =9eKN
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakyDqxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvanAD/XB7Zfyc/wtwQMFAAfJIE
+    S48fVrfiezDHs57qofkgKg0BAJ6QusDSeU0nta/DImuAXgdHuxGhXlXvo9LJ1dvz
+    8HgG
+    =gpgf
     -----END PGP SIGNATURE-----
