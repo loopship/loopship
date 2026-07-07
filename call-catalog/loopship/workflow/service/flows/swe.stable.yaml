@@ -120,43 +120,21 @@ do:
                   code: |
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
-      run:
-        script:
-          language: js
-          code: |-
-            const validStages = new Set([
-              "planning",
-              "awaiting_user_answers",
-              "plan_review",
-              "task_graph_ready",
-              "executing",
-              "validating",
-              "verification_pending",
-              "system_update_pending",
-              "landing_ready",
-              "replanning",
-              "archived",
-            ]);
-            const tasks = state.steps.read_tasks?.action || {};
-            const requestedStage = String(args.stage || args.state || tasks.stage || "planning").trim();
-            const currentStage = validStages.has(requestedStage) ? requestedStage : "planning";
-            return {
-              schema_version: "loopship.flow-stage/v1",
-              flow_id: "swe",
-              default_stage: "planning",
-              current_stage: currentStage,
-              runtime: {
-                tasks,
-                manifest: null,
-                events: state.steps.query_events?.action || []
-              }
-            };
+      set:
+        schema_version: loopship.flow-stage/v1
+        flow_id: swe
+        default_stage: planning
+        current_stage: "${[\"planning\", \"awaiting_user_answers\", \"plan_review\", \"task_graph_ready\", \"executing\", \"validating\", \"verification_pending\", \"system_update_pending\", \"landing_ready\", \"replanning\", \"archived\"].includes(String(args.stage || args.state || state.steps.read_tasks?.action?.stage || \"planning\").trim()) ? String(args.stage || args.state || state.steps.read_tasks?.action?.stage || \"planning\").trim() : \"planning\"}"
+        runtime:
+          tasks: "${state.steps.read_tasks?.action || {}}"
+          manifest: null
+          events: "${state.steps.query_events?.action || []}"
       output:
         schema:
           document:
             type: object
             additionalProperties: true
-        as: "${action.value}"
+        as: "${action.values}"
   - route_stage:
       metadata:
         description: "Route directly to the active Loopship flow stage."

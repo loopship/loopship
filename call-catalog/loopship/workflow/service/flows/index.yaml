@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 26
-      digest: "sha256:76a44f192d500037226bfbf1f4c605f88ee7aa7905524671cfdbd0cd5e4eda0d"
-      summary: "Refresh SWE step digest pins after recursive decomposition prompts."
+      release: 27
+      digest: "sha256:0ca7358052591da0d79dce4e01522cdb987ede9c326efb5f604a5dd802426df2"
+      summary: "Reduce SWE stage resolver script footprint with declarative set step."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakz45xsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsfKAEAoSVif3u7dFzVC0tteiS9
-    qTcJ057mA+FN39sIv34AD2ABAMJQa8zuIsV1JcLm18yMtTrmb7o3SNqYX8dNPK8C
-    1eoP
-    =wAN7
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak0whxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvCAAEA5jUQo6+lWiEu+vwf9x+8
+    w+GbReUrsjXxhYJFdxV9QPoA+wQHhUTBULaMe0nlPtnSqGEJW8pRmtU+8LUme0Ys
+    CsgL
+    =Out9
     -----END PGP SIGNATURE-----
