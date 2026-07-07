@@ -1,3 +1,5 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 schemaVersion: fastflow/call-catalog-manifest/v3
 pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml"
 release_auth:
