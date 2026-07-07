@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 30
-      digest: "sha256:6411e98a27056b2305bc594722612b23526699210c1d4e7a7cc97690c805d251"
-      summary: "Build stage-result envelopes through reusable flow AFN."
+      release: 31
+      digest: "sha256:5f9b70d984b50c8f63050cf51550e23d484cb131705da81f06e586c85c749fc1"
+      summary: "Return check result from stage-result builder verification."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak2JmBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGu3TwEA+l4rKQJYARjzvgbI6KIA
-    jtZy1M0NNGY6hWwJ1fQNP+sA/3ErqkqsPhF5GTiK1kor1NNlQNzijimK/Ktp+cJu
-    xdQD
-    =Q0cT
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak2KtBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsRHgEAzYMLMtq/ySAPZScPmR9p
+    b6gbxqtRKH3hTwa5fxHD+qIA/j0Wvo9y2zr1KgpWWs7majS+wkQfMFXeehZbqRrC
+    S7IO
+    =HNPA
     -----END PGP SIGNATURE-----
