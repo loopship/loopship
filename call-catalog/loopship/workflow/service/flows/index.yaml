@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 20
-      digest: "sha256:fcd4ebbb24966e5ffac08b2a975f70195746fa2a69541dbbbdfb859c2f58f522"
-      summary: "Refresh SWE flow plan step digest pin after plan release 6."
+      release: 21
+      digest: "sha256:71bd94e38d609accd685fd04d8e158428c9e8ae192e9628e88d45ea33e676efb"
+      summary: "Route failed terminal child validation back to local execution."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakxwhxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuxAQD/Tz4YiX0/aysXI/H662e3
-    JBPvwRhTpnll2sUER8J9Xz8A/Rx7uC1dDk5Nxrb/lejKyarcYmM8rkkrzOmvlFGN
-    JB4J
-    =Eotl
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakyBfRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuXmwEAy65dlGIeItPiLzUic6ob
+    NA1GMC2je1tmSs4/RjphXhwA/jKYlytq2FpDgCdusE/3eMfvMxN+n3/9jI5SJAw8
+    t/IL
+    =9eKN
     -----END PGP SIGNATURE-----
