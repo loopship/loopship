@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 22
-      digest: "sha256:a5ddacbb8371066d46dca6765da2ab69499f4eacea60e3fd8d4a9d579b1e210d"
-      summary: "Route terminal child task graph retry to local execution."
+      release: 23
+      digest: "sha256:f135392f2fde5cd5bd5db6f25d507e790e9d6a9552f0495c9dd431554f836c93"
+      summary: "Refresh terminal child local task merge commits from HEAD."
       inputs:
         required: []
         optional: []
@@ -26,9 +26,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakyDqxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvanAD/XB7Zfyc/wtwQMFAAfJIE
-    S48fVrfiezDHs57qofkgKg0BAJ6QusDSeU0nta/DImuAXgdHuxGhXlXvo9LJ1dvz
-    8HgG
-    =gpgf
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakyFsRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvecQEAyE4HYiFddxxCCKWsujUQ
+    kCSGRyz18Ip1SzakZwno+C0BAOIf1zlYJ+Wf4Fhq+zTzT86nJU/a2Fb8Fq/pdKbt
+    ovwB
+    =c2x9
     -----END PGP SIGNATURE-----
