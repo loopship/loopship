@@ -721,9 +721,11 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(parentRoute).toBeGreaterThan(leafRoute);
     expect(text).toContain("- task_graph_ready_leaf:");
     expect(text).toContain("then: stage_leaf_git_head");
+    expect(text).toContain("- stage_leaf_target_git_head:");
     expect(text).toContain("call: loopship.afn.service.git.head");
     expect(text).toContain("leaf_execution_recorded");
     expect(text).toContain("state.steps.stage_leaf_git_head?.action).commit");
+    expect(text).toContain("state.steps.stage_leaf_target_git_head?.action).commit");
     expect(text).toContain("stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action");
   });
 
@@ -1400,6 +1402,11 @@ describe("Loopship Fastflow-native bridge", () => {
             commit: "abc123",
           },
         },
+        stage_leaf_target_git_head: {
+          action: {
+            commit: "parent123",
+          },
+        },
       },
     });
 
@@ -1415,6 +1422,8 @@ describe("Loopship Fastflow-native bridge", () => {
         mode: "shared-head-commit",
         worktree_path: "/tmp/repo/worktrees/child-terminal",
         commit: "abc123",
+        target_commit: "parent123",
+        status: "recorded",
         covered_task_ids: ["ui", "tests"],
       },
     });
@@ -1424,6 +1433,75 @@ describe("Loopship Fastflow-native bridge", () => {
       local_work_receipt: {
         covered_task_ids: ["ui", "tests"],
       },
+    });
+  });
+
+  test("terminal child execution does not complete without a new local commit", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_leaf_executing");
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        read_tasks: {
+          action: {
+            parent_wtree: "parent",
+            parent_task_id: "dashboard",
+            parent_context_ref: "/tmp/repo/worktrees/parent/.loopship/runtime/tasks.yaml",
+            coordinator_worktree: "/tmp/repo/worktrees/child-terminal",
+            tasks: [
+              { id: "ui", title: "Build UI", status: "pending", child_wtree: "" },
+            ],
+          },
+        },
+        stage_leaf_git_head: {
+          action: {
+            commit: "parent123",
+          },
+        },
+        stage_leaf_target_git_head: {
+          action: {
+            commit: "parent123",
+          },
+        },
+      },
+    });
+
+    expect(result.stage_after).toBe("executing");
+    expect(result.transition).toBe("blocked");
+    expect(result.state_patch).toMatchObject({
+      stage: "executing",
+      tasks: [{ id: "ui", status: "pending" }],
+      local_work_receipt: {
+        mode: "shared-head-commit",
+        commit: "parent123",
+        target_commit: "parent123",
+        status: "missing_local_commit",
+        covered_task_ids: [],
+        pending_task_ids: ["ui"],
+      },
+    });
+    expect(result.events[0].payload).toMatchObject({
+      event: "leaf_execution_missing_commit",
+      pending_task_ids: ["ui"],
     });
   });
 
