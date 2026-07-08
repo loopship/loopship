@@ -713,7 +713,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:5ec976217ce409e5ec85256b39d336d7cf5bd6f13b19029172c84e0e5a0086e9"
+          digest: "sha256:28eb9383cf07112c145054479cac2935e00fa854a5d69b118b00d8fd028bee0d"
       call: loopship.workflow.service.step.system-update
       with:
         version: 0.1.0

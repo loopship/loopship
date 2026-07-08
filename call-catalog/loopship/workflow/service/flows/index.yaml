@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 41
-      digest: "sha256:e9a5a6cad054e0c456ff86db947717a062691505b913a724a75e83abd24eaa17"
-      summary: "Refresh archived step digest after cleanup command"
+      release: 42
+      digest: "sha256:3bff4568e82279ba9b64d1ff8b935cc9597f7957319b7b625a198fae5910bdf4"
+      summary: "Refresh system-update step digest after docs policy"
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak68HBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtfggEAx2RyNNZC5RXUvWl2GHUv
-    Tef20FBiFo5/s9ETyqXKUukBAJshANAdkK/FAJ0oJb9cgaxu1oIErejT1SYFBY0f
-    ChUH
-    =lq2Q
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak69SRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvd5gD+KzUKxcflGVEvsv8IGJDR
+    bX0Ybz5gcoVPx7GDHtKEoUABALvDnKrAPZC26oKcdSjQDOvZcXbicGV/Bho7LrQX
+    QdYM
+    =Pb7n
     -----END PGP SIGNATURE-----
