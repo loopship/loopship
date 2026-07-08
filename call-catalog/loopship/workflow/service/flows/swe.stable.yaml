@@ -56,11 +56,23 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
+                call: loopship.afn.service.flow.stage-result-build
+                with:
+                  body:
+                    schema_version: loopship.stage-result.build/v1
+                    flow_id: swe
+                    stage_before: executing
+                    stage_after: executing
+                    transition: check
+                    step: executing
+                    step_workflow_task: stage_leaf_execution_route
+                    step_payload: {}
+                    step_action: {}
+                    state_patch: {}
+                    events:
+                      - event: stage_leaf_execution_route_check
+                    runtime: {}
+                    as_check: true
       call: fastflow.afn.data.document.read
       with:
         body:
@@ -92,11 +104,23 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
+                call: loopship.afn.service.flow.stage-result-build
+                with:
+                  body:
+                    schema_version: loopship.stage-result.build/v1
+                    flow_id: swe
+                    stage_before: executing
+                    stage_after: executing
+                    transition: check
+                    step: executing
+                    step_workflow_task: stage_leaf_subagent_implementation
+                    step_payload: {}
+                    step_action: {}
+                    state_patch: {}
+                    events:
+                      - event: stage_leaf_subagent_implementation_check
+                    runtime: {}
+                    as_check: true
       call: fastflow.afn.data.event-log.query
       with:
         body:
@@ -129,11 +153,23 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
+                call: loopship.afn.service.flow.stage-result-build
+                with:
+                  body:
+                    schema_version: loopship.stage-result.build/v1
+                    flow_id: swe
+                    stage_before: executing
+                    stage_after: executing
+                    transition: check
+                    step: executing
+                    step_workflow_task: stage_leaf_git_head_after_subagent
+                    step_payload: {}
+                    step_action: {}
+                    state_patch: {}
+                    events:
+                      - event: stage_leaf_git_head_after_subagent_check
+                    runtime: {}
+                    as_check: true
       set:
         schema_version: loopship.flow-stage/v1
         flow_id: swe
@@ -164,11 +200,23 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
+                call: loopship.afn.service.flow.stage-result-build
+                with:
+                  body:
+                    schema_version: loopship.stage-result.build/v1
+                    flow_id: swe
+                    stage_before: executing
+                    stage_after: executing
+                    transition: check
+                    step: executing
+                    step_workflow_task: stage_leaf_target_git_head_after_subagent
+                    step_payload: {}
+                    step_action: {}
+                    state_patch: {}
+                    events:
+                      - event: stage_leaf_target_git_head_after_subagent_check
+                    runtime: {}
+                    as_check: true
       switch:
         - planning_terminal_child:
             when: "${state.steps.resolve_stage.action.current_stage === \"planning\" && (String(state.steps.read_tasks.action.parent_wtree || \"\").trim() || String(state.steps.read_tasks.action.parent_task_id || \"\").trim() || String(state.steps.read_tasks.action.parent_context_ref || \"\").trim() || String(state.steps.read_tasks.action.prompt || \"\").replace(/^loopship:\\s*/i, \"\").trim().toLowerCase().startsWith(\"execute child task \")) && (!Array.isArray(state.steps.read_tasks.action.tasks) || state.steps.read_tasks.action.tasks.length === 0)}"

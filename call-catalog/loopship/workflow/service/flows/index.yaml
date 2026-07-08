@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 34
-      digest: "sha256:4ac047dd8ca5426422459de058cd18c491f74a2f5773423004cb54c66c2e5ff1"
-      summary: "Route terminal child implementation fallback through aitl.subagent."
+      release: 35
+      digest: "sha256:9fba6ebc5b5f83c221f85da63f4f4e80e6026d7be3f4aa8c3a9d24a1d6fdd88e"
+      summary: "Keep subagent fallback checks within SWE script budget."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6o5xsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuJMgD/dCBjDncD4xlHoO6zERZH
-    7cy0P8mjUxBCItIv29tO4WsA/1ejKrHYLncLsqeBPXhT0l8nOJx9qbcrc9vKb+07
-    /7gH
-    =9dqw
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6sIRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGs6TwEAwlw0Y381OpUSuaKYfrW2
+    bbOPms/eg4affIhH5lQxc/kBAPRJZG8mmPTpa++wPgXV8hvJNEzRdjsFM5Y6D7i6
+    W1AC
+    =J7nQ
     -----END PGP SIGNATURE-----
