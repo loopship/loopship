@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 32
-      digest: "sha256:e6cdb528b5efa5c14b98b91755963ddbce82cc1d07baf49d3dfc044d2d1e01b6"
-      summary: "Plan terminal child quests without broad coordinator inference."
+      release: 33
+      digest: "sha256:f173fb9a7916de71e7fd6e9963eb8cd27df02da06b141051c4ffde6d7d484c13"
+      summary: "Verify terminal child planning without extra inline script."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak3FRRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGthwgEArYnar5H6ekHYgayVXx48
-    DDW5gtyHtARhJnIWvRCXuD0A/1aYyYI4ZrDKT/wdOkCDMQlBLvaOAPq/9y/NaFtr
-    NboM
-    =sYV8
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak3JYhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvDLAD9HWZxK55R50XN+etPHHyR
+    6sL4kdsVG64DQD+Bwx6ll9ABAPlShBEB8wJXvzK2JPYH9fzwBvRgq+8EE6yn2wXV
+    s1UG
+    =0roc
     -----END PGP SIGNATURE-----
