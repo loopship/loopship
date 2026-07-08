@@ -11,6 +11,7 @@ node index.ts hook --runtime codex
 node index.ts stepper init "loopship: build me a python app" --runtime codex --flow swe
 node index.ts stepper step --json @fastflow-resume.json
 node index.ts stepper hook --runtime codex
+node index.ts cleanup --repo /repo --wtree quest-wtree --dry-run
 node index.ts doctor --fix
 node index.ts handbook
 node index.ts handbook --raw
@@ -68,6 +69,9 @@ In `superviseStep` mode, coordinator quests launch at most one child at a time,
 while ordinary `loopship init` runs may still dispatch multiple children in
 parallel. Supervised child launches use `loopship stepper init` so the child
 pauses on its own internal lifecycle steps before the next child starts.
+After a quest is archived, run `loopship cleanup --repo <repo> --wtree <quest>`
+from the target/root context to remove only merged repo-owned quest worktrees and
+their landed branches; use `--dry-run` to inspect the planned cleanup first.
 
 Routine verification keeps lifecycle checks focused and bounded:
 
