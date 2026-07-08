@@ -214,11 +214,24 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
+                call: loopship.afn.service.flow.stage-result-build
+                with:
+                  body:
+                    schema_version: loopship.stage-result.build/v1
+                    flow_id: swe
+                    stage_before: planning
+                    stage_after: plan_review
+                    transition: planned
+                    step: plan
+                    step_workflow_task: stage_planning_terminal_child
+                    step_payload: {}
+                    step_action: {}
+                    state_patch:
+                      stage: plan_review
+                    events:
+                      - event: terminal_child_planning_static_check
+                    runtime: {}
+                    as_check: true
       set:
         classification: terminal_child
         scope: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
