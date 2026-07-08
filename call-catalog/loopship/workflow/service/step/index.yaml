@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   archived:
     stable:
-      release: 2
-      digest: "sha256:07069497de8d832b6169af3656ea6e02699d0f0581726224bb5c2236437df9a7"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      release: 3
+      digest: "sha256:50779d6cddf6d74f2f4ea8bf66d01bab3bb07eb3381fbb774d1015ef124233cf"
+      summary: "Make archived terminal reporting deterministic."
       inputs:
         required: []
         optional:
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCakz4ZxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvlnwD9E3UHz8ZBaiTIdDsBPD63
-    +pwOoK3nDq3R3GWkenv8jwkBAKs/8/eOg1xtRovVFgO3ZAhui1RJ+MaBkBqnBQd/
-    CccJ
-    =lRsF
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak60HBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvc6wEAkz3Xdr/jtpk8F3yEti3L
+    AaYNHtvkMcz56p6QRph8j0QBAKPewHZjht+zdHhSjJkteo1WB8zJTyZ+skFLN+WM
+    HHoL
+    =KLkC
     -----END PGP SIGNATURE-----
