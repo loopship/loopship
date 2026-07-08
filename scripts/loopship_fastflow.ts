@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CallDescriptor } from "@cueintent/fastflow";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -1504,6 +1504,192 @@ function gitMergeIntoTarget(input: {
     landed_commit: gitRevParse(workspace.worktree_path, "HEAD"),
     strategy: ffOnly ? "fast-forward" : "merge-commit",
   };
+}
+
+type LandingCleanupCandidate = {
+  source: string;
+  branch: string;
+  worktree: string;
+};
+
+type LandingCleanupSkipped = LandingCleanupCandidate & {
+  reason: string;
+  details?: string[];
+};
+
+function isInsideRepoWorktrees(repo: string, path: string): boolean {
+  const base = resolve(repo, "worktrees");
+  const target = resolve(path);
+  const rel = relative(base, target);
+  return Boolean(rel) && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+function samePath(left: string, right: string): boolean {
+  return resolve(left) === resolve(right);
+}
+
+function branchExists(repo: string, branch: string): boolean {
+  return (
+    runCommand("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
+      cwd: repo,
+      timeoutMs: 10_000,
+    }).status === 0
+  );
+}
+
+function branchIsMerged(repo: string, branch: string, targetBranch: string, landedCommit: string): boolean {
+  if (!branchExists(repo, branch)) return false;
+  if (targetBranch && gitIsAncestor(repo, branch, targetBranch)) return true;
+  return Boolean(landedCommit && gitIsAncestor(repo, branch, landedCommit));
+}
+
+function cleanupCandidateKey(candidate: LandingCleanupCandidate): string {
+  return `${candidate.branch}\n${resolve(candidate.worktree)}`;
+}
+
+function landedCleanupCandidates(state: Record<string, unknown>): LandingCleanupCandidate[] {
+  const candidates: LandingCleanupCandidate[] = [];
+  const coordinatorBranch = optionalString(state.coordinator_branch);
+  const coordinatorWorktree = optionalString(state.coordinator_worktree);
+  if (coordinatorBranch && coordinatorWorktree) {
+    candidates.push({
+      source: "coordinator",
+      branch: coordinatorBranch,
+      worktree: coordinatorWorktree,
+    });
+  }
+  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  for (const task of tasks) {
+    if (!isPlainObject(task)) continue;
+    const status = optionalString(task.status);
+    if (status && !CHILD_DONE_STATUSES.has(status)) continue;
+    const branch = optionalString(task.branch_ref);
+    const worktree = optionalString(task.worktree_path);
+    if (!branch || !worktree) continue;
+    candidates.push({
+      source: `task:${optionalString(task.id) || optionalString(task.task_id) || branch}`,
+      branch,
+      worktree,
+    });
+  }
+  const seen = new Set<string>();
+  const unique = candidates.filter((candidate) => {
+    const key = cleanupCandidateKey(candidate);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.filter((candidate) => candidate.source !== "coordinator").concat(
+    unique.filter((candidate) => candidate.source === "coordinator"),
+  );
+}
+
+export function cleanupLandedWorktrees(input: {
+  repo: string;
+  wtree: string;
+  dryRun?: boolean;
+}): Record<string, unknown> {
+  const repo = resolve(requireString(input.repo, "repo"));
+  const wtree = requireString(input.wtree, "wtree");
+  const files = questFiles(repo, wtree);
+  if (!existsSync(files.tasks)) {
+    throw new Error(`missing Loopship quest state for ${wtree}`);
+  }
+  const state = parseTasksYaml(readText(files.tasks)) as Record<string, unknown>;
+  const targetBranch = optionalString(state.landing_target_branch) || "main";
+  const targetWorktree = optionalString(state.landing_target_worktree);
+  const landedCommit = optionalString(state.landed_commit);
+  const cleanupAllowed = optionalString(state.stage) === "archived" && Boolean(landedCommit);
+  const result = {
+    schema_version: "loopship.landing.cleanup/v1",
+    dry_run: input.dryRun === true,
+    repo,
+    wtree,
+    target_branch: targetBranch,
+    landed_commit: landedCommit,
+    removed_worktrees: [] as string[],
+    removed_branches: [] as string[],
+    skipped: [] as LandingCleanupSkipped[],
+  };
+  if (!cleanupAllowed) {
+    result.skipped.push({
+      source: "quest",
+      branch: "",
+      worktree: files.workspace_root,
+      reason: "quest_not_archived",
+    });
+    return result;
+  }
+  const registeredWorktrees = new Set(parseGitWorktrees(repo).map((entry) => resolve(entry.worktree)));
+  for (const candidate of landedCleanupCandidates(state)) {
+    const normalizedWorktree = resolve(candidate.worktree);
+    if (candidate.branch === targetBranch) {
+      result.skipped.push({ ...candidate, worktree: normalizedWorktree, reason: "target_branch" });
+      continue;
+    }
+    if (targetWorktree && samePath(normalizedWorktree, targetWorktree)) {
+      result.skipped.push({ ...candidate, worktree: normalizedWorktree, reason: "target_worktree" });
+      continue;
+    }
+    if (!isInsideRepoWorktrees(repo, normalizedWorktree)) {
+      result.skipped.push({ ...candidate, worktree: normalizedWorktree, reason: "outside_repo_worktrees" });
+      continue;
+    }
+    if (!branchIsMerged(repo, candidate.branch, targetBranch, landedCommit)) {
+      result.skipped.push({ ...candidate, worktree: normalizedWorktree, reason: "branch_not_merged" });
+      continue;
+    }
+    const dirty = existsSync(normalizedWorktree)
+      ? nonLoopshipGitDirtyEntries(normalizedWorktree)
+      : [];
+    if (dirty.length) {
+      result.skipped.push({
+        ...candidate,
+        worktree: normalizedWorktree,
+        reason: "dirty_worktree",
+        details: dirty.slice(0, 5),
+      });
+      continue;
+    }
+    if (input.dryRun === true) {
+      result.removed_worktrees.push(normalizedWorktree);
+      result.removed_branches.push(candidate.branch);
+      continue;
+    }
+    if (existsSync(normalizedWorktree) && registeredWorktrees.has(normalizedWorktree)) {
+      const remove = runCommand("git", ["worktree", "remove", "--force", normalizedWorktree], {
+        cwd: repo,
+        timeoutMs: 30_000,
+      });
+      if (remove.status !== 0) {
+        result.skipped.push({
+          ...candidate,
+          worktree: normalizedWorktree,
+          reason: "worktree_remove_failed",
+          details: [remove.stderr || remove.stdout || "git worktree remove failed"],
+        });
+        continue;
+      }
+      result.removed_worktrees.push(normalizedWorktree);
+    }
+    if (branchExists(repo, candidate.branch)) {
+      const branchDelete = runCommand("git", ["branch", "-d", candidate.branch], {
+        cwd: repo,
+        timeoutMs: 15_000,
+      });
+      if (branchDelete.status === 0) {
+        result.removed_branches.push(candidate.branch);
+      } else {
+        result.skipped.push({
+          ...candidate,
+          worktree: normalizedWorktree,
+          reason: "branch_delete_failed",
+          details: [branchDelete.stderr || branchDelete.stdout || "git branch -d failed"],
+        });
+      }
+    }
+  }
+  return result;
 }
 
 function gitBranchPathText(

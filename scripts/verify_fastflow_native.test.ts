@@ -1343,8 +1343,12 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(stepUsesGroup, name).toBe(true);
     }
 
-    const archived = loadYamlWorkflow(join(stepRoot, "archived.stable.yaml"));
+    const archivedPath = join(stepRoot, "archived.stable.yaml");
+    const archivedText = readFileSync(archivedPath, "utf8");
+    const archived = loadYamlWorkflow(archivedPath);
     expect((archived.document as Record<string, any>).metadata?.inference).toBeUndefined();
+    expect(archivedText).toContain('args: ["cleanup", "--repo", repo, "--wtree", wtree]');
+    expect(archivedText).toContain("safe_after_archive: true");
     let archivedUsesInference = false;
     let archivedUsesScript = false;
     walk(archived, (value) => {
@@ -2857,6 +2861,115 @@ describe("Loopship Fastflow-native bridge", () => {
       const landedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
       expect(landedState.stage).toBe("archived");
       expect(landedState.landed_commit).toBe(result.landed_commit);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("cleanup removes archived merged quest worktrees and branches", async () => {
+    const fixture = createGitFixture("loopship-native-cleanup-");
+    try {
+      const adapters = createLoopshipFastflowAdapters();
+      const workspace = ensureTaskWorkspace(
+        fixture.repo,
+        "codex/demo",
+        join(fixture.repo, "worktrees", "demo"),
+        "main",
+      );
+      const { files, state } = createQuest({
+        repoRoot: fixture.repo,
+        wtree: "demo",
+        prompt: "loopship: native cleanup",
+        resolutionSource: "test",
+        workspace,
+        flowId: "swe",
+        initialStage: "initial",
+      });
+      const coordinatorWorktree = String(state.coordinator_worktree);
+      const childWorkspace = ensureTaskWorkspace(
+        fixture.repo,
+        "codex/demo-child",
+        join(fixture.repo, "worktrees", "demo-child"),
+        "main",
+      );
+      writeFileSync(join(childWorkspace.worktree_path, "CHILD.md"), "# child\n", "utf8");
+      runGit(childWorkspace.worktree_path, ["add", "CHILD.md"]);
+      runGit(childWorkspace.worktree_path, ["commit", "-m", "child work"]);
+      const childCommit = runGit(childWorkspace.worktree_path, ["rev-parse", "HEAD"]);
+      runGit(coordinatorWorktree, ["merge", "--no-ff", "--no-edit", "codex/demo-child"]);
+      writeFileSync(
+        files.tasks,
+        renderTasksYaml({
+          ...(state as QuestState),
+          tasks: [
+            {
+              id: "child",
+              title: "Child task",
+              acceptance: "done",
+              status: "child_archived",
+              dependencies: [],
+              scope_files: [],
+              branch_ref: "codex/demo-child",
+              worktree_path: childWorkspace.worktree_path,
+              merge_commit: childCommit,
+            },
+          ],
+        }),
+      );
+
+      const landed = await (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingApply,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "demo",
+              source_branch: "codex/demo",
+              next_stage: "archived",
+            },
+          },
+        },
+      });
+      expect(landed).toMatchObject({
+        schema_version: "loopship.landing.apply/v1",
+        status: "landed",
+        next_stage: "archived",
+      });
+
+      const dryRun = runLoopshipCli(fixture.repo, [
+        "cleanup",
+        "--repo",
+        fixture.repo,
+        "--wtree",
+        "demo",
+        "--dry-run",
+      ]);
+      expect(dryRun.status, dryRun.stderr || dryRun.stdout).toBe(0);
+      const dryRunOutput = parseJsonObject(dryRun.stdout, "loopship cleanup dry-run");
+      expect(dryRunOutput.removed_worktrees).toEqual(
+        expect.arrayContaining([childWorkspace.worktree_path, coordinatorWorktree]),
+      );
+
+      const cleanup = runLoopshipCli(fixture.repo, [
+        "cleanup",
+        "--repo",
+        fixture.repo,
+        "--wtree",
+        "demo",
+      ]);
+      expect(cleanup.status, cleanup.stderr || cleanup.stdout).toBe(0);
+      const output = parseJsonObject(cleanup.stdout, "loopship cleanup");
+      expect(output.removed_worktrees).toEqual(
+        expect.arrayContaining([childWorkspace.worktree_path, coordinatorWorktree]),
+      );
+      expect(output.removed_branches).toEqual(
+        expect.arrayContaining(["codex/demo-child", "codex/demo"]),
+      );
+      expect(existsSync(childWorkspace.worktree_path)).toBe(false);
+      expect(existsSync(coordinatorWorktree)).toBe(false);
+      expect(runGit(fixture.repo, ["branch", "--list", "codex/demo-child"])).toBe("");
+      expect(runGit(fixture.repo, ["branch", "--list", "codex/demo"])).toBe("");
+      expect(runGit(fixture.repo, ["branch", "--show-current"])).toBe("main");
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
