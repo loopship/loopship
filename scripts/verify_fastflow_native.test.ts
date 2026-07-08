@@ -1992,6 +1992,71 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("terminal child missing-commit approvals do not duplicate unchanged events", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_leaf_executing");
+    const existingEvent = {
+      event: "leaf_execution_missing_commit",
+      stage: "executing",
+      merge_commit: "parent123",
+      target_commit: "parent123",
+      pending_task_ids: ["ui"],
+    };
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [existingEvent],
+            },
+          },
+        },
+        query_events: { action: [existingEvent] },
+        read_tasks: {
+          action: {
+            parent_wtree: "parent",
+            parent_task_id: "dashboard",
+            parent_context_ref: "/tmp/repo/worktrees/parent/.loopship/runtime/tasks.yaml",
+            coordinator_worktree: "/tmp/repo/worktrees/child-terminal",
+            tasks: [{ id: "ui", title: "Build UI", status: "pending", child_wtree: "" }],
+          },
+        },
+        stage_leaf_git_head: {
+          action: {
+            commit: "parent123",
+          },
+        },
+        stage_leaf_target_git_head: {
+          action: {
+            commit: "parent123",
+          },
+        },
+      },
+    });
+
+    expect(result.stage_after).toBe("executing");
+    expect(result.transition).toBe("blocked");
+    expect(result.events).toEqual([]);
+    expect(result.state_patch.local_work_receipt).toMatchObject({
+      status: "missing_local_commit",
+      commit: "parent123",
+      target_commit: "parent123",
+      pending_task_ids: ["ui"],
+    });
+  });
+
   test("failed terminal child validation returns to local execution", () => {
     const workflow = loadYamlWorkflow(
       join(
