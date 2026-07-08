@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 35
-      digest: "sha256:9fba6ebc5b5f83c221f85da63f4f4e80e6026d7be3f4aa8c3a9d24a1d6fdd88e"
-      summary: "Keep subagent fallback checks within SWE script budget."
+      release: 36
+      digest: "sha256:7910046ab3b7acc9d00a947ff4a1be7a8d722f35f3b564acc940996cb950531a"
+      summary: "Target subagent fallback checks without increasing script count."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6sIRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGs6TwEAwlw0Y381OpUSuaKYfrW2
-    bbOPms/eg4affIhH5lQxc/kBAPRJZG8mmPTpa++wPgXV8hvJNEzRdjsFM5Y6D7i6
-    W1AC
-    =J7nQ
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6tuhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuGQwEA+/4CYrTvWQJ8lO0ykn2I
+    NeqAbgVd7Bg8A6iJhxKSnecA/jo/X824DhHUbmeVv7UfLLQwkTMbNarrZEwMX5qP
+    xMIP
+    =ZJQh
     -----END PGP SIGNATURE-----
