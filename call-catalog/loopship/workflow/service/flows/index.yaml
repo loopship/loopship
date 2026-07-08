@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 33
-      digest: "sha256:f173fb9a7916de71e7fd6e9963eb8cd27df02da06b141051c4ffde6d7d484c13"
-      summary: "Verify terminal child planning without extra inline script."
+      release: 34
+      digest: "sha256:4ac047dd8ca5426422459de058cd18c491f74a2f5773423004cb54c66c2e5ff1"
+      summary: "Route terminal child implementation fallback through aitl.subagent."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak3JYhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvDLAD9HWZxK55R50XN+etPHHyR
-    6sL4kdsVG64DQD+Bwx6ll9ABAPlShBEB8wJXvzK2JPYH9fzwBvRgq+8EE6yn2wXV
-    s1UG
-    =0roc
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6o5xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuJMgD/dCBjDncD4xlHoO6zERZH
+    7cy0P8mjUxBCItIv29tO4WsA/1ejKrHYLncLsqeBPXhT0l8nOJx9qbcrc9vKb+07
+    /7gH
+    =9dqw
     -----END PGP SIGNATURE-----
