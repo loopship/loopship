@@ -25,7 +25,7 @@ document:
       groups:
         loopship_child_implementation:
           timeoutMs: 600000
-          on:
+          "true":
             - unavailable
             - timeout
             - transport_error
@@ -280,9 +280,12 @@ do:
               title: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
               type: coding
               status: pending
-              dependencies: []
-              scope_files: []
-              spec_refs: []
+              dependencies:
+                []
+              scope_files:
+                []
+              spec_refs:
+                []
               context_refs:
                 - "${String(state.steps.read_tasks.action.parent_context_ref || '').trim()}"
               acceptance:
@@ -879,7 +882,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:07069497de8d832b6169af3656ea6e02699d0f0581726224bb5c2236437df9a7"
+          digest: "sha256:50779d6cddf6d74f2f4ea8bf66d01bab3bb07eb3381fbb774d1015ef124233cf"
       call: loopship.workflow.service.step.archived
       with:
         version: 0.1.0
@@ -1319,18 +1322,18 @@ do:
           timeout_ms: 250
           instruction: |-
             # Loopship Terminal Child Implementation Fallback
-
+            
             Complete the assigned terminal child task in the current child
             worktree when the configured CLI implementation agent did not
             produce a local commit.
-
+            
             Stay inside `request.coordinator_worktree`. Read the parent context
             and task boundaries from `request.parent_context_ref`. Implement
             only the local terminal-child task rows. Do not create nested child
             worktrees, do not edit parent runtime state directly, and do not
             land or merge into the parent branch; Loopship validation,
             verification, and landing steps own those transitions.
-
+            
             Commit the local child work, run relevant checks, and return exactly
             one `subagent_receipt` with the subagent identity, session or thread
             id, worktree, branch, commits, checks, and artifact evidence.
@@ -1915,7 +1918,6 @@ do:
             type: object
             additionalProperties: true
         as: "${action}"
-
   - persist_stage:
       metadata:
         description: "Persist the Fastflow-derived Loopship stage through workflow data."
