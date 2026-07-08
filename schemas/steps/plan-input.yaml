@@ -21,6 +21,7 @@ allOf:
             - task_graph
       - required:
           - task_graph
+          - decomposition_rationale
         properties:
           questions:
             type: array
@@ -65,6 +66,9 @@ properties:
     $ref: common.yaml#/$defs/system_context
   verification_targets:
     $ref: common.yaml#/$defs/string_array
+  decomposition_rationale:
+    type: string
+    minLength: 1
   task_graph:
     type: object
     additionalProperties: false
