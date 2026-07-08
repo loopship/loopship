@@ -260,6 +260,12 @@ function assertSystemUpdatePrompt(): void {
     ".loopship/system.yaml",
     ".loopship/docs/**/*.yaml",
     ".loopship/signature.yaml",
+    "Durable docs must state stable system facts",
+    "Do not use ephemeral task IDs",
+    "child worktree names",
+    "parent task IDs",
+    "transient task graph labels",
+    "runtime evidence, receipts, or trace metadata",
     "Use `mode: \"no_change\"` only when",
   ]) {
     assertContains(text, needle, scope);
