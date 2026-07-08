@@ -1074,15 +1074,15 @@ describe("Loopship Fastflow-native bridge", () => {
     });
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("native Fastflow decision");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("terminal child quests");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("run emitted child commands for real");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("canonical Loopship runtime");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("safe clarification prompts");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(
-      "must not author, patch, or correct target-app child implementation inline",
+      "instead of inventing replacement planner clarification payloads",
     );
-    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(
-      "workflow-native CLI/inference agents to own child code generation and fixes",
-    );
-    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("*.stable.yaml workflows");
-    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(".dev.yaml plus Fastflow promotion");
-    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("restore the stable artifact");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).not.toContain("target-app child implementation");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).not.toContain("promotion-managed release artifacts");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).not.toContain("*.stable.yaml workflows");
     expect("command" in LOOPSHIP_SUPERVISOR_GUIDANCE).toBe(false);
     const adapters = createLoopshipFastflowAdapters();
     expect(adapters.adapterIdentity).toBe("@omar391/loopship");
