@@ -773,6 +773,57 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("stepper prefers submitted verification handoff answers over nextCall templates", () => {
+    expect(
+      nativeStepperResumeRequest({
+        schemaVersion: "fastflow/interaction-response/v1",
+        kind: "handoff_answer",
+        context: {
+          request: {
+            reason: "aitl.chat",
+            stepId: "stage_verification_pending",
+          },
+        },
+        nextCall: {
+          args: {
+            sessionId: "session-123",
+            nonce: "nonce-123",
+            workspaceRoot: "/tmp/demo",
+            response: { answer: "{{answer}}" },
+          },
+        },
+        response: {
+          answer: {
+            status: "passed",
+            acceptance_trace: [
+              {
+                acceptance: "Browser smoke passes.",
+                status: "passed",
+              },
+            ],
+            risks: [],
+          },
+        },
+      }),
+    ).toEqual({
+      sessionId: "session-123",
+      nonce: "nonce-123",
+      workspaceRoot: "/tmp/demo",
+      response: {
+        answer: {
+          status: "passed",
+          acceptance_trace: [
+            {
+              acceptance: "Browser smoke passes.",
+              status: "passed",
+            },
+          ],
+          risks: [],
+        },
+      },
+    });
+  });
+
   test("doctor fix excludes generated Codex hook config from git status", () => {
     const fixture = createGitFixture("loopship-native-codex-hook-exclude-");
     try {
