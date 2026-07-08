@@ -260,6 +260,56 @@ $defs:
         type: string
       status:
         type: string
+  subagent_receipt:
+    type: object
+    additionalProperties: false
+    required:
+      - resolver
+      - agent_id
+      - worktree_path
+      - branch_ref
+      - commits
+      - checks
+      - artifacts
+    anyOf:
+      - required:
+          - session_id
+      - required:
+          - thread_id
+    properties:
+      resolver:
+        const: aitl.subagent
+      agent_id:
+        type: string
+        minLength: 1
+      session_id:
+        type: string
+        minLength: 1
+      thread_id:
+        type: string
+        minLength: 1
+      worktree_path:
+        type: string
+        minLength: 1
+      branch_ref:
+        type: string
+        minLength: 1
+      commits:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          minLength: 1
+      checks:
+        type: array
+        minItems: 1
+        items:
+          $ref: "#/$defs/check"
+      artifacts:
+        type: array
+        minItems: 1
+        items:
+          $ref: "#/$defs/evidence"
   check:
     type: object
     additionalProperties: false

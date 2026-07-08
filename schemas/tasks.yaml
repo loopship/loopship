@@ -171,6 +171,38 @@ properties:
         type: array
         items:
           type: object
+  local_work_receipt:
+    type: object
+    additionalProperties: false
+    required:
+      - mode
+      - worktree_path
+      - commit
+      - target_commit
+      - status
+      - covered_task_ids
+      - pending_task_ids
+    properties:
+      mode:
+        type: string
+      worktree_path:
+        type: string
+      commit:
+        type: string
+      target_commit:
+        type: string
+      status:
+        type: string
+      covered_task_ids:
+        type: array
+        items:
+          type: string
+      pending_task_ids:
+        type: array
+        items:
+          type: string
+      subagent_receipt:
+        $ref: steps/common.yaml#/$defs/subagent_receipt
   child_results:
     type: array
     items:
