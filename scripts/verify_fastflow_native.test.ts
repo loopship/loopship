@@ -835,12 +835,151 @@ describe("Loopship Fastflow-native bridge", () => {
       "stage_landing_ready",
       "stage_replanning",
       "stage_archived",
+      "stage_planning_terminal_child",
     ]) {
       const match = text.match(new RegExp(`  - ${stage}:\\n([\\s\\S]*?)(?=\\n  - |\\noutput:)`));
       expect(match?.[1] ?? "", `${stage} must execute after route_stage selects it`).not.toContain(
         "\n      if:",
       );
     }
+  });
+
+  test("planning route keeps terminal child quests as deterministic local leaf work", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const text = readFileSync(
+      join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "flows", "swe.stable.yaml"),
+      "utf8",
+    );
+    const terminalRoute = text.indexOf("- planning_terminal_child:");
+    const genericRoute = text.indexOf("- planning:", terminalRoute + 1);
+    const terminalTask = workflowTaskDefinition(workflow, "stage_planning_terminal_child");
+    const taskText = JSON.stringify(terminalTask);
+
+    expect(terminalRoute).toBeGreaterThan(0);
+    expect(genericRoute).toBeGreaterThan(terminalRoute);
+    expect(text).toContain("then: stage_planning_terminal_child");
+    expect(taskText).toContain("Terminal child quests are already leaf assignments");
+    expect(taskText).not.toContain("loopship.workflow.service.step.plan");
+  });
+
+  test("terminal child planning result normalizes to one local pending task", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_planning");
+    const readTasks = {
+      wtree: "support-r1-t007",
+      prompt:
+        "loopship: execute child task t007: Wire fullstack integration, browser smoke tests, and local run documentation.",
+      parent_wtree: "support-r1",
+      parent_task_id: "t007",
+      parent_context_ref: "/repo/worktrees/support-r1/.loopship/runtime/tasks.yaml",
+      coordinator_branch: "codex/support-r1-t007",
+      coordinator_worktree: "/repo/worktrees/support-r1-t007",
+      landing_target_branch: "support-r1",
+      tasks: [],
+      question_rounds: [],
+    };
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: readTasks,
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        read_tasks: { action: readTasks },
+        stage_planning_terminal_child: {
+          action: {
+            classification: "terminal_child",
+            scope:
+              "execute child task t007: Wire fullstack integration, browser smoke tests, and local run documentation.",
+            summary:
+              "execute child task t007: Wire fullstack integration, browser smoke tests, and local run documentation.",
+            assumptions: ["Parent coordinator planning already defined the task boundary."],
+            constraints: ["Implement only the assigned parent task in the current child worktree."],
+            defaulted_unknowns: [
+              "Terminal child planning is derived from parent task metadata instead of re-asking product scope questions.",
+            ],
+            high_impact_unknowns: [],
+            system_context: {
+              relevant_object_refs: [],
+              relevant_assertion_refs: [],
+              relevant_resource_refs: ["/repo/worktrees/support-r1/.loopship/runtime/tasks.yaml"],
+              relevant_memory_refs: [],
+              durable_implications: [
+                {
+                  kind: "terminal_child",
+                  statement: "This quest is a leaf worker for an already-planned parent task.",
+                },
+              ],
+            },
+            verification_targets: [
+              "Assigned child task has local commits in the child worktree before validation.",
+            ],
+            decomposition_rationale:
+              "Terminal child quests are already leaf assignments, so the smallest executable task graph is one local task.",
+            task_graph: {
+              tasks: [
+                {
+                  id: "t007",
+                  title:
+                    "execute child task t007: Wire fullstack integration, browser smoke tests, and local run documentation.",
+                  type: "coding",
+                  status: "pending",
+                  dependencies: [],
+                  context_refs: ["/repo/worktrees/support-r1/.loopship/runtime/tasks.yaml"],
+                  acceptance: [
+                    "Implement only the assigned parent task in the current child worktree.",
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      stage_after: "plan_review",
+      transition: "planned",
+      step_workflow_task: "stage_planning_terminal_child",
+    });
+    expect(result.state_patch).toMatchObject({
+      stage: "plan_review",
+      tasks: [
+        {
+          id: "t007",
+          status: "pending",
+          child_wtree: "",
+          branch_ref: "codex/support-r1-t007",
+          worktree_path: "/repo/worktrees/support-r1-t007",
+          merge_target: "support-r1",
+        },
+      ],
+    });
   });
 
   test("SWE executing route handles leaf child quests before child-result reconciliation", () => {
@@ -1782,6 +1921,7 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       );
       expect(planOutput.step).toBe("plan");
+      expect(planOutput.step_workflow_task).toBe("stage_planning_terminal_child");
       expect(planOutput.stage_after).toBe("plan_review");
 
       let childState = parseTasksYaml(
@@ -1793,6 +1933,7 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(childState.parent_wtree).toBe("parent");
       expect(childState.parent_task_id).toBe("timer-ui");
       expect(childState.tasks?.[0]).toMatchObject({
+        id: "timer-ui",
         child_wtree: "",
       });
 
@@ -1900,7 +2041,7 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(String(childState.landed_commit || "")).toMatch(/^[0-9a-f]{40}$/);
       expect(childState.local_work_receipt).toMatchObject({
         mode: "shared-head-commit",
-        covered_task_ids: ["implement-timer-ui"],
+        covered_task_ids: ["timer-ui"],
       });
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
