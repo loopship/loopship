@@ -995,10 +995,15 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(text).toContain("- task_graph_ready_leaf:");
     expect(text).toContain("then: stage_leaf_git_head");
     expect(text).toContain("- stage_leaf_target_git_head:");
+    expect(text).toContain("then: stage_leaf_execution_route");
+    expect(text).toContain("- stage_leaf_subagent_implementation:");
+    expect(text).toContain("inference: loopship_child_implementation");
+    expect(text).toContain("- stage_leaf_git_head_after_subagent:");
+    expect(text).toContain("- stage_leaf_target_git_head_after_subagent:");
     expect(text).toContain("call: loopship.afn.service.git.head");
     expect(text).toContain("leaf_execution_recorded");
-    expect(text).toContain("state.steps.stage_leaf_git_head?.action).commit");
-    expect(text).toContain("state.steps.stage_leaf_target_git_head?.action).commit");
+    expect(text).toContain("actionCommit(\"stage_leaf_git_head_after_subagent\") || actionCommit(\"stage_leaf_git_head\")");
+    expect(text).toContain("actionCommit(\"stage_leaf_target_git_head_after_subagent\") || actionCommit(\"stage_leaf_target_git_head\")");
     expect(text).toContain("stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action");
   });
 
@@ -1075,6 +1080,8 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("native Fastflow decision");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("terminal child quests");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("run emitted child commands for real");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("aitl.subagent fallback");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("subagent receipts");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("canonical Loopship runtime");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("safe clarification prompts");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(
@@ -1191,6 +1198,44 @@ describe("Loopship Fastflow-native bridge", () => {
       });
       expect(stepUsesGroup, name).toBe(true);
     }
+  });
+
+  test("routes terminal-child missing implementation commits through aitl.subagent", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const document = workflow.document as Record<string, any>;
+    const group = document.metadata?.inference?.groups?.loopship_child_implementation;
+    expect(group?.try).toEqual(["aitl.subagent", "hitl.review"]);
+
+    const route = workflowTaskDefinition(workflow, "stage_leaf_execution_route") as any;
+    expect(route.switch?.[0]?.implementation_missing?.then).toBe("stage_leaf_subagent_implementation");
+    expect(route.switch?.[1]?.local_commit_present?.then).toBe("stage_result_leaf_executing");
+
+    const fallback = workflowTaskDefinition(workflow, "stage_leaf_subagent_implementation") as any;
+    expect(fallback.metadata?.inference).toBe("loopship_child_implementation");
+    expect(fallback.call).toBe("fastflow.afn.core.request.input");
+    expect(fallback.with.body.answer.schema.properties.subagent_receipt.properties.resolver.const).toBe(
+      "aitl.subagent",
+    );
+    expect(fallback.with.body.answer.schema.properties.subagent_receipt.required).toEqual(
+      expect.arrayContaining([
+        "agent_id",
+        "worktree_path",
+        "branch_ref",
+        "commits",
+        "checks",
+        "artifacts",
+      ]),
+    );
   });
 
   test("rewrites terminal child plans into local execution state", () => {
@@ -1730,6 +1775,92 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("terminal child subagent fallback records receipt with fresh local commit", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_leaf_executing");
+    const subagentReceipt = {
+      resolver: "aitl.subagent",
+      agent_id: "rawl",
+      thread_id: "thread-123",
+      worktree_path: "/tmp/repo/worktrees/child-terminal",
+      branch_ref: "codex/child-terminal",
+      commits: ["abc123"],
+      checks: [{ name: "child-smoke", status: "passed" }],
+      artifacts: [{ type: "git_commit", ref: "abc123" }],
+    };
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        read_tasks: {
+          action: {
+            parent_wtree: "parent",
+            parent_task_id: "dashboard",
+            parent_context_ref: "/tmp/repo/worktrees/parent/.loopship/runtime/tasks.yaml",
+            coordinator_worktree: "/tmp/repo/worktrees/child-terminal",
+            tasks: [{ id: "ui", title: "Build UI", status: "pending", child_wtree: "" }],
+          },
+        },
+        stage_leaf_git_head: {
+          action: {
+            commit: "parent123",
+          },
+        },
+        stage_leaf_target_git_head: {
+          action: {
+            commit: "parent123",
+          },
+        },
+        stage_leaf_subagent_implementation: {
+          action: {
+            answer: {
+              subagent_receipt: subagentReceipt,
+            },
+          },
+        },
+        stage_leaf_git_head_after_subagent: {
+          action: {
+            commit: "abc123",
+          },
+        },
+        stage_leaf_target_git_head_after_subagent: {
+          action: {
+            commit: "parent123",
+          },
+        },
+      },
+    });
+
+    expect(result.stage_after).toBe("validating");
+    expect(result.events[0]).toMatchObject({
+      event: "leaf_execution_recorded",
+      subagent_receipt: true,
+    });
+    expect(result.state_patch.local_work_receipt).toMatchObject({
+      commit: "abc123",
+      target_commit: "parent123",
+      subagent_receipt: subagentReceipt,
+    });
+  });
+
   test("terminal child execution does not complete without a new local commit", () => {
     const workflow = loadYamlWorkflow(
       join(
@@ -2171,6 +2302,8 @@ describe("Loopship Fastflow-native bridge", () => {
 
   test("lifecycle promotion uses the Loopship registry directly", () => {
     const text = readFileSync(join(process.cwd(), "scripts", "loopship_fastflow_lifecycle.ts"), "utf8");
+    expect(text).toContain("FASTFLOW_INDEX");
+    expect(text).toContain("pathToFileURL(FASTFLOW_INDEX)");
     expect(text).toContain("systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT");
     expect(text).toContain("callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT]");
     expect(text).not.toContain("SCRATCH_CALL_CATALOG_ROOT");

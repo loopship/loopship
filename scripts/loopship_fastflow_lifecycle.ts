@@ -11,11 +11,12 @@ const LOOPSHIP_ROOT = resolve(SCRIPT_DIR, "..");
 const FASTFLOW_ROOT = process.env.LOOPSHIP_FASTFLOW_ROOT
   ? resolve(process.env.LOOPSHIP_FASTFLOW_ROOT)
   : resolve(LOOPSHIP_ROOT, "..", "..", "..", "..", "cueintent", "fastflow");
+const FASTFLOW_INDEX = resolve(FASTFLOW_ROOT, "src", "index.mjs");
 const FASTFLOW_LIFECYCLE_SCRIPT = resolve(FASTFLOW_ROOT, "scripts", "fastflow-internal-lifecycle.mjs");
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
-    const { configureFastflowApp } = await import("@cueintent/fastflow");
+    const { configureFastflowApp } = await import(pathToFileURL(FASTFLOW_INDEX).href);
     const { runInternalLifecycle } = await import(
       pathToFileURL(FASTFLOW_LIFECYCLE_SCRIPT).href
     );
