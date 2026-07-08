@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 39
-      digest: "sha256:3631937b8fc114887fb3c2dabba895600417373e0ec121830dbca9ba2ec63dfd"
-      summary: "Refresh plan step digest after plan schema promotion"
+      release: 40
+      digest: "sha256:fdeafcb8a29d01130530f57fa8ebb1639b5284f80056fc6e13db4ab26620958d"
+      summary: "Normalize system-update stage payload"
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJAEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak64UhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGv5yQD8D+Q7pE64FMaHwcBt/83N
-    ohJtUZDVBvs18Z3niZnOlOgA+IqlpIqZrRIwQuUneQrnhKffTcwUkraD3QZ4FmCw
-    Iwg=
-    =QP2u
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak65PxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt7ygD/SfrJ01vrSW5dXFRZnhuT
+    s/SXoBXGODUQLrwzcDeXK5IA/39Rc489qJpZteK71fKOJq+IIWviGgn5zqXmbCZw
+    1/EE
+    =0OOu
     -----END PGP SIGNATURE-----

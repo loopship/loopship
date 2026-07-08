@@ -1777,10 +1777,14 @@ do:
           code: |-
             function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
             function array(value) { return Array.isArray(value) ? value : []; }
+            function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
+            function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const stageAction = object(state.steps.stage_system_update_pending?.action);
-            const event = { event: "system_update_submitted", stage: "landing_ready", touched_count: array(stageAction.touched).length };
-            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "system_update_pending", stage_after: "landing_ready", transition: "updated", step: "system_update", step_workflow_task: "stage_system_update_pending", step_payload: stageAction, step_action: stageAction, state_patch: { stage: "landing_ready" }, events: [event], runtime: runtimeSnapshot() };
+            const payload = findPayload(stageAction, (row) => "touched" in object(row) || object(row).schema_version === "loopship.system.apply/v1");
+            const stepPayload = Object.keys(object(payload)).length ? payload : stageAction;
+            const event = { event: "system_update_submitted", stage: "landing_ready", touched_count: array(stepPayload.touched).length };
+            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "system_update_pending", stage_after: "landing_ready", transition: "updated", step: "system_update", step_workflow_task: "stage_system_update_pending", step_payload: stepPayload, step_action: stepPayload, state_patch: { stage: "landing_ready" }, events: [event], runtime: runtimeSnapshot() };
       output:
         schema:
           document:
