@@ -1619,6 +1619,58 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("system-update stage result counts touched files from workflow output wrappers", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_system_update_pending");
+    const touched = ["/repo/.loopship/system.yaml", "/repo/.loopship/signature.yaml"];
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        read_tasks: { action: {} },
+        stage_system_update_pending: {
+          action: {
+            ok: true,
+            result: {
+              output: {
+                schema_version: "loopship.system.apply/v1",
+                dry_run: false,
+                touched,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.step_payload).toMatchObject({ touched });
+    expect(result.events).toEqual([
+      {
+        event: "system_update_submitted",
+        stage: "landing_ready",
+        touched_count: 2,
+      },
+    ]);
+  });
+
   test("approved empty task graphs replan for coordinator and terminal child quests", () => {
     const workflow = loadYamlWorkflow(
       join(
