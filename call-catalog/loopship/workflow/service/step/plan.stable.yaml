@@ -963,6 +963,7 @@ do:
                           - task_graph
                     - required:
                         - task_graph
+                        - decomposition_rationale
                       properties:
                         questions:
                           type: array
@@ -1207,6 +1208,9 @@ do:
                   type: array
                   items:
                     type: string
+                decomposition_rationale:
+                  type: string
+                  minLength: 1
                 task_graph:
                   type: object
                   additionalProperties: false
