@@ -1285,7 +1285,6 @@ describe("Loopship Fastflow-native bridge", () => {
       ["validation", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
       ["verification", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
       ["system-update", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
-      ["archived", ["loopship_mechanical", "llm.cli.codex.gpt-5.3-codex-spark.high"]],
     ]);
 
     for (const [name, [groupName, routeRef]] of expected) {
@@ -1303,6 +1302,22 @@ describe("Loopship Fastflow-native bridge", () => {
       });
       expect(stepUsesGroup, name).toBe(true);
     }
+
+    const archived = loadYamlWorkflow(join(stepRoot, "archived.stable.yaml"));
+    expect((archived.document as Record<string, any>).metadata?.inference).toBeUndefined();
+    let archivedUsesInference = false;
+    let archivedUsesScript = false;
+    walk(archived, (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      if ((value as Record<string, any>).call === "fastflow.afn.core.request.input") {
+        archivedUsesInference = true;
+      }
+      if ((value as Record<string, any>).run?.script?.language === "js") {
+        archivedUsesScript = true;
+      }
+    });
+    expect(archivedUsesInference).toBe(false);
+    expect(archivedUsesScript).toBe(true);
   });
 
   test("routes terminal-child missing implementation commits through aitl.subagent", () => {
