@@ -719,6 +719,60 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
+  test("stepper prefers submitted supervisor decisions over nextCall templates", () => {
+    expect(
+      nativeStepperResumeRequest({
+        schemaVersion: "fastflow/interaction-response/v1",
+        kind: "supervisor_review",
+        nextCall: {
+          args: {
+            sessionId: "session-123",
+            nonce: "nonce-123",
+            workspaceRoot: "/tmp/demo",
+            response: { decision: "{{ok|rerun_step|rerun_full}}" },
+          },
+        },
+        response: { decision: "ok" },
+      }),
+    ).toEqual({
+      sessionId: "session-123",
+      nonce: "nonce-123",
+      workspaceRoot: "/tmp/demo",
+      supervisorDecision: "ok",
+    });
+  });
+
+  test("hook prefers submitted handoff answers over nextCall templates", () => {
+    expect(
+      nativeResumeRequest({
+        schemaVersion: "fastflow/interaction-response/v1",
+        kind: "handoff_answer",
+        nextCall: {
+          args: {
+            sessionId: "session-123",
+            nonce: "nonce-123",
+            workspaceRoot: "/tmp/demo",
+            response: { answer: "{{answer}}" },
+          },
+        },
+        response: {
+          answer: {
+            approved: true,
+          },
+        },
+      }),
+    ).toEqual({
+      sessionId: "session-123",
+      nonce: "nonce-123",
+      workspaceRoot: "/tmp/demo",
+      response: {
+        answer: {
+          approved: true,
+        },
+      },
+    });
+  });
+
   test("doctor fix excludes generated Codex hook config from git status", () => {
     const fixture = createGitFixture("loopship-native-codex-hook-exclude-");
     try {

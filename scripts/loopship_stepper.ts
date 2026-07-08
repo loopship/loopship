@@ -13,6 +13,9 @@ import {
   readJson,
   readStdinJson,
 } from "./loopship_utils.ts";
+import { nativeResumeRequest } from "./loopship_resume.ts";
+
+export { nativeResumeRequest } from "./loopship_resume.ts";
 
 type StepperCommand = "step" | "hook";
 
@@ -132,46 +135,6 @@ function readJsonSource(raw: string | null, label: string): Record<string, unkno
     throw new Error(`${label} requires a JSON object`);
   }
   return value as Record<string, unknown>;
-}
-
-export function nativeResumeRequest(value: Record<string, unknown>): Record<string, unknown> | null {
-  const nextCall =
-    value.nextCall && typeof value.nextCall === "object" && !Array.isArray(value.nextCall)
-      ? (value.nextCall as Record<string, unknown>)
-      : {};
-  const nextArgs =
-    nextCall.args && typeof nextCall.args === "object" && !Array.isArray(nextCall.args)
-      ? (nextCall.args as Record<string, unknown>)
-      : {};
-  const source =
-    value.fastflow && typeof value.fastflow === "object" && !Array.isArray(value.fastflow)
-      ? (value.fastflow as Record<string, unknown>)
-      : value.resume && typeof value.resume === "object" && !Array.isArray(value.resume)
-        ? (value.resume as Record<string, unknown>)
-        : Object.keys(nextArgs).length
-          ? nextArgs
-          : value;
-  const sessionId = String(source.sessionId ?? source.session_id ?? "").trim();
-  if (!sessionId) return null;
-  const request: Record<string, unknown> = { sessionId };
-  for (const field of ["nonce", "workspaceRoot", "executionName", "progressMode"]) {
-    const fieldValue = source[field] ?? nextArgs[field];
-    if (typeof fieldValue === "string" && fieldValue.trim()) {
-      request[field] = fieldValue.trim();
-    }
-  }
-  const supervisorDecision = source.supervisorDecision ?? value.supervisorDecision;
-  if (supervisorDecision !== undefined) request.supervisorDecision = supervisorDecision;
-  const response = source.response ?? value.response;
-  if (response !== undefined) {
-    request.response = response;
-    return request;
-  }
-  const decision = source.decision ?? value.decision;
-  if (decision !== undefined) {
-    request.response = { answer: decision };
-  }
-  return request;
 }
 
 function writeJson(payload: Record<string, unknown>): number {

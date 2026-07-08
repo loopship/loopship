@@ -33,6 +33,9 @@ import {
   resumeLoopshipFastflowWorkflow,
   runLoopshipFastflowWorkflow,
 } from "./loopship_fastflow.ts";
+import { nativeResumeRequest } from "./loopship_resume.ts";
+
+export { nativeResumeRequest } from "./loopship_resume.ts";
 
 type Command =
   | "init"
@@ -589,44 +592,6 @@ function parseQuestRepoArg(argv: string[]): {
     else rest.push(arg);
   }
   return { repo, wtree, runtime, json, full, rest };
-}
-
-export function nativeResumeRequest(value: Record<string, any>): Record<string, unknown> | null {
-  const nextCall = value.nextCall && typeof value.nextCall === "object" && !Array.isArray(value.nextCall)
-    ? (value.nextCall as Record<string, any>)
-    : {};
-  const nextArgs = nextCall.args && typeof nextCall.args === "object" && !Array.isArray(nextCall.args)
-    ? (nextCall.args as Record<string, any>)
-    : {};
-  const source =
-    value.fastflow && typeof value.fastflow === "object" && !Array.isArray(value.fastflow)
-      ? (value.fastflow as Record<string, any>)
-      : value.resume && typeof value.resume === "object" && !Array.isArray(value.resume)
-        ? (value.resume as Record<string, any>)
-        : Object.keys(nextArgs).length
-          ? nextArgs
-          : value;
-  const sessionId = String(source.sessionId ?? source.session_id ?? "").trim();
-  if (!sessionId) return null;
-  const request: Record<string, unknown> = { sessionId };
-  for (const field of ["nonce", "workspaceRoot", "executionName", "progressMode"]) {
-    const fieldValue = source[field] ?? nextArgs[field];
-    if (typeof fieldValue === "string" && fieldValue.trim()) {
-      request[field] = fieldValue.trim();
-    }
-  }
-  const supervisorDecision = source.supervisorDecision ?? value.supervisorDecision;
-  if (supervisorDecision !== undefined) request.supervisorDecision = supervisorDecision;
-  const response = source.response ?? value.response;
-  if (response !== undefined) {
-    request.response = response;
-    return request;
-  }
-  const decision = source.decision ?? value.decision;
-  if (decision !== undefined) {
-    request.response = { answer: decision };
-  }
-  return request;
 }
 
 export async function runHook(argv: string[]): Promise<number> {
