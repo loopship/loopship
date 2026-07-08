@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 31
-      digest: "sha256:5f9b70d984b50c8f63050cf51550e23d484cb131705da81f06e586c85c749fc1"
-      summary: "Return check result from stage-result builder verification."
+      release: 32
+      digest: "sha256:e6cdb528b5efa5c14b98b91755963ddbce82cc1d07baf49d3dfc044d2d1e01b6"
+      summary: "Plan terminal child quests without broad coordinator inference."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak2KtBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsRHgEAzYMLMtq/ySAPZScPmR9p
-    b6gbxqtRKH3hTwa5fxHD+qIA/j0Wvo9y2zr1KgpWWs7majS+wkQfMFXeehZbqRrC
-    S7IO
-    =HNPA
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak3FRRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGthwgEArYnar5H6ekHYgayVXx48
+    DDW5gtyHtARhJnIWvRCXuD0A/1aYyYI4ZrDKT/wdOkCDMQlBLvaOAPq/9y/NaFtr
+    NboM
+    =sYV8
     -----END PGP SIGNATURE-----

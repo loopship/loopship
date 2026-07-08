@@ -156,6 +156,9 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
       switch:
+        - planning_terminal_child:
+            when: "${state.steps.resolve_stage.action.current_stage === \"planning\" && (String(state.steps.read_tasks.action.parent_wtree || \"\").trim() || String(state.steps.read_tasks.action.parent_task_id || \"\").trim() || String(state.steps.read_tasks.action.parent_context_ref || \"\").trim() || String(state.steps.read_tasks.action.prompt || \"\").replace(/^loopship:\\s*/i, \"\").trim().toLowerCase().startsWith(\"execute child task \")) && (!Array.isArray(state.steps.read_tasks.action.tasks) || state.steps.read_tasks.action.tasks.length === 0)}"
+            then: stage_planning_terminal_child
         - planning:
             when: "${state.steps.resolve_stage.action.current_stage === \"planning\"}"
             then: stage_planning
@@ -195,6 +198,76 @@ do:
         - archived:
             when: "${state.steps.resolve_stage.action.current_stage === \"archived\"}"
             then: stage_archived
+  - stage_planning_terminal_child:
+      then: stage_result_planning
+      metadata:
+        description: "Build a deterministic local leaf plan for terminal child quests without invoking broad coordinator planning."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The generated Loopship Fastflow-native step produced an action result."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      set:
+        classification: terminal_child
+        scope: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
+        summary: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
+        assumptions:
+          - "Parent coordinator planning already defined the task boundary."
+          - "The child quest must stay local and must not create nested child worktrees."
+        constraints:
+          - "Implement only the assigned parent task in the current child worktree."
+          - "Do not edit Loopship runtime state directly."
+          - "Land into the configured parent worktree and return the merge commit."
+        defaulted_unknowns:
+          - "Terminal child planning is derived from parent task metadata instead of re-asking product scope questions."
+        high_impact_unknowns: []
+        system_context:
+          relevant_object_refs: []
+          relevant_assertion_refs: []
+          relevant_resource_refs:
+            - "${String(state.steps.read_tasks.action.parent_context_ref || '').trim()}"
+          relevant_memory_refs: []
+          durable_implications:
+            - kind: terminal_child
+              statement: "This quest is a leaf worker for an already-planned parent task."
+        verification_targets:
+          - "Assigned child task has local commits in the child worktree before validation."
+          - "Relevant tests, build, and documentation checks for the assigned task pass in the child worktree."
+          - "Landing records the merge commit into the configured parent branch."
+        decomposition_rationale: "Terminal child quests are already leaf assignments, so the smallest executable task graph is one local task."
+        task_graph:
+          tasks:
+            - id: "${String(state.steps.read_tasks.action.parent_task_id || 'assigned-task').trim() || 'assigned-task'}"
+              title: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
+              type: coding
+              status: pending
+              dependencies: []
+              scope_files: []
+              spec_refs: []
+              context_refs:
+                - "${String(state.steps.read_tasks.action.parent_context_ref || '').trim()}"
+              acceptance:
+                - "Implement only the assigned parent task in the current child worktree."
+                - "Run relevant local checks and record evidence before validation."
+                - "Land into the configured parent branch and return the merge commit."
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action.values}"
   - stage_planning:
       then: stage_result_planning
       metadata:
@@ -856,14 +929,16 @@ do:
             function findPlanPayload(value, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPlanPayload(item, depth + 1); if (matchesPlan(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (matchesPlan(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPlanPayload(row[key], depth + 1); if (matchesPlan(found)) return found; } } for (const item of Object.values(row)) { const found = findPlanPayload(item, depth + 1); if (matchesPlan(found)) return found; } return {}; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const tasks = object(state.steps.read_tasks?.action);
-            const stageAction = object(state.steps.stage_planning?.action);
+            const terminalChildAction = object(state.steps.stage_planning_terminal_child?.action);
+            const stageAction = Object.keys(terminalChildAction).length ? terminalChildAction : object(state.steps.stage_planning?.action);
             const payload = findPlanPayload(stageAction);
             const questions = array(payload.questions);
             const targetStage = questions.length ? "awaiting_user_answers" : "plan_review";
             const transition = questions.length ? "questions" : "planned";
             const patch = questions.length ? { stage: targetStage, replan_reason: "", question_rounds: [...array(tasks.question_rounds), { questions }] } : { stage: targetStage, replan_reason: "", assumptions: stringList(payload.assumptions), constraints: stringList(payload.constraints), plan_detail: { classification: String(payload.classification || ""), scope: String(payload.scope || ""), summary: String(payload.summary || payload.scope || ""), rationale: String(payload.summary || payload.scope || ""), system_context: normalizeSystemContext(payload.system_context), high_impact_unknowns: stringList(payload.high_impact_unknowns), defaulted_unknowns: stringList(payload.defaulted_unknowns), verification_targets: stringList(payload.verification_targets), decomposition_rationale: String(payload.decomposition_rationale || payload.summary || "") }, tasks: array(object(payload.task_graph).tasks).map((task, index) => normalizePlanTask(tasks, task, index)) };
             const event = questions.length ? { event: "question_round", stage: targetStage, question_count: questions.length } : { event: "plan_submitted", stage: targetStage, classification: String(payload.classification || ""), task_count: array(object(payload.task_graph).tasks).length, verification_target_count: array(payload.verification_targets).length };
-            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "planning", stage_after: targetStage, transition, step: "plan", step_workflow_task: "stage_planning", step_payload: payload, step_action: payload, state_patch: patch, events: [event], runtime: runtimeSnapshot() };
+            const stepWorkflowTask = Object.keys(terminalChildAction).length ? "stage_planning_terminal_child" : "stage_planning";
+            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "planning", stage_after: targetStage, transition, step: "plan", step_workflow_task: stepWorkflowTask, step_payload: payload, step_action: payload, state_patch: patch, events: [event], runtime: runtimeSnapshot() };
       output:
         schema:
           document:
