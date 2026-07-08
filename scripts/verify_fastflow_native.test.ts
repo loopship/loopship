@@ -1697,6 +1697,68 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(unsupervised.transition).toBe("next_children");
   });
 
+  test("child-result approval does not validate while pending child tasks remain", () => {
+    const workflow = loadYamlWorkflow(
+      join(
+        process.cwd(),
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      ),
+    );
+    const task = workflowTaskDefinition(workflow, "stage_result_executing");
+    const result = executeWorkflowTaskScript(task, {
+      steps: {
+        resolve_stage: {
+          action: {
+            runtime: {
+              tasks: {},
+              manifest: null,
+              events: [],
+            },
+          },
+        },
+        query_events: { action: [] },
+        read_tasks: {
+          action: {
+            tasks: [
+              { id: "task-a", status: "child_dispatched", child_wtree: "root-task-a" },
+              {
+                id: "task-b",
+                status: "child_received",
+                dependencies: ["task-c"],
+                child_wtree: "root-task-b",
+              },
+            ],
+            child_results: [],
+          },
+        },
+        stage_executing: {
+          action: {
+            task_id: "task-a",
+            child_wtree: "root-task-a",
+            status: "passed",
+            evidence: [{ type: "git_commit", ref: "abc123" }],
+            merge_commit: "abc123",
+          },
+        },
+      },
+    });
+
+    expect(result.stage_after).toBe("executing");
+    expect(result.transition).toBe("partial");
+    expect(result.state_patch).toMatchObject({
+      stage: "executing",
+      tasks: [
+        { id: "task-a", status: "child_archived", merge_commit: "abc123" },
+        { id: "task-b", status: "child_received" },
+      ],
+    });
+  });
+
   test("multi-task terminal child execution records one shared local-work receipt", () => {
     const workflow = loadYamlWorkflow(
       join(
