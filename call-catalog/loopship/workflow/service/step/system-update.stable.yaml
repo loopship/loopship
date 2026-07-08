@@ -1,3 +1,5 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-step
@@ -80,6 +82,12 @@ do:
             Review the verified work, canonical receipts, and current Loopship docs before
             answering. The system_update step is the only writer for `.loopship/system.yaml`,
             `.loopship/docs/**/*.yaml`, and `.loopship/signature.yaml`.
+
+            Durable docs must state stable system facts, architecture, decisions, constraints,
+            evidence, and risks. Do not use ephemeral task IDs, child worktree names,
+            parent task IDs, request numbers, or transient task graph labels as semantic
+            subjects in `.loopship/system.yaml` or `.loopship/docs/**/*.yaml`; those may
+            appear only in runtime evidence, receipts, or trace metadata.
 
             Use `mode: "replace"` whenever verified durable knowledge changed or those
             canonical docs are missing, stale, or incomplete for the verified behavior.

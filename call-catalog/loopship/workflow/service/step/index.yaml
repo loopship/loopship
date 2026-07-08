@@ -194,9 +194,9 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 5
-      digest: "sha256:5ec976217ce409e5ec85256b39d336d7cf5bd6f13b19029172c84e0e5a0086e9"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      release: 6
+      digest: "sha256:28eb9383cf07112c145054479cac2935e00fa854a5d69b118b00d8fd028bee0d"
+      summary: "Prevent ephemeral task refs in durable docs"
       inputs:
         required: []
         optional: []
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak67uBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuIvwEA7Q0ypYC4g6s07L1TCR9n
-    YEcS/T3buTYcMYwbuN7Q548BAKG/hru7lOZeI4GcWs7yPIiYePoFwEourYvkQmXj
-    aREC
-    =xKkU
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak687hsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsF8QD7BoTYgdnHyTbW5qZXa7Nr
+    iXMnkOqq+TOsHL6saHNWXQUBAKjCJZZhesSNIZF5hNlP1nj274LFe2JysOLuIANa
+    qYcC
+    =dEzW
     -----END PGP SIGNATURE-----
