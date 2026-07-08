@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 38
-      digest: "sha256:288b030c83bc8d412a72068bac5addf8163cfb3b3e79053ec0559d57daf38a16"
-      summary: "Refresh archived step digest after deterministic archive report."
+      release: 39
+      digest: "sha256:3631937b8fc114887fb3c2dabba895600417373e0ec121830dbca9ba2ec63dfd"
+      summary: "Refresh plan step digest after plan schema promotion"
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak605xsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtN1wD/XAIZr4jl0HtCq1MyT01f
-    Sd6lVqQ8tAk3+XwffYdID3IBAMPTIBouchb+ACgRNv0pBPL1B49wxi37h4mI8oTO
-    4qUO
-    =Ivng
+    iJAEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak64UhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGv5yQD8D+Q7pE64FMaHwcBt/83N
+    ohJtUZDVBvs18Z3niZnOlOgA+IqlpIqZrRIwQuUneQrnhKffTcwUkraD3QZ4FmCw
+    Iwg=
+    =QP2u
     -----END PGP SIGNATURE-----
