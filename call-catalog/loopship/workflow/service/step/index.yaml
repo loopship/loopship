@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   archived:
     stable:
-      release: 3
-      digest: "sha256:50779d6cddf6d74f2f4ea8bf66d01bab3bb07eb3381fbb774d1015ef124233cf"
-      summary: "Make archived terminal reporting deterministic."
+      release: 4
+      digest: "sha256:3e32718eb1c80dc01b33dbbc0e2cca934ad815b127d286e66ea30f42b99fc8a8"
+      summary: "Advertise post-archive cleanup command"
       inputs:
         required: []
         optional:
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak63vxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtm2wD7BXGeMWOAtmJZdlx0jVnR
-    CcQj4yL503i4qJZdaxMaSI4BALjkFsNqC230iQWI6icV0jlEV4Sb7PC8fpphr2Zi
-    kVsP
-    =gmf0
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak67uBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuIvwEA7Q0ypYC4g6s07L1TCR9n
+    YEcS/T3buTYcMYwbuN7Q548BAKG/hru7lOZeI4GcWs7yPIiYePoFwEourYvkQmXj
+    aREC
+    =xKkU
     -----END PGP SIGNATURE-----
