@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 37
-      digest: "sha256:e53946bef1c00f3fc5615dffc11094bd114b0a2c29e768023ee1b33bf078e7ff"
-      summary: "Dedupe repeated terminal child missing-commit events."
+      release: 38
+      digest: "sha256:288b030c83bc8d412a72068bac5addf8163cfb3b3e79053ec0559d57daf38a16"
+      summary: "Refresh archived step digest after deterministic archive report."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6ulxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtOdAD/WnDs7+t2ybA/x5z5Cfiw
-    h48kGn8AV/3z4+UwWLSbHM0BAOzuF30zM2ub2ix0zDDqaxycPR8gBE+S+LQoFTuE
-    EegL
-    =dWrw
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak605xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtN1wD/XAIZr4jl0HtCq1MyT01f
+    Sd6lVqQ8tAk3+XwffYdID3IBAMPTIBouchb+ACgRNv0pBPL1B49wxi37h4mI8oTO
+    4qUO
+    =Ivng
     -----END PGP SIGNATURE-----
