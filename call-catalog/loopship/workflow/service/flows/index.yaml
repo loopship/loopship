@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 36
-      digest: "sha256:7910046ab3b7acc9d00a947ff4a1be7a8d722f35f3b564acc940996cb950531a"
-      summary: "Target subagent fallback checks without increasing script count."
+      release: 37
+      digest: "sha256:e53946bef1c00f3fc5615dffc11094bd114b0a2c29e768023ee1b33bf078e7ff"
+      summary: "Dedupe repeated terminal child missing-commit events."
       inputs:
         required: []
         optional: []
@@ -27,9 +27,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6tuhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuGQwEA+/4CYrTvWQJ8lO0ykn2I
-    NeqAbgVd7Bg8A6iJhxKSnecA/jo/X824DhHUbmeVv7UfLLQwkTMbNarrZEwMX5qP
-    xMIP
-    =ZJQh
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak6ulxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtOdAD/WnDs7+t2ybA/x5z5Cfiw
+    h48kGn8AV/3z4+UwWLSbHM0BAOzuF30zM2ub2ix0zDDqaxycPR8gBE+S+LQoFTuE
+    EegL
+    =dWrw
     -----END PGP SIGNATURE-----
