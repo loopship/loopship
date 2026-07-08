@@ -37,6 +37,7 @@ import {
   ensureLoopshipFastflowWorkflowCatalog,
   loopshipFlowWorkflowRef,
 } from "./loopship_fastflow.ts";
+import { validateV3Input } from "./loopship_schema.ts";
 import { nativeResumeRequest, runDoctor } from "./loopship.ts";
 import { nativeResumeRequest as nativeStepperResumeRequest } from "./loopship_stepper.ts";
 import { runCommand } from "./loopship_utils.ts";
@@ -1123,6 +1124,45 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(taskGraphText).toContain("recursively");
     expect(taskGraphText).toContain("smallest independently ownable unit tasks");
     expect(taskGraphText).toContain("Reject broad feature-bundle tasks");
+  });
+
+  test("plan schema accepts decomposition rationale for planned task graphs", () => {
+    const planned = {
+      classification: "feature",
+      scope: "Add a focused workflow improvement.",
+      summary: "A focused workflow improvement is ready to execute.",
+      system_context: {
+        relevant_object_refs: [],
+        relevant_assertion_refs: [],
+        relevant_resource_refs: [],
+        relevant_memory_refs: [],
+        durable_implications: [],
+      },
+      verification_targets: ["Run the focused workflow regression."],
+      decomposition_rationale:
+        "The graph has one independently ownable task because the change is scoped to one workflow boundary.",
+      questions: [],
+      task_graph: {
+        tasks: [
+          {
+            id: "t001",
+            title: "Add the focused workflow improvement",
+            type: "coding",
+            status: "pending",
+            dependencies: [],
+            acceptance: ["The focused workflow regression passes."],
+          },
+        ],
+      },
+    };
+
+    expect(validateV3Input(planned, "plan-input")).toEqual([]);
+
+    const withoutRationale = { ...planned };
+    delete (withoutRationale as Record<string, unknown>).decomposition_rationale;
+    expect(validateV3Input(withoutRationale, "plan-input").join("\n")).toContain(
+      "/decomposition_rationale",
+    );
   });
 
   test("keeps child assignment keys compact and deterministic", () => {
