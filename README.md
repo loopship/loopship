@@ -69,9 +69,10 @@ In `superviseStep` mode, coordinator quests launch at most one child at a time,
 while ordinary `loopship init` runs may still dispatch multiple children in
 parallel. Supervised child launches use `loopship stepper init` so the child
 pauses on its own internal lifecycle steps before the next child starts.
-After a quest is archived, run `loopship cleanup --repo <repo> --wtree <quest>`
-from the target/root context to remove only merged repo-owned quest worktrees and
-their landed branches; use `--dry-run` to inspect the planned cleanup first.
+Flow-internal cleanup uses `loopship.afn.service.landing.cleanup` after durable
+landing evidence exists. The public `loopship cleanup` command with `--repo`
+and `--wtree` is a manual inspection/retry wrapper over the same landed worktree
+cleanup logic; use `--dry-run` to inspect planned removals first.
 
 Routine verification keeps lifecycle checks focused and bounded:
 

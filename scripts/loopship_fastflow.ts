@@ -209,6 +209,7 @@ export const LOOPSHIP_AFN_CALLS = Object.freeze({
   gitHead: "loopship.afn.service.git.head",
   systemApply: "loopship.afn.service.system.apply",
   landingApply: "loopship.afn.service.landing.apply",
+  landingCleanup: "loopship.afn.service.landing.cleanup",
 });
 
 export const LOOPSHIP_DATA_CALLS = Object.freeze({
@@ -392,6 +393,31 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     metadata: {
       allowed_phases: ["action"],
       effects: ["git.merge", "quest.land"],
+    },
+  },
+  {
+    call: LOOPSHIP_AFN_CALLS.landingCleanup,
+    summary: "Remove landed Loopship quest worktrees and branches after durable landing evidence exists.",
+    inputs: {
+      required: ["repo", "wtree"],
+      optional: ["dry_run"],
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["repo", "wtree"],
+        properties: {
+          repo: { type: "string", minLength: 1 },
+          wtree: { type: "string", minLength: 1 },
+          dry_run: { type: "boolean" },
+        },
+      },
+    },
+    tags: ["loopship", "landing", "cleanup", "worktree"],
+    preferWhen: ["A Loopship flow needs to clean up landed quest worktrees and branches."],
+    avoidWhen: ["The quest has not recorded durable landing evidence."],
+    metadata: {
+      allowed_phases: ["action"],
+      effects: ["git.worktree.remove", "git.branch.delete"],
     },
   },
 ];
@@ -1999,6 +2025,14 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
   };
 }
 
+function executeLandingCleanup(body: Record<string, unknown>): Record<string, unknown> {
+  return cleanupLandedWorktrees({
+    repo: requireString(body.repo, "repo"),
+    wtree: requireString(body.wtree, "wtree"),
+    dryRun: body.dry_run === true,
+  });
+}
+
 export function createLoopshipFastflowAdapters(): Record<string, unknown> {
   const adapterIdentity = PACKAGE_JSON.name || "@omar391/loopship";
   const adapterVersion = PACKAGE_JSON.version || "0.0.0";
@@ -2074,6 +2108,7 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
       if (call === LOOPSHIP_AFN_CALLS.gitHead) return executeGitHead(body);
       if (call === LOOPSHIP_AFN_CALLS.systemApply) return executeSystemApply(body);
       if (call === LOOPSHIP_AFN_CALLS.landingApply) return executeLandingApply(body);
+      if (call === LOOPSHIP_AFN_CALLS.landingCleanup) return executeLandingCleanup(body);
       throw new Error(`Loopship AFN '${call}' has no normal handler.`);
     },
     async auditAfn({

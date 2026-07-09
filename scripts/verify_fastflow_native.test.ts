@@ -556,6 +556,7 @@ describe("Loopship Fastflow-native bridge", () => {
       LOOPSHIP_AFN_CALLS.childPrepare,
       LOOPSHIP_AFN_CALLS.flowStageResultBuild,
       LOOPSHIP_AFN_CALLS.gitHead,
+      LOOPSHIP_AFN_CALLS.landingCleanup,
       LOOPSHIP_AFN_CALLS.landingApply,
       LOOPSHIP_AFN_CALLS.systemApply,
     ].sort());
@@ -1184,14 +1185,14 @@ describe("Loopship Fastflow-native bridge", () => {
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
-        if (!result.ok || result.calls !== 16) {
+        if (!result.ok || result.calls !== 17) {
           throw new Error(JSON.stringify(result));
         }
         console.log(JSON.stringify(result));
       `,
       [LOOPSHIP_CALL_CATALOG_ROOT],
     );
-    expect(JSON.parse(output).calls).toBe(16);
+    expect(JSON.parse(output).calls).toBe(17);
   });
 
   test("keeps static AFN call catalog descriptors in parity with adapter descriptors", async () => {
@@ -1208,9 +1209,13 @@ describe("Loopship Fastflow-native bridge", () => {
       );
       const catalog = parseYaml(readFileSync(catalogPath, "utf8")) as any;
       expect(catalog.schemaVersion).toBe("fastflow/call-catalog-scope/v2");
-      expect(catalog.calls).toHaveLength(1);
+      expect(
+        catalog.calls.filter((entry: Record<string, unknown>) => entry.call === descriptor.call),
+      ).toHaveLength(1);
       const { tags: _tags, ...descriptorWithoutTags } = descriptor as Record<string, unknown>;
-      expect(catalog.calls[0]).toEqual(descriptorWithoutTags);
+      expect(catalog.calls.find((entry: Record<string, unknown>) => entry.call === descriptor.call)).toEqual(
+        descriptorWithoutTags,
+      );
       expect(
         (adapters.resolveCallDescriptor as Function)({ call: descriptor.call }),
       ).toEqual(descriptor);
@@ -2866,9 +2871,10 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("cleanup skips quests without landing evidence", () => {
+  test("cleanup skips quests without landing evidence", async () => {
     const fixture = createGitFixture("loopship-native-cleanup-unlanded-");
     try {
+      const adapters = createLoopshipFastflowAdapters();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -2885,16 +2891,18 @@ describe("Loopship Fastflow-native bridge", () => {
         initialStage: "initial",
       });
 
-      const cleanup = runLoopshipCli(fixture.repo, [
-        "cleanup",
-        "--repo",
-        fixture.repo,
-        "--wtree",
-        "demo",
-        "--dry-run",
-      ]);
-      expect(cleanup.status, cleanup.stderr || cleanup.stdout).toBe(0);
-      const output = parseJsonObject(cleanup.stdout, "loopship cleanup unlanded");
+      const output = await (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingCleanup,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "demo",
+              dry_run: true,
+            },
+          },
+        },
+      });
       expect(output.removed_worktrees).toEqual([]);
       expect(output.removed_branches).toEqual([]);
       expect(output.skipped).toEqual([
@@ -2978,29 +2986,33 @@ describe("Loopship Fastflow-native bridge", () => {
         next_stage: "archived",
       });
 
-      const dryRun = runLoopshipCli(fixture.repo, [
-        "cleanup",
-        "--repo",
-        fixture.repo,
-        "--wtree",
-        "demo",
-        "--dry-run",
-      ]);
-      expect(dryRun.status, dryRun.stderr || dryRun.stdout).toBe(0);
-      const dryRunOutput = parseJsonObject(dryRun.stdout, "loopship cleanup dry-run");
+      const dryRunOutput = await (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingCleanup,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "demo",
+              dry_run: true,
+            },
+          },
+        },
+      });
       expect(dryRunOutput.removed_worktrees).toEqual(
         expect.arrayContaining([childWorkspace.worktree_path, coordinatorWorktree]),
       );
 
-      const cleanup = runLoopshipCli(fixture.repo, [
-        "cleanup",
-        "--repo",
-        fixture.repo,
-        "--wtree",
-        "demo",
-      ]);
-      expect(cleanup.status, cleanup.stderr || cleanup.stdout).toBe(0);
-      const output = parseJsonObject(cleanup.stdout, "loopship cleanup");
+      const output = await (adapters.executeAfn as Function)({
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingCleanup,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "demo",
+            },
+          },
+        },
+      });
       expect(output.removed_worktrees).toEqual(
         expect.arrayContaining([childWorkspace.worktree_path, coordinatorWorktree]),
       );
