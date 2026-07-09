@@ -144,10 +144,13 @@ function pauseToken(value: JsonObject): PauseToken | null {
     fail(`stepper interaction must carry Fastflow step supervision: ${JSON.stringify(value)}`);
   }
   const systemInstructions = String(value.systemInstructions ?? "");
+  const hasDelegatedImplementationGuard =
+    systemInstructions.includes("Do not perform delegated implementation work inline") ||
+    systemInstructions.includes("Do not perform delegated implementation or correction inline");
   if (
     !systemInstructions.includes("loopship-supervisor") ||
     !systemInstructions.includes("native Fastflow decision") ||
-    !systemInstructions.includes("Do not perform delegated implementation work inline")
+    !hasDelegatedImplementationGuard
   ) {
     fail(`stepper interaction must include supervisor guidance: ${JSON.stringify(value)}`);
   }
