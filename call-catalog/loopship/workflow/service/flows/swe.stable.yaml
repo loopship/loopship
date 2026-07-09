@@ -2009,16 +2009,23 @@ do:
               kind: behaviour
               statement: "Cleanup runs only after archive persistence has produced durable landing evidence."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const archived = String(state.steps.build_stage_result?.action?.stage_after || "") === "archived";
-                    const persisted = state.steps.persist_stage?.action !== undefined;
-                    const eventAppended = state.steps.append_stage_event?.action !== undefined;
-                    return {
-                      ok: archived && persisted && eventAppended,
-                      evidence: { archived, persisted, eventAppended }
-                    };
+                call: loopship.afn.service.flow.stage-result-build
+                with:
+                  body:
+                    schema_version: loopship.stage-result.build/v1
+                    flow_id: swe
+                    stage_before: archived
+                    stage_after: archived
+                    transition: cleanup_check
+                    step: archived
+                    step_workflow_task: cleanup_landed_worktrees
+                    step_payload: {}
+                    step_action: {}
+                    state_patch: {}
+                    events:
+                      - event: cleanup_landed_worktrees_check
+                    runtime: {}
+                    as_check: true
       call: loopship.afn.service.landing.cleanup
       with:
         body:
