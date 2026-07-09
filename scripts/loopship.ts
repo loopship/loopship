@@ -29,7 +29,6 @@ import { runLoopshipCmdproto } from "./loopship_cmdproto.ts";
 import { runHandbook } from "./loopship_handbook.ts";
 import { runStepperCli } from "./loopship_stepper.ts";
 import {
-  cleanupLandedWorktrees,
   resolveLoopshipFlowId,
   resumeLoopshipFastflowWorkflow,
   runLoopshipFastflowWorkflow,
@@ -43,7 +42,6 @@ type Command =
   | "doctor"
   | "hook"
   | "stepper"
-  | "cleanup"
   | "cmdproto"
   | "handbook";
 
@@ -64,7 +62,6 @@ Usage:
   loopship stepper init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
   loopship stepper step --json <fastflow-resume-json|@file|@->
   loopship stepper hook [--json <fastflow-resume-json|@file|@->]
-  loopship cleanup --repo <path> --wtree <quest> [--dry-run]
   loopship doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
   loopship handbook [--repo <path>] [--raw|--duplicates|--fix-duplicates] [--json] [--min-chars <n>]
   loopship cmdproto --help [--json]
@@ -76,7 +73,7 @@ function parseCommand(argv: string[]): Command {
   const cmd = argv[0] as Command | undefined;
   if (
     !cmd ||
-    !["init", "doctor", "hook", "stepper", "cleanup", "cmdproto", "handbook"].includes(cmd)
+    !["init", "doctor", "hook", "stepper", "cmdproto", "handbook"].includes(cmd)
   ) {
     usage();
     process.exit(1);
@@ -669,23 +666,6 @@ export async function runInit(argv: string[]): Promise<number> {
   return 0;
 }
 
-export function runCleanup(argv: string[]): number {
-  const args = parseQuestRepoArg(argv);
-  const context = resolveRepoContext({
-    repo: args.repo,
-    cwd: process.cwd(),
-  });
-  const wtree = args.wtree?.trim();
-  if (!wtree) throw new Error("loopship cleanup requires --wtree");
-  const result = cleanupLandedWorktrees({
-    repo: context.repoRoot,
-    wtree,
-    dryRun: args.rest.includes("--dry-run"),
-  });
-  questResponse(result);
-  return 0;
-}
-
 export async function runCliCommand(argv: string[]): Promise<number> {
   if (
     argv[0] !== "cmdproto" &&
@@ -707,7 +687,6 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   if (cmd === "init") return await runInit(rest);
   if (cmd === "hook") return await runHook(rest);
   if (cmd === "stepper") return await runStepperCli(rest);
-  if (cmd === "cleanup") return runCleanup(rest);
   if (cmd === "handbook") return runHandbook(rest);
   if (cmd === "cmdproto") return runLoopshipCmdproto(rest);
   return runDoctor(rest);
