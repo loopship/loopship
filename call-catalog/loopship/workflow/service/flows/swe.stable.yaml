@@ -228,7 +228,7 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                call: loopship.afn.service.flow.build-stage-result-envelope
+                call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
                     schema_version: loopship.stage-result.build/v1
@@ -1258,7 +1258,7 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                call: loopship.afn.service.flow.build-stage-result-envelope
+                call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
                     schema_version: loopship.stage-result.build/v1
@@ -1299,7 +1299,7 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                call: loopship.afn.service.flow.build-stage-result-envelope
+                call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
                     schema_version: loopship.stage-result.build/v1
@@ -1468,7 +1468,7 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                call: loopship.afn.service.flow.build-stage-result-envelope
+                call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
                     schema_version: loopship.stage-result.build/v1
@@ -1513,7 +1513,7 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                call: loopship.afn.service.flow.build-stage-result-envelope
+                call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
                     schema_version: loopship.stage-result.build/v1
@@ -1885,7 +1885,7 @@ do:
               kind: behaviour
               statement: "The generated Loopship Fastflow-native step produced an action result."
               check:
-                call: loopship.afn.service.flow.build-stage-result-envelope
+                call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
                     schema_version: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).schema_version || \"loopship.stage-result.build/v1\"}"
@@ -1901,7 +1901,7 @@ do:
                     events: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).events || []}"
                     runtime: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).runtime || {}}"
                     as_check: true
-      call: loopship.afn.service.flow.build-stage-result-envelope
+      call: loopship.afn.service.flow.compose-transition-result
       with:
         body:
           schema_version: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).schema_version || \"loopship.stage-result.build/v1\"}"
@@ -2009,7 +2009,7 @@ do:
               kind: behaviour
               statement: "Cleanup runs only after archive persistence has produced durable landing evidence."
               check:
-                call: loopship.afn.service.flow.build-stage-result-envelope
+                call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
                     schema_version: loopship.stage-result.build/v1
