@@ -4,16 +4,16 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 44
-      digest: "sha256:fa7b2f541d1b5633460353e7f58d118fe8660291487ca655daecf5742e387f10"
-      summary: "Keep SWE cleanup verification side-effect free."
+      release: 45
+      digest: "sha256:cd6f52262821832913ea5b39a7426cf076076a7af841ab4967e5783b46a2ea5c"
+      summary: "Rename SWE orchestration AFN calls."
       inputs:
         required: []
         optional: []
       requires:
-        - loopship.afn.service.flow.stage-result-build
-        - loopship.afn.service.git.head
-        - loopship.afn.service.landing.cleanup
+        - loopship.afn.service.flow.build-stage-result-envelope
+        - loopship.afn.service.git.resolve-commit
+        - loopship.afn.service.landing.cleanup-landed-worktrees
         - loopship.workflow.service.step.archived
         - loopship.workflow.service.step.child-result
         - loopship.workflow.service.step.executing
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8i6xsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGv4hAD9Gokn/N1niFIMJKlpN3hP
-    NA9NsMwJvCzG9uj4zsoxHWoA/38S8PuXgHOWbgCxpG7O4oHCuX6kCGrzhVPEXCpA
-    XqQF
-    =Zlze
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8puBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuyTAD/eYATiu8A+phSJATfJ12p
+    mhTXfEgRcGTE8uw4iRAu/WsA/2Mn05JMWw46SDNylzfr9u6w+etXQJJth3h5ehpO
+    7vcA
+    =WV+P
     -----END PGP SIGNATURE-----
