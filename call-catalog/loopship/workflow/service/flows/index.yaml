@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 43
-      digest: "sha256:d82003e7c5a4d083a769bc81d62a3e04ca67b197d1820caadb131a8bbc2ee767"
-      summary: "Run landed cleanup through the SWE flow after archive persistence."
+      release: 44
+      digest: "sha256:fa7b2f541d1b5633460353e7f58d118fe8660291487ca655daecf5742e387f10"
+      summary: "Keep SWE cleanup verification side-effect free."
       inputs:
         required: []
         optional: []
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8h4BsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvbSQEA5tVjXFViu9ueZpXqBpyc
-    h78ISThdkj0U9N7eW/EuKlYA/Ruf7qUtLF5XT719YUu9qyQYkUfkLDwKacUQmxNs
-    TYkN
-    =ekeW
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8i6xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGv4hAD9Gokn/N1niFIMJKlpN3hP
+    NA9NsMwJvCzG9uj4zsoxHWoA/38S8PuXgHOWbgCxpG7O4oHCuX6kCGrzhVPEXCpA
+    XqQF
+    =Zlze
     -----END PGP SIGNATURE-----
