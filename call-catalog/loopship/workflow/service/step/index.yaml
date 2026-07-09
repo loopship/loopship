@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   archived:
     stable:
-      release: 4
-      digest: "sha256:3e32718eb1c80dc01b33dbbc0e2cca934ad815b127d286e66ea30f42b99fc8a8"
-      summary: "Advertise post-archive cleanup command"
+      release: 5
+      digest: "sha256:275abbce2405b8530f32e2fa7d02339c27ce4d71295e90fc94a8f6c0c23e5b95"
+      summary: "Keep archived step report-only; cleanup is flow-owned."
       inputs:
         required: []
         optional:
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak687hsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsF8QD7BoTYgdnHyTbW5qZXa7Nr
-    iXMnkOqq+TOsHL6saHNWXQUBAKjCJZZhesSNIZF5hNlP1nj274LFe2JysOLuIANa
-    qYcC
-    =dEzW
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8hdBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsz2wEAlXlN3XCSMbu4QXUcDeKT
+    KpGuXDDcXfD7eNRiaX73LIoA/1V44ZxuNuqby9fTKjWWrAjuHxybx4NVtvnc55GZ
+    6VUH
+    =9bn2
     -----END PGP SIGNATURE-----
