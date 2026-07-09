@@ -1599,7 +1599,6 @@ export function cleanupLandedWorktrees(input: {
   const targetBranch = optionalString(state.landing_target_branch) || "main";
   const targetWorktree = optionalString(state.landing_target_worktree);
   const landedCommit = optionalString(state.landed_commit);
-  const cleanupAllowed = optionalString(state.stage) === "archived" && Boolean(landedCommit);
   const result = {
     schema_version: "loopship.landing.cleanup/v1",
     dry_run: input.dryRun === true,
@@ -1611,12 +1610,12 @@ export function cleanupLandedWorktrees(input: {
     removed_branches: [] as string[],
     skipped: [] as LandingCleanupSkipped[],
   };
-  if (!cleanupAllowed) {
+  if (!landedCommit) {
     result.skipped.push({
       source: "quest",
       branch: "",
       worktree: files.workspace_root,
-      reason: "quest_not_archived",
+      reason: "quest_not_landed",
     });
     return result;
   }

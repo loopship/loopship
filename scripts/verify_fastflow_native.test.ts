@@ -2866,7 +2866,49 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("cleanup removes archived merged quest worktrees and branches", async () => {
+  test("cleanup skips quests without landing evidence", () => {
+    const fixture = createGitFixture("loopship-native-cleanup-unlanded-");
+    try {
+      const workspace = ensureTaskWorkspace(
+        fixture.repo,
+        "codex/demo",
+        join(fixture.repo, "worktrees", "demo"),
+        "main",
+      );
+      createQuest({
+        repoRoot: fixture.repo,
+        wtree: "demo",
+        prompt: "loopship: native cleanup",
+        resolutionSource: "test",
+        workspace,
+        flowId: "swe",
+        initialStage: "initial",
+      });
+
+      const cleanup = runLoopshipCli(fixture.repo, [
+        "cleanup",
+        "--repo",
+        fixture.repo,
+        "--wtree",
+        "demo",
+        "--dry-run",
+      ]);
+      expect(cleanup.status, cleanup.stderr || cleanup.stdout).toBe(0);
+      const output = parseJsonObject(cleanup.stdout, "loopship cleanup unlanded");
+      expect(output.removed_worktrees).toEqual([]);
+      expect(output.removed_branches).toEqual([]);
+      expect(output.skipped).toEqual([
+        expect.objectContaining({
+          source: "quest",
+          reason: "quest_not_landed",
+        }),
+      ]);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("cleanup removes landed merged quest worktrees and branches", async () => {
     const fixture = createGitFixture("loopship-native-cleanup-");
     try {
       const adapters = createLoopshipFastflowAdapters();
