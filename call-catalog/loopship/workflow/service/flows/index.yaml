@@ -4,15 +4,16 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 42
-      digest: "sha256:3bff4568e82279ba9b64d1ff8b935cc9597f7957319b7b625a198fae5910bdf4"
-      summary: "Refresh system-update step digest after docs policy"
+      release: 43
+      digest: "sha256:d82003e7c5a4d083a769bc81d62a3e04ca67b197d1820caadb131a8bbc2ee767"
+      summary: "Run landed cleanup through the SWE flow after archive persistence."
       inputs:
         required: []
         optional: []
       requires:
         - loopship.afn.service.flow.stage-result-build
         - loopship.afn.service.git.head
+        - loopship.afn.service.landing.cleanup
         - loopship.workflow.service.step.archived
         - loopship.workflow.service.step.child-result
         - loopship.workflow.service.step.executing
@@ -27,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak69SRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvd5gD+KzUKxcflGVEvsv8IGJDR
-    bX0Ybz5gcoVPx7GDHtKEoUABALvDnKrAPZC26oKcdSjQDOvZcXbicGV/Bho7LrQX
-    QdYM
-    =Pb7n
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8h4BsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvbSQEA5tVjXFViu9ueZpXqBpyc
+    h78ISThdkj0U9N7eW/EuKlYA/Ruf7qUtLF5XT719YUu9qyQYkUfkLDwKacUQmxNs
+    TYkN
+    =ekeW
     -----END PGP SIGNATURE-----

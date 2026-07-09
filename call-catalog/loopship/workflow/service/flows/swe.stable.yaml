@@ -882,7 +882,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:3e32718eb1c80dc01b33dbbc0e2cca934ad815b127d286e66ea30f42b99fc8a8"
+          digest: "sha256:275abbce2405b8530f32e2fa7d02339c27ce4d71295e90fc94a8f6c0c23e5b95"
       call: loopship.workflow.service.step.archived
       with:
         version: 0.1.0
@@ -1958,6 +1958,7 @@ do:
             additionalProperties: true
         as: "${action}"
   - append_stage_event:
+      then: cleanup_landed_worktrees
       metadata:
         description: "Append the Fastflow-derived stage transition event through workflow data."
         validation:
@@ -1986,6 +1987,43 @@ do:
           adapter: jsonl
           log: events
           events: "${state.steps.build_stage_result?.action?.events || []}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+  - cleanup_landed_worktrees:
+      if: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}"
+      metadata:
+        description: "Clean landed Loopship worktrees and branches after archived state and event evidence are durable."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_cleanup_contract
+              kind: behaviour
+              statement: "Cleanup runs only after archive persistence has produced durable landing evidence."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const archived = String(state.steps.build_stage_result?.action?.stage_after || "") === "archived";
+                    const persisted = state.steps.persist_stage?.action !== undefined;
+                    const eventAppended = state.steps.append_stage_event?.action !== undefined;
+                    return {
+                      ok: archived && persisted && eventAppended,
+                      evidence: { archived, persisted, eventAppended }
+                    };
+      call: loopship.afn.service.landing.cleanup
+      with:
+        body:
+          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
       output:
         schema:
           document:
