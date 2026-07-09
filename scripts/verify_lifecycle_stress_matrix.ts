@@ -62,23 +62,28 @@ type ScenarioResult = {
   proves: string;
   checks: string;
   cost: string;
+  metrics: string;
   error?: string;
 };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(SCRIPT_DIR, "..");
+let activeGitOps = 0;
+let activeCheckMs = 0;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
 function runGit(cwd: string, args: string[]): string {
+  activeGitOps += 1;
   const result = runCommand("git", args, { cwd, timeoutMs: 30_000 });
   assert(result.status === 0, result.stderr || result.stdout);
   return result.stdout.trim();
 }
 
 function runGitMayFail(cwd: string, args: string[]) {
+  activeGitOps += 1;
   return runCommand("git", args, { cwd, timeoutMs: 30_000 });
 }
 
@@ -372,7 +377,9 @@ function mergeTask(fixture: Fixture, state: StressState, task: StressTask): bool
 }
 
 function runPackageCommand(repo: string, script: string): Record<string, unknown> {
+  const started = performance.now();
   const result = runCommand("bun", ["run", script], { cwd: repo, timeoutMs: 60_000 });
+  activeCheckMs += performance.now() - started;
   return {
     name: script,
     status: result.status === 0 ? "passed" : "failed",
@@ -401,6 +408,7 @@ function verifyFixture(
   state: StressState,
   targets: Array<{ name: string; path: string }>,
 ): boolean {
+  const started = performance.now();
   const acceptance_trace = targets.map((target) => ({
     acceptance: target.name,
     status: existsSync(join(fixture.repo, target.path)) ? "passed" : "failed",
@@ -415,6 +423,7 @@ function verifyFixture(
   state.verification_receipts.push(receipt);
   appendEvent(fixture, { type: "verification_finished", receipt });
   saveState(fixture, state);
+  activeCheckMs += performance.now() - started;
   return receipt.status === "passed";
 }
 
@@ -911,6 +920,147 @@ async function scenarioCleanupAfterArchive(): Promise<void> {
   }
 }
 
+async function scenarioParallel100Clean(): Promise<void> {
+  const fixture = createFixture("parallel-100-clean");
+  try {
+    const state = createTasks(fixture, 100);
+    const scheduler = await executeFastflowSchedulerProbe(
+      "parallel-100-clean",
+      state.tasks.map((task) => ({ id: task.id, dependencies: [] })),
+      20,
+    );
+    assert(scheduler.ok === true && scheduler.count === 100 && scheduler.passed === 100, "Fastflow scheduler did not pass 100 clean nodes");
+    for (const task of state.tasks) {
+      prepareChild(fixture, task);
+      assert(acceptReceipt(fixture, state, task, workerCommit(task)), `receipt rejected for ${task.id}`);
+    }
+    for (const task of state.tasks) assert(mergeTask(fixture, state, task), `merge failed for ${task.id}`);
+    assert(validateFixture(fixture, state, ["check"]), "validation failed");
+    assert(verifyFixture(fixture, state, [{ name: "hundredth artifact", path: "src/t100.ts" }]), "verification failed");
+    archiveAndCleanup(fixture, state);
+    assertOnlyMainWorktree(fixture);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
+async function scenarioDagDepth20(): Promise<void> {
+  const fixture = createFixture("dag-depth-20");
+  try {
+    const dependencies = Array.from({ length: 20 }, (_, index) =>
+      index === 0 ? [] : [`t${String(index).padStart(2, "0")}`],
+    );
+    const state = createTasks(fixture, 20, dependencies);
+    const scheduler = await executeFastflowSchedulerProbe(
+      "dag-depth-20",
+      state.tasks.map((task) => ({ id: task.id, dependencies: task.dependencies })),
+      5,
+    );
+    assert(scheduler.ok === true && scheduler.passed === 20, "Fastflow scheduler did not pass depth-20 DAG");
+    const readyWidths: number[] = [];
+    while (state.tasks.some((task) => task.status !== "landed")) {
+      const ready = readyTasks(state);
+      readyWidths.push(ready.length);
+      assert(ready.length === 1, "depth-20 DAG should expose one ready task per level");
+      const task = ready[0];
+      prepareChild(fixture, task);
+      assert(acceptReceipt(fixture, state, task, workerCommit(task)), "receipt rejected");
+      assert(mergeTask(fixture, state, task), "merge failed");
+    }
+    assert(readyWidths.length === 20 && readyWidths.every((width) => width === 1), "depth-20 ready widths were not deterministic");
+    archiveAndCleanup(fixture, state);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
+async function scenarioWideAndDeepMixedDag(): Promise<void> {
+  const fixture = createFixture("wide-and-deep-mixed-dag");
+  try {
+    const dependencies = Array.from({ length: 40 }, (_, index) => {
+      if (index < 10) return [];
+      if (index < 20) return [`t${String(index - 9).padStart(2, "0")}`];
+      if (index < 30) return [`t${String(index - 9).padStart(2, "0")}`, `t${String(index - 19).padStart(2, "0")}`];
+      return ["t21", "t22", "t23", "t24", "t25", "t26", "t27", "t28", "t29", "t30"];
+    });
+    const state = createTasks(fixture, 40, dependencies);
+    const scheduler = await executeFastflowSchedulerProbe(
+      "wide-and-deep-mixed-dag",
+      state.tasks.map((task) => ({ id: task.id, dependencies: task.dependencies })),
+      10,
+    );
+    assert(scheduler.ok === true && scheduler.passed === 40, "Fastflow scheduler did not pass mixed DAG");
+    const observedWidths: number[] = [];
+    while (state.tasks.some((task) => task.status !== "landed")) {
+      const ready = readyTasks(state);
+      observedWidths.push(ready.length);
+      assert(ready.length > 0, "mixed DAG stalled");
+      for (const task of ready) {
+        prepareChild(fixture, task);
+        assert(acceptReceipt(fixture, state, task, workerCommit(task)), "receipt rejected");
+        assert(mergeTask(fixture, state, task), "merge failed");
+      }
+    }
+    assert(JSON.stringify(observedWidths) === JSON.stringify([10, 10, 10, 10]), `unexpected mixed DAG widths: ${observedWidths.join(",")}`);
+    archiveAndCleanup(fixture, state);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
+async function scenarioLockContentionManyReady(): Promise<void> {
+  const fixture = createFixture("lock-contention-many-ready");
+  try {
+    const state = createTasks(fixture, 50);
+    const scheduler = await executeFastflowSchedulerProbe(
+      "lock-contention-many-ready",
+      state.tasks.map((task) => ({ id: task.id, dependencies: [], concurrency_group: "shared-lock" })),
+      25,
+    );
+    assert(scheduler.ok === true && scheduler.passed === 50, "Fastflow scheduler did not pass lock-contention inputs");
+    const serializedOrder: string[] = [];
+    while (state.tasks.some((task) => task.status !== "landed")) {
+      const [task] = readyTasks(state);
+      assert(task, "lock contention sequencing stalled");
+      serializedOrder.push(task.id);
+      prepareChild(fixture, task);
+      assert(acceptReceipt(fixture, state, task, workerCommit(task)), "receipt rejected");
+      assert(mergeTask(fixture, state, task), "merge failed");
+    }
+    assert(serializedOrder.length === 50 && serializedOrder[0] === "t01" && serializedOrder[49] === "t50", "lock contention order was not deterministic");
+    archiveAndCleanup(fixture, state);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
+async function scenarioConcurrentCoordinatorResumeSmoke(): Promise<void> {
+  const fixture = createFixture("concurrent-coordinator-resume-smoke");
+  try {
+    const state = createTasks(fixture, 12);
+    const firstWave = readyTasks(state).slice(0, 6);
+    for (const task of firstWave) {
+      prepareChild(fixture, task);
+      assert(acceptReceipt(fixture, state, task, workerCommit(task)), "receipt rejected before interrupt");
+      assert(mergeTask(fixture, state, task), "merge failed before interrupt");
+    }
+    appendEvent(fixture, { type: "coordinator_interrupt_simulated", landed: firstWave.length });
+    saveState(fixture, state);
+    const resumed = loadState(fixture);
+    assert(resumed.tasks.filter((task) => task.status === "landed").length === 6, "resume did not preserve first wave");
+    for (const task of resumed.tasks.filter((item) => item.status === "pending")) {
+      prepareChild(fixture, task);
+      assert(acceptReceipt(fixture, resumed, task, workerCommit(task)), "receipt rejected after resume");
+      assert(mergeTask(fixture, resumed, task), "merge failed after resume");
+    }
+    assert(validateFixture(fixture, resumed, ["check"]), "validation failed after resume");
+    archiveAndCleanup(fixture, resumed);
+    assertOnlyMainWorktree(fixture);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
 const SCENARIOS: Array<{
   id: string;
   proves: string;
@@ -983,27 +1133,64 @@ const SCENARIOS: Array<{
     checks: "pre-archive skip, post-archive worktree/branch removal, validation cwd",
     run: scenarioCleanupAfterArchive,
   },
+  {
+    id: "parallel-100-clean",
+    proves: "deterministic scripted worker ceiling above prior parallel-20 baseline",
+    checks: "100 git worktrees, Fastflow scheduler result, receipts, merge sequence, validation, verification, cleanup",
+    run: scenarioParallel100Clean,
+  },
+  {
+    id: "dag-depth-20",
+    proves: "deep dependency unblocking without premature dispatch",
+    checks: "20-level DAG scheduler result, one-ready-task sequencing, archive evidence",
+    run: scenarioDagDepth20,
+  },
+  {
+    id: "wide-and-deep-mixed-dag",
+    proves: "mixed width/depth DAG waves preserve deterministic ready batches",
+    checks: "40-node DAG scheduler result, observed ready widths, merge/archive evidence",
+    run: scenarioWideAndDeepMixedDag,
+  },
+  {
+    id: "lock-contention-many-ready",
+    proves: "many ready tasks can be deterministically sequenced when a shared lock prevents actual parallel landing",
+    checks: "50 ready tasks, shared lock serialization order, landing/archive evidence",
+    run: scenarioLockContentionManyReady,
+  },
+  {
+    id: "concurrent-coordinator-resume-smoke",
+    proves: "coordinator resume after an interrupted ready wave preserves canonical state",
+    checks: "12 tasks, first-wave interrupt, state reload, remaining wave, validation, archive, cleanup",
+    run: scenarioConcurrentCoordinatorResumeSmoke,
+  },
 ];
 
 async function main(): Promise<void> {
   const results: ScenarioResult[] = [];
   for (const scenario of SCENARIOS) {
+    activeGitOps = 0;
+    activeCheckMs = 0;
+    const started = performance.now();
     try {
       await scenario.run();
+      const runtimeMs = Math.round(performance.now() - started);
       results.push({
         id: scenario.id,
         status: "pass",
         proves: scenario.proves,
         checks: scenario.checks,
         cost: "tiny fixture repo + scripted workers; no live child agents",
+        metrics: `runtime_ms=${runtimeMs}; git_ops=${activeGitOps}; check_ms=${Math.round(activeCheckMs)}`,
       });
     } catch (error) {
+      const runtimeMs = Math.round(performance.now() - started);
       results.push({
         id: scenario.id,
         status: "fail",
         proves: scenario.proves,
         checks: scenario.checks,
         cost: "tiny fixture repo + scripted workers; no live child agents",
+        metrics: `runtime_ms=${runtimeMs}; git_ops=${activeGitOps}; check_ms=${Math.round(activeCheckMs)}`,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1012,11 +1199,11 @@ async function main(): Promise<void> {
   const lines = [
     "# Lifecycle Stress Matrix",
     "",
-    "| Scenario | Status | Proves | Checks | Cost Control |",
-    "| --- | --- | --- | --- | --- |",
+    "| Scenario | Status | Proves | Checks | Cost Control | Metrics |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...results.map(
       (result) =>
-        `| ${result.id} | ${result.status} | ${result.proves} | ${result.checks}${result.error ? `; error: ${result.error.replace(/\|/g, "/")}` : ""} | ${result.cost} |`,
+        `| ${result.id} | ${result.status} | ${result.proves} | ${result.checks}${result.error ? `; error: ${result.error.replace(/\|/g, "/")}` : ""} | ${result.cost} | ${result.metrics} |`,
     ),
     "",
   ];
