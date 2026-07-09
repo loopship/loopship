@@ -101,9 +101,9 @@ workflows:
         - loopship.afn.service.child.prepare-worktree
   landing:
     stable:
-      release: 2
-      digest: "sha256:a67b2cd9c43c3ed05f654f6429fdf34f7a8a699a20073db9186f2d945cb91bc4"
-      summary: "Apply Loopship landing with caller-supplied routing context."
+      release: 3
+      digest: "sha256:800592a79353e41df2b27fe814ed6479091e6eecfcf1856a81291488057d82c9"
+      summary: "Rename landing outcome AFN call."
       inputs:
         required:
           - status
@@ -118,11 +118,12 @@ workflows:
           - target_branch
           - target_worktree
           - source_branch
+          - next_stage
           - receipt
           - task
           - update
       requires:
-        - loopship.afn.service.landing.apply
+        - loopship.afn.service.landing.apply-outcome
   plan:
     stable:
       release: 8
@@ -305,9 +306,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8pKxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtSLwEAtHVu5jCdRWta2McpkvH3
-    Qxf181a5+WMozr6nHmab0OkA/RCZIzDswK1SlU7jg9W4UO9P0tS0ntcbN/VhaDvw
-    FfEM
-    =dugE
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8pOxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuuCwD5AbV89+iTIGmyoJgLgJ5S
+    8JtiE2KGxFdhyzi6noo4R/0BAKMSCDcCORiXbBaRMR/21Ma24YDvKNQQvWvV1jzi
+    4C0N
+    =mGvI
     -----END PGP SIGNATURE-----
