@@ -4,14 +4,14 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 45
-      digest: "sha256:cd6f52262821832913ea5b39a7426cf076076a7af841ab4967e5783b46a2ea5c"
-      summary: "Rename SWE orchestration AFN calls."
+      release: 46
+      digest: "sha256:45943eca2f71d5e43ff6f0f7e33c3d918020715a9017d9a098b80f1511d6f8d2"
+      summary: "Rename transition result composition AFN call."
       inputs:
         required: []
         optional: []
       requires:
-        - loopship.afn.service.flow.build-stage-result-envelope
+        - loopship.afn.service.flow.compose-transition-result
         - loopship.afn.service.git.resolve-commit
         - loopship.afn.service.landing.cleanup-landed-worktrees
         - loopship.workflow.service.step.archived
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8puBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuyTAD/eYATiu8A+phSJATfJ12p
-    mhTXfEgRcGTE8uw4iRAu/WsA/2Mn05JMWw46SDNylzfr9u6w+etXQJJth3h5ehpO
-    7vcA
-    =WV+P
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8qRxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtnQQEAoOQ0G8dNFrrkc7hkm3eT
+    aZLTfar6UuGviyKAdYo5v1QA+wYA8igfA0ZSq0hBBmLRqh+c2pJE7p2szWVfiB9s
+    VFgN
+    =A0g6
     -----END PGP SIGNATURE-----
