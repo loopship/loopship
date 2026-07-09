@@ -11,7 +11,6 @@ node index.ts hook --runtime codex
 node index.ts stepper init "loopship: build me a python app" --runtime codex --flow swe
 node index.ts stepper step --json @fastflow-resume.json
 node index.ts stepper hook --runtime codex
-node index.ts cleanup --repo /repo --wtree quest-wtree --dry-run
 node index.ts doctor --fix
 node index.ts handbook
 node index.ts handbook --raw
@@ -70,9 +69,8 @@ while ordinary `loopship init` runs may still dispatch multiple children in
 parallel. Supervised child launches use `loopship stepper init` so the child
 pauses on its own internal lifecycle steps before the next child starts.
 Flow-internal cleanup uses `loopship.afn.service.landing.cleanup` after durable
-landing evidence exists. The public `loopship cleanup` command with `--repo`
-and `--wtree` is a manual inspection/retry wrapper over the same landed worktree
-cleanup logic; use `--dry-run` to inspect planned removals first.
+landing evidence exists. Cleanup is intentionally not a public CLI command;
+retries should go through the same Fastflow/AFN lifecycle surface.
 
 Routine verification keeps lifecycle checks focused and bounded:
 

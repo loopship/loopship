@@ -925,6 +925,48 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(text).toContain("fastflow.afn.data.event-log.append");
   });
 
+  test("SWE cleanup is a post-persist flow AFN, not an archived step command", () => {
+    const flowPath = join(
+      process.cwd(),
+      "call-catalog",
+      "loopship",
+      "workflow",
+      "service",
+      "flows",
+      "swe.stable.yaml",
+    );
+    const stepPath = join(
+      process.cwd(),
+      "call-catalog",
+      "loopship",
+      "workflow",
+      "service",
+      "step",
+      "archived.stable.yaml",
+    );
+    const cliPath = join(process.cwd(), "scripts", "loopship.ts");
+    const readmePath = join(process.cwd(), "README.md");
+    const flowText = readFileSync(flowPath, "utf8");
+    const archivedText = readFileSync(stepPath, "utf8");
+    const cliText = readFileSync(cliPath, "utf8");
+    const readmeText = readFileSync(readmePath, "utf8");
+    const appendIndex = flowText.indexOf("- append_stage_event:");
+    const cleanupIndex = flowText.indexOf("- cleanup_landed_worktrees:");
+
+    expect(appendIndex).toBeGreaterThan(0);
+    expect(cleanupIndex).toBeGreaterThan(appendIndex);
+    expect(flowText).toContain("then: cleanup_landed_worktrees");
+    expect(flowText).toContain("if: \"${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}\"");
+    expect(flowText).toContain("call: loopship.afn.service.landing.cleanup");
+    expect(flowText).toContain("step_workflow_task: cleanup_landed_worktrees");
+    expect(flowText).not.toContain("const archived = String(state.steps.build_stage_result?.action?.stage_after");
+    expect(archivedText).not.toContain('args: ["cleanup"');
+    expect(archivedText).not.toContain("safe_after_archive");
+    expect(cliText).not.toContain('| \"cleanup\"');
+    expect(cliText).not.toContain("runCleanup");
+    expect(readmeText).not.toContain("loopship cleanup");
+  });
+
   test("SWE stage call tasks are routed only by route_stage", () => {
     const text = readFileSync(
       join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "flows", "swe.stable.yaml"),
@@ -1352,8 +1394,8 @@ describe("Loopship Fastflow-native bridge", () => {
     const archivedText = readFileSync(archivedPath, "utf8");
     const archived = loadYamlWorkflow(archivedPath);
     expect((archived.document as Record<string, any>).metadata?.inference).toBeUndefined();
-    expect(archivedText).toContain('args: ["cleanup", "--repo", repo, "--wtree", wtree]');
-    expect(archivedText).toContain("safe_after_archive: true");
+    expect(archivedText).not.toContain('args: ["cleanup"');
+    expect(archivedText).not.toContain("safe_after_archive");
     let archivedUsesInference = false;
     let archivedUsesScript = false;
     walk(archived, (value) => {
@@ -2510,18 +2552,15 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(
         readFileSync(join(parentWorkspace.worktree_path, ".loopship", "system.yaml"), "utf8"),
       ).toContain(updatedTitle);
-      childState = parseTasksYaml(
-        readFileSync(
-          join(fixture.repo, "worktrees", childWtree, ".loopship", "runtime", "tasks.yaml"),
-          "utf8",
-        ),
-      );
-      expect(childState.stage).toBe("archived");
-      expect(String(childState.landed_commit || "")).toMatch(/^[0-9a-f]{40}$/);
-      expect(childState.local_work_receipt).toMatchObject({
+      expect(landed.state_patch).toMatchObject({
+        stage: "archived",
+      });
+      expect(String((landed.state_patch as Record<string, unknown>)?.landed_commit || "")).toMatch(/^[0-9a-f]{40}$/);
+      expect((landed.runtime as Record<string, any>)?.tasks?.local_work_receipt).toMatchObject({
         mode: "shared-head-commit",
         covered_task_ids: ["timer-ui"],
       });
+      expect(existsSync(join(fixture.repo, "worktrees", childWtree))).toBe(false);
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }

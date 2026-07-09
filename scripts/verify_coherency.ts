@@ -341,9 +341,25 @@ function assertSweFlowLifecycleGuards(): void {
     "stage_result_landing_ready",
     "landed_commit",
     "landing_strategy",
+    "- append_stage_event:",
+    "then: cleanup_landed_worktrees",
+    "- cleanup_landed_worktrees:",
+    "if: \"${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}\"",
+    "call: loopship.afn.service.landing.cleanup",
+    "step_workflow_task: cleanup_landed_worktrees",
   ]) {
     assertContains(text, needle, scope);
   }
+  if (text.indexOf("- cleanup_landed_worktrees:") <= text.indexOf("- append_stage_event:")) {
+    throw new Error("SWE flow cleanup must run after append_stage_event.");
+  }
+  assertNotContains(text, 'args: ["cleanup"', scope);
+  assertNotContains(text, "safe_after_archive", scope);
+  assertNotContains(
+    text,
+    "const archived = String(state.steps.build_stage_result?.action?.stage_after",
+    scope,
+  );
 
   const scriptCount = (text.match(/\bscript:/g) ?? []).length;
   if (scriptCount > 43) {
@@ -392,9 +408,12 @@ function assertReadmeCommandSurface(): void {
     "`loopship handbook --duplicates` reports exact normalized duplicate prose",
     "recoverable system temp path",
     "generated output, not canonical truth",
+    "Flow-internal cleanup uses `loopship.afn.service.landing.cleanup`",
+    "Cleanup is intentionally not a public CLI command",
   ]) {
     assertContains(text, needle, scope);
   }
+  assertNotContains(text, "loopship cleanup", scope);
 }
 
 function assertCanonicalArchitectureDocs(): void {
