@@ -70,9 +70,9 @@ workflows:
       requires: []
   executing:
     stable:
-      release: 2
-      digest: "sha256:f24f85241d816f088111e6fcf5f5618572d313cb1b2e986381ae8788d07a5d56"
-      summary: "Enforce terminal-child local execution, preserve quest evidence, and require dev-only workflow authoring."
+      release: 3
+      digest: "sha256:2aaccc0a7fec622d5bc63f81f5d4cd5b19733cff821e8fa5609d28f75cfc8a75"
+      summary: "Rename child worktree preparation AFN call."
       inputs:
         required:
           - children
@@ -98,7 +98,7 @@ workflows:
           - task
           - update
       requires:
-        - loopship.afn.service.child.prepare
+        - loopship.afn.service.child.prepare-worktree
   landing:
     stable:
       release: 2
@@ -305,9 +305,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8hdBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsz2wEAlXlN3XCSMbu4QXUcDeKT
-    KpGuXDDcXfD7eNRiaX73LIoA/1V44ZxuNuqby9fTKjWWrAjuHxybx4NVtvnc55GZ
-    6VUH
-    =9bn2
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8pKxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtSLwEAtHVu5jCdRWta2McpkvH3
+    Qxf181a5+WMozr6nHmab0OkA/RCZIzDswK1SlU7jg9W4UO9P0tS0ntcbN/VhaDvw
+    FfEM
+    =dugE
     -----END PGP SIGNATURE-----

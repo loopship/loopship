@@ -1,3 +1,5 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-step
@@ -582,7 +584,7 @@ do:
                   code: |
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
-      call: loopship.afn.service.child.prepare
+      call: loopship.afn.service.child.prepare-worktree
       with:
         body:
           repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}"
