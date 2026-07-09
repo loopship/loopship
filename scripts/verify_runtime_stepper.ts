@@ -147,7 +147,7 @@ function pauseToken(value: JsonObject): PauseToken | null {
   if (
     !systemInstructions.includes("loopship-supervisor") ||
     !systemInstructions.includes("native Fastflow decision") ||
-    !systemInstructions.includes("Do not perform delegated implementation or correction inline")
+    !systemInstructions.includes("Do not perform delegated implementation work inline")
   ) {
     fail(`stepper interaction must include supervisor guidance: ${JSON.stringify(value)}`);
   }
