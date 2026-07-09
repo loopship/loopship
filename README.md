@@ -68,7 +68,7 @@ In `superviseStep` mode, coordinator quests launch at most one child at a time,
 while ordinary `loopship init` runs may still dispatch multiple children in
 parallel. Supervised child launches use `loopship stepper init` so the child
 pauses on its own internal lifecycle steps before the next child starts.
-Flow-internal cleanup uses `loopship.afn.service.landing.cleanup` after durable
+Flow-internal cleanup uses `loopship.afn.service.landing.cleanup-landed-worktrees` after durable
 landing evidence exists. Cleanup is intentionally not a public CLI command;
 retries should go through the same Fastflow/AFN lifecycle surface.
 

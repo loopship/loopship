@@ -1,6 +1,6 @@
 schemaVersion: fastflow/call-catalog-scope/v2
 calls:
-  - call: loopship.afn.service.child.prepare
+  - call: loopship.afn.service.child.prepare-worktree
     summary: "Prepare Loopship child quest/worktree launch context without running the child agent."
     inputs:
       required:

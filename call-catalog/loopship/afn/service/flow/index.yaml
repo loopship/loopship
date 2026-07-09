@@ -1,7 +1,7 @@
 schemaVersion: fastflow/call-catalog-scope/v2
 calls:
-  - call: loopship.afn.service.flow.stage-result-build
-    summary: "Build a generic Loopship flow stage-result envelope from flow-owned transition data."
+  - call: loopship.afn.service.flow.compose-transition-result
+    summary: "Compose the standard Loopship transition result envelope from flow-owned transition data."
     inputs:
       required:
         - schema_version
@@ -75,7 +75,7 @@ calls:
           as_check:
             type: boolean
     preferWhen:
-      - "A Loopship flow needs to normalize a stage transition into the standard result envelope."
+      - "A Loopship flow needs to compose flow-owned transition data into the standard result envelope."
     avoidWhen:
       - "The workflow needs to decide stage transitions, interpret task graphs, or mutate runtime state."
     metadata:

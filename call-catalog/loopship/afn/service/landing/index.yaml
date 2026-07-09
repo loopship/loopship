@@ -1,7 +1,7 @@
 schemaVersion: fastflow/call-catalog-scope/v2
 calls:
-  - call: loopship.afn.service.landing.apply
-    summary: "Apply Loopship landing policy, merge results, and record landed state."
+  - call: loopship.afn.service.landing.apply-outcome
+    summary: "Apply the Loopship landing outcome: block, record a receipt, or merge and persist landed state."
     inputs:
       required:
         - repo
@@ -78,8 +78,8 @@ calls:
       effects:
         - git.merge
         - quest.land
-  - call: loopship.afn.service.landing.cleanup
-    summary: "Remove landed Loopship quest worktrees and branches after durable landing evidence exists."
+  - call: loopship.afn.service.landing.cleanup-landed-worktrees
+    summary: "Clean up landed Loopship quest worktrees and branches after durable landing evidence exists."
     inputs:
       required:
         - repo

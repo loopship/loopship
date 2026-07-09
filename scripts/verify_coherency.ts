@@ -254,7 +254,7 @@ function assertSystemUpdatePrompt(): void {
   for (const needle of [
     "Submit system doc updates. Loopship writes signed repo docs.",
     "fastflow.afn.core.request.input",
-    "loopship.afn.service.system.apply",
+    "loopship.afn.service.system.apply-update",
     "schemas/steps/system-update-input.yaml",
     "schema_version",
     ".loopship/system.yaml",
@@ -313,7 +313,7 @@ function assertStepPromptLifecycleCoherency(): void {
   assertContains(executing, "terminal child quests must not dispatch nested child worktrees", "executing step workflow");
 
   const landing = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "landing.stable.yaml"));
-  assertContains(landing, "loopship.afn.service.landing.apply", "landing step workflow");
+  assertContains(landing, "loopship.afn.service.landing.apply-outcome", "landing step workflow");
   assertContains(landing, "target_branch", "landing step workflow");
   assertContains(landing, "target_worktree", "landing step workflow");
   assertContains(landing, "source_branch", "landing step workflow");
@@ -345,7 +345,7 @@ function assertSweFlowLifecycleGuards(): void {
     "then: cleanup_landed_worktrees",
     "- cleanup_landed_worktrees:",
     "if: \"${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}\"",
-    "call: loopship.afn.service.landing.cleanup",
+    "call: loopship.afn.service.landing.cleanup-landed-worktrees",
     "step_workflow_task: cleanup_landed_worktrees",
   ]) {
     assertContains(text, needle, scope);
@@ -408,7 +408,7 @@ function assertReadmeCommandSurface(): void {
     "`loopship handbook --duplicates` reports exact normalized duplicate prose",
     "recoverable system temp path",
     "generated output, not canonical truth",
-    "Flow-internal cleanup uses `loopship.afn.service.landing.cleanup`",
+    "Flow-internal cleanup uses `loopship.afn.service.landing.cleanup-landed-worktrees`",
     "Cleanup is intentionally not a public CLI command",
   ]) {
     assertContains(text, needle, scope);
