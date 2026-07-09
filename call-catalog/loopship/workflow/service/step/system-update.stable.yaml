@@ -220,7 +220,7 @@ do:
                   code: |
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
-      call: loopship.afn.service.system.apply
+      call: loopship.afn.service.system.apply-update
       with:
         body:
           repo: "${inputs.repo || inputs.repoRoot || env.PWD || ''}"

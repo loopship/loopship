@@ -195,14 +195,14 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 6
-      digest: "sha256:28eb9383cf07112c145054479cac2935e00fa854a5d69b118b00d8fd028bee0d"
-      summary: "Prevent ephemeral task refs in durable docs"
+      release: 7
+      digest: "sha256:622baf7a0a26dfc8ce052106884079bb15855b3c2edaa76232b64036860238eb"
+      summary: "Rename system update AFN call."
       inputs:
         required: []
         optional: []
       requires:
-        - loopship.afn.service.system.apply
+        - loopship.afn.service.system.apply-update
   task-graph:
     stable:
       release: 3
@@ -306,9 +306,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8pOxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuuCwD5AbV89+iTIGmyoJgLgJ5S
-    8JtiE2KGxFdhyzi6noo4R/0BAKMSCDcCORiXbBaRMR/21Ma24YDvKNQQvWvV1jzi
-    4C0N
-    =mGvI
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8pSxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtt4wD/QO797GEWiUVucl+i9tFE
+    ZZydjMgKiQ9O/hdOEY65vfwBAPAgDHVMZP9CrQdbdFiO4VbgxKqe+WeGAf/mHC7X
+    6RQE
+    =Uh8p
     -----END PGP SIGNATURE-----
