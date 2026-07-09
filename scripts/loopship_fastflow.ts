@@ -204,12 +204,12 @@ const STAGE_RESULT_BUILD_SCHEMA = {
 } as const;
 
 export const LOOPSHIP_AFN_CALLS = Object.freeze({
-  childPrepare: "loopship.afn.service.child.prepare",
-  flowStageResultBuild: "loopship.afn.service.flow.stage-result-build",
-  gitHead: "loopship.afn.service.git.head",
-  systemApply: "loopship.afn.service.system.apply",
-  landingApply: "loopship.afn.service.landing.apply",
-  landingCleanup: "loopship.afn.service.landing.cleanup",
+  childPrepareWorktree: "loopship.afn.service.child.prepare-worktree",
+  flowComposeTransitionResult: "loopship.afn.service.flow.compose-transition-result",
+  gitResolveCommit: "loopship.afn.service.git.resolve-commit",
+  systemApplyUpdate: "loopship.afn.service.system.apply-update",
+  landingApplyOutcome: "loopship.afn.service.landing.apply-outcome",
+  landingCleanupLandedWorktrees: "loopship.afn.service.landing.cleanup-landed-worktrees",
 });
 
 export const LOOPSHIP_DATA_CALLS = Object.freeze({
@@ -222,7 +222,7 @@ export const LOOPSHIP_DATA_CALLS = Object.freeze({
 
 export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
   {
-    call: LOOPSHIP_AFN_CALLS.childPrepare,
+    call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
     summary: "Prepare Loopship child quest/worktree launch context without running the child agent.",
     inputs: {
       required: ["repo", "wtree"],
@@ -272,8 +272,8 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     },
   },
   {
-    call: LOOPSHIP_AFN_CALLS.flowStageResultBuild,
-    summary: "Build a generic Loopship flow stage-result envelope from flow-owned transition data.",
+    call: LOOPSHIP_AFN_CALLS.flowComposeTransitionResult,
+    summary: "Compose the standard Loopship transition result envelope from flow-owned transition data.",
     inputs: {
       required: [
         "schema_version",
@@ -293,14 +293,14 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
       schema: STAGE_RESULT_BUILD_SCHEMA,
     },
     tags: ["loopship", "flow", "stage-result", "envelope"],
-    preferWhen: ["A Loopship flow needs to normalize a stage transition into the standard result envelope."],
+    preferWhen: ["A Loopship flow needs to compose flow-owned transition data into the standard result envelope."],
     avoidWhen: ["The workflow needs to decide stage transitions, interpret task graphs, or mutate runtime state."],
     metadata: {
       allowed_phases: ["action", "verification"],
     },
   },
   {
-    call: LOOPSHIP_AFN_CALLS.gitHead,
+    call: LOOPSHIP_AFN_CALLS.gitResolveCommit,
     summary: "Resolve a git ref to a commit for Loopship lifecycle evidence.",
     inputs: {
       required: ["repo"],
@@ -325,8 +325,8 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     },
   },
   {
-    call: LOOPSHIP_AFN_CALLS.systemApply,
-    summary: "Apply Loopship system document updates and refresh managed signatures.",
+    call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
+    summary: "Apply a schema-valid Loopship system document update and refresh managed signatures.",
     inputs: {
       required: ["repo", "update"],
       optional: ["request_id", "actor", "reason", "dry_run"],
@@ -353,8 +353,8 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     },
   },
   {
-    call: LOOPSHIP_AFN_CALLS.landingApply,
-    summary: "Apply Loopship landing policy, merge results, and record landed state.",
+    call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
+    summary: "Apply the Loopship landing outcome: block, record a receipt, or merge and persist landed state.",
     inputs: {
       required: ["repo", "wtree"],
       optional: [
@@ -396,8 +396,8 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
     },
   },
   {
-    call: LOOPSHIP_AFN_CALLS.landingCleanup,
-    summary: "Remove landed Loopship quest worktrees and branches after durable landing evidence exists.",
+    call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+    summary: "Clean up landed Loopship quest worktrees and branches after durable landing evidence exists.",
     inputs: {
       required: ["repo", "wtree"],
       optional: ["dry_run"],
@@ -992,7 +992,7 @@ function prepareChildLaunch(
     ? { branch_ref: branchRef, worktree_path: worktreePath, mode: "dry-run" }
     : ensureTaskWorkspace(repo, branchRef, worktreePath, baseBranch);
   const runtime = optionalString(body.runtime) || "codex";
-  const superviseStep = childPrepareUsesSuperviseStep(body);
+  const superviseStep = childPrepareWorktreeUsesSuperviseStep(body);
   const parentContextRef = `${repo}/worktrees/${parentWtree}/${LOOPSHIP_RUNTIME_NAMESPACE}/tasks.yaml`;
   const request = `loopship: execute child task ${taskId}: ${optionalString(task.title) || taskId}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${parentWtree} and return the merge_commit.`;
   const initArgs = [
@@ -1033,7 +1033,7 @@ function prepareChildLaunch(
   };
 }
 
-function childPrepareQuestState(
+function childPrepareWorktreeQuestState(
   body: Record<string, unknown>,
 ): Partial<
   Pick<
@@ -1062,8 +1062,8 @@ function childPrepareQuestState(
   };
 }
 
-function childPrepareUsesSuperviseStep(body: Record<string, unknown>): boolean {
-  return childPrepareQuestState(body).supervise_step === true;
+function childPrepareWorktreeUsesSuperviseStep(body: Record<string, unknown>): boolean {
+  return childPrepareWorktreeQuestState(body).supervise_step === true;
 }
 
 function isQueuedChildTask(task: Record<string, unknown>): boolean {
@@ -1101,7 +1101,7 @@ function executeChildPrepare(body: Record<string, unknown>): Record<string, unkn
   const childInputs = Array.isArray(body.children)
     ? body.children.filter(isPlainObject)
     : [isPlainObject(body.task) ? body.task : {}];
-  if (isTerminalChildQuestState(childPrepareQuestState(body))) {
+  if (isTerminalChildQuestState(childPrepareWorktreeQuestState(body))) {
     const childIds = childInputs
       .map((task) =>
         optionalString(task.task_id) || optionalString(task.id) || optionalString(task.title),
@@ -1119,7 +1119,7 @@ function executeChildPrepare(body: Record<string, unknown>): Record<string, unkn
     if (!taskId) continue;
     statusById.set(taskId, optionalString(task.status) || "child_received");
   }
-  const selectedInputs = childPrepareUsesSuperviseStep(body)
+  const selectedInputs = childPrepareWorktreeUsesSuperviseStep(body)
     ? childInputs.filter((task) => isReadyChildTask(task, statusById)).slice(0, 1)
     : childInputs.filter((task) => isReadyChildTask(task, statusById));
   const preparedChildren = selectedInputs.map((task) => prepareChildLaunch(body, task));
@@ -1133,7 +1133,7 @@ function executeChildPrepare(body: Record<string, unknown>): Record<string, unkn
   };
 }
 
-function executeSystemApply(body: Record<string, unknown>): Record<string, unknown> {
+function executeSystemApplyUpdate(body: Record<string, unknown>): Record<string, unknown> {
   const repo = requireString(body.repo, "repo");
   if (!isPlainObject(body.update)) {
     throw new Error("update must be an object");
@@ -1165,7 +1165,7 @@ function gitRevParse(cwd: string, ref: string): string {
   return proc.stdout.trim();
 }
 
-function executeGitHead(body: Record<string, unknown>): Record<string, unknown> {
+function executeGitResolveCommit(body: Record<string, unknown>): Record<string, unknown> {
   const repo = requireString(body.repo, "repo");
   const cwd = optionalString(body.cwd) || repo;
   const ref = optionalString(body.ref) || "HEAD";
@@ -1209,7 +1209,7 @@ function normalizeStageResultEvent(
   };
 }
 
-function executeFlowStageResultBuild(body: Record<string, unknown>): Record<string, unknown> {
+function executeFlowComposeTransitionResult(body: Record<string, unknown>): Record<string, unknown> {
   const flowId = requireString(body.flow_id, "flow_id");
   const stageBefore = requireString(body.stage_before, "stage_before");
   const stageAfter = requireString(body.stage_after, "stage_after");
@@ -1845,7 +1845,7 @@ function executeNativeRuntimeLandingApply(input: {
   const nextStage = optionalString(input.body.next_stage);
   const summary = optionalString(input.body.summary);
   if (!["landed", "blocked"].includes(status)) {
-    throw new Error("landing.apply status must be landed or blocked");
+    throw new Error("landing.apply-outcome status must be landed or blocked");
   }
   if (input.body.dry_run === true) {
     return {
@@ -1860,7 +1860,7 @@ function executeNativeRuntimeLandingApply(input: {
   if (status === "blocked") {
     const blockedStage = nextStage || optionalString(state.stage);
     if (!blockedStage) {
-      throw new Error("landing.apply blocked status requires next_stage or current state.stage");
+      throw new Error("landing.apply-outcome blocked status requires next_stage or current state.stage");
     }
     state.stage = blockedStage;
     writeFileSync(tasksPath, stringifyYaml(state), "utf8");
@@ -1883,7 +1883,7 @@ function executeNativeRuntimeLandingApply(input: {
     };
   }
   if (!nextStage) {
-    throw new Error("landing.apply landed status requires next_stage");
+    throw new Error("landing.apply-outcome landed status requires next_stage");
   }
   assertLandingPreflight({ repo: input.repo, state });
   const landingReceipt = optionalString(receipt.landed_commit)
@@ -1923,7 +1923,7 @@ function executeNativeRuntimeLandingApply(input: {
   };
 }
 
-function executeLandingApply(body: Record<string, unknown>): Record<string, unknown> {
+function executeLandingApplyOutcome(body: Record<string, unknown>): Record<string, unknown> {
   const repo = requireString(body.repo, "repo");
   const wtree = requireString(body.wtree, "wtree");
   const files = questFiles(repo, wtree);
@@ -1942,7 +1942,7 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
   const status = optionalString(body.status) || "landed";
   const nextStage = optionalString(body.next_stage);
   if (!["landed", "blocked"].includes(status)) {
-    throw new Error("landing.apply status must be landed or blocked");
+    throw new Error("landing.apply-outcome status must be landed or blocked");
   }
   if (body.dry_run === true) {
     return {
@@ -1957,7 +1957,7 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
   if (status === "blocked") {
     const blockedStage = nextStage || optionalString(state.stage);
     if (!blockedStage) {
-      throw new Error("landing.apply blocked status requires next_stage or current state.stage");
+      throw new Error("landing.apply-outcome blocked status requires next_stage or current state.stage");
     }
     appendJsonl(files.events, {
       event: "landing_submitted",
@@ -1966,8 +1966,8 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
       request_id: requestId,
       payload: { status, summary: optionalString(body.summary) },
     });
-    updateQuestStage(files, blockedStage, requestId, "loopship fastflow afn landing.apply");
-    writeQuestManifest(files, requestId, "loopship fastflow afn landing.apply");
+    updateQuestStage(files, blockedStage, requestId, "loopship fastflow afn landing.apply-outcome");
+    writeQuestManifest(files, requestId, "loopship fastflow afn landing.apply-outcome");
     return {
       schema_version: "loopship.landing.apply/v1",
       dry_run: false,
@@ -1980,11 +1980,11 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
     };
   }
   if (!nextStage) {
-    throw new Error("landing.apply landed status requires next_stage");
+    throw new Error("landing.apply-outcome landed status requires next_stage");
   }
   assertLandingPreflight({ repo, state });
   if (!sourceBranch) {
-    throw new Error("landing.apply requires source_branch or state.coordinator_branch");
+    throw new Error("landing.apply-outcome requires source_branch or state.coordinator_branch");
   }
   const landingReceipt = optionalString(receipt.landed_commit)
     ? verifiedRecordedReceipt({
@@ -2013,8 +2013,8 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
     request_id: requestId,
     payload: landingReceipt,
   });
-  updateQuestStage(files, nextStage, requestId, "loopship fastflow afn landing.apply");
-  writeQuestManifest(files, requestId, "loopship fastflow afn landing.apply");
+  updateQuestStage(files, nextStage, requestId, "loopship fastflow afn landing.apply-outcome");
+  writeQuestManifest(files, requestId, "loopship fastflow afn landing.apply-outcome");
   return {
     schema_version: "loopship.landing.apply/v1",
     dry_run: false,
@@ -2025,7 +2025,7 @@ function executeLandingApply(body: Record<string, unknown>): Record<string, unkn
   };
 }
 
-function executeLandingCleanup(body: Record<string, unknown>): Record<string, unknown> {
+function executeLandingCleanupLandedWorktrees(body: Record<string, unknown>): Record<string, unknown> {
   return cleanupLandedWorktrees({
     repo: requireString(body.repo, "repo"),
     wtree: requireString(body.wtree, "wtree"),
@@ -2103,12 +2103,12 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
         throw new Error(`Loopship call '${call}' requires with.body.`);
       }
       validateBodyAgainstDescriptor(descriptor, body);
-      if (call === LOOPSHIP_AFN_CALLS.childPrepare) return executeChildPrepare(body);
-      if (call === LOOPSHIP_AFN_CALLS.flowStageResultBuild) return executeFlowStageResultBuild(body);
-      if (call === LOOPSHIP_AFN_CALLS.gitHead) return executeGitHead(body);
-      if (call === LOOPSHIP_AFN_CALLS.systemApply) return executeSystemApply(body);
-      if (call === LOOPSHIP_AFN_CALLS.landingApply) return executeLandingApply(body);
-      if (call === LOOPSHIP_AFN_CALLS.landingCleanup) return executeLandingCleanup(body);
+      if (call === LOOPSHIP_AFN_CALLS.childPrepareWorktree) return executeChildPrepare(body);
+      if (call === LOOPSHIP_AFN_CALLS.flowComposeTransitionResult) return executeFlowComposeTransitionResult(body);
+      if (call === LOOPSHIP_AFN_CALLS.gitResolveCommit) return executeGitResolveCommit(body);
+      if (call === LOOPSHIP_AFN_CALLS.systemApplyUpdate) return executeSystemApplyUpdate(body);
+      if (call === LOOPSHIP_AFN_CALLS.landingApplyOutcome) return executeLandingApplyOutcome(body);
+      if (call === LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees) return executeLandingCleanupLandedWorktrees(body);
       throw new Error(`Loopship AFN '${call}' has no normal handler.`);
     },
     async auditAfn({

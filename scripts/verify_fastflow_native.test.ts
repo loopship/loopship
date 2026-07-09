@@ -553,12 +553,12 @@ describe("Loopship Fastflow-native bridge", () => {
   test("registers exactly the minimal Loopship AFNs", () => {
     const calls = LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort();
     expect(calls).toEqual([
-      LOOPSHIP_AFN_CALLS.childPrepare,
-      LOOPSHIP_AFN_CALLS.flowStageResultBuild,
-      LOOPSHIP_AFN_CALLS.gitHead,
-      LOOPSHIP_AFN_CALLS.landingCleanup,
-      LOOPSHIP_AFN_CALLS.landingApply,
-      LOOPSHIP_AFN_CALLS.systemApply,
+      LOOPSHIP_AFN_CALLS.childPrepareWorktree,
+      LOOPSHIP_AFN_CALLS.flowComposeTransitionResult,
+      LOOPSHIP_AFN_CALLS.gitResolveCommit,
+      LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+      LOOPSHIP_AFN_CALLS.landingApplyOutcome,
+      LOOPSHIP_AFN_CALLS.systemApplyUpdate,
     ].sort());
     for (const call of calls) {
       expect(parseCallId(call)).toMatchObject({
@@ -569,11 +569,11 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("builds generic Loopship flow stage-result envelopes", async () => {
+  test("composes generic Loopship transition result envelopes", async () => {
     const adapters = createLoopshipFastflowAdapters();
     const result = await (adapters.executeAfn as Function)({
       action: {
-        call: LOOPSHIP_AFN_CALLS.flowStageResultBuild,
+        call: LOOPSHIP_AFN_CALLS.flowComposeTransitionResult,
         with: {
           body: {
             schema_version: "loopship.stage-result.build/v1",
@@ -639,12 +639,12 @@ describe("Loopship Fastflow-native bridge", () => {
     ]);
   });
 
-  test("verifies generic stage-result build inputs without inline JS checks", async () => {
+  test("verifies generic transition result composition inputs without inline JS checks", async () => {
     const adapters = createLoopshipFastflowAdapters();
     const result = await (adapters.executeAfn as Function)({
       phase: "verification",
       action: {
-        call: LOOPSHIP_AFN_CALLS.flowStageResultBuild,
+        call: LOOPSHIP_AFN_CALLS.flowComposeTransitionResult,
         with: {
           body: {
             schema_version: "loopship.stage-result.build/v1",
@@ -957,7 +957,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(cleanupIndex).toBeGreaterThan(appendIndex);
     expect(flowText).toContain("then: cleanup_landed_worktrees");
     expect(flowText).toContain("if: \"${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}\"");
-    expect(flowText).toContain("call: loopship.afn.service.landing.cleanup");
+    expect(flowText).toContain("call: loopship.afn.service.landing.cleanup-landed-worktrees");
     expect(flowText).toContain("step_workflow_task: cleanup_landed_worktrees");
     expect(flowText).not.toContain("const archived = String(state.steps.build_stage_result?.action?.stage_after");
     expect(archivedText).not.toContain('args: ["cleanup"');
@@ -1149,7 +1149,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(text).toContain("inference: loopship_child_implementation");
     expect(text).toContain("- stage_leaf_git_head_after_subagent:");
     expect(text).toContain("- stage_leaf_target_git_head_after_subagent:");
-    expect(text).toContain("call: loopship.afn.service.git.head");
+    expect(text).toContain("call: loopship.afn.service.git.resolve-commit");
     expect(text).toContain("leaf_execution_recorded");
     expect(text).toContain("actionCommit(\"stage_leaf_git_head_after_subagent\") || actionCommit(\"stage_leaf_git_head\")");
     expect(text).toContain("actionCommit(\"stage_leaf_target_git_head_after_subagent\") || actionCommit(\"stage_leaf_target_git_head\")");
@@ -1286,24 +1286,24 @@ describe("Loopship Fastflow-native bridge", () => {
     const adapters = createLoopshipFastflowAdapters();
     expect(adapters.adapterIdentity).toBe("@omar391/loopship");
     const descriptor = await (adapters.resolveCallDescriptor as Function)({
-      call: LOOPSHIP_AFN_CALLS.childPrepare,
+      call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
     });
-    expect(descriptor.call).toBe(LOOPSHIP_AFN_CALLS.childPrepare);
+    expect(descriptor.call).toBe(LOOPSHIP_AFN_CALLS.childPrepareWorktree);
     await expect(
       (adapters.auditAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.childPrepare,
+          call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
           with: { body: { repo: "/tmp/repo", wtree: "demo", dry_run: true } },
         },
       }),
     ).resolves.toMatchObject({
       schemaVersion: "fastflow.audit.proposal/v1",
       audited: true,
-      call: LOOPSHIP_AFN_CALLS.childPrepare,
+      call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
     });
     const dryRunChild = await (adapters.executeAfn as Function)({
       action: {
-        call: LOOPSHIP_AFN_CALLS.childPrepare,
+        call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
         with: { body: { repo: "/tmp/repo", wtree: "demo", dry_run: true } },
       },
     });
@@ -1330,7 +1330,7 @@ describe("Loopship Fastflow-native bridge", () => {
     await expect(
       (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.childPrepare,
+          call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
           with: {
             body: {
               repo: "/tmp/repo",
@@ -1516,7 +1516,7 @@ describe("Loopship Fastflow-native bridge", () => {
       await expect(
         (adapters.executeAfn as Function)({
           action: {
-            call: LOOPSHIP_AFN_CALLS.childPrepare,
+            call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
             with: {
               body: {
                 repo: fixture.repo,
@@ -1556,7 +1556,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const adapters = createLoopshipFastflowAdapters();
     const prepared = await (adapters.executeAfn as Function)({
       action: {
-        call: LOOPSHIP_AFN_CALLS.childPrepare,
+        call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
         with: {
           body: {
             repo: "/tmp/repo",
@@ -2719,7 +2719,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const adapters = createLoopshipFastflowAdapters();
     expect(() =>
       (adapters.validateCallInvocation as Function)({
-        call: LOOPSHIP_AFN_CALLS.landingApply,
+        call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
         phase: "action",
         with: { body: { repo: "/tmp/repo" } },
       }),
@@ -2730,7 +2730,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const adapters = createLoopshipFastflowAdapters();
     expect(() =>
       (adapters.validateCallInvocation as Function)({
-        call: LOOPSHIP_AFN_CALLS.systemApply,
+        call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
         phase: "action",
         with: {
           body: {
@@ -2747,7 +2747,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const adapters = createLoopshipFastflowAdapters();
     expect(() =>
       (adapters.validateCallInvocation as Function)({
-        call: LOOPSHIP_AFN_CALLS.childPrepare,
+        call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
         phase: "action",
         with: {
           body: {
@@ -2765,7 +2765,7 @@ describe("Loopship Fastflow-native bridge", () => {
     ).toThrow("body.task.shell is not allowed");
     expect(() =>
       (adapters.validateCallInvocation as Function)({
-        call: LOOPSHIP_AFN_CALLS.systemApply,
+        call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
         phase: "action",
         with: {
           body: {
@@ -2782,7 +2782,7 @@ describe("Loopship Fastflow-native bridge", () => {
     ).toThrow("body.update.unexpected is not allowed");
     expect(() =>
       (adapters.validateCallInvocation as Function)({
-        call: LOOPSHIP_AFN_CALLS.landingApply,
+        call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
         phase: "action",
         with: {
           body: {
@@ -2822,7 +2822,7 @@ describe("Loopship Fastflow-native bridge", () => {
       await expect(
         (adapters.executeAfn as Function)({
           action: {
-            call: LOOPSHIP_AFN_CALLS.landingApply,
+            call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
               body: {
                 repo: fixture.repo,
@@ -2838,7 +2838,7 @@ describe("Loopship Fastflow-native bridge", () => {
       await expect(
         (adapters.executeAfn as Function)({
           action: {
-            call: LOOPSHIP_AFN_CALLS.landingApply,
+            call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
               body: {
                 repo: fixture.repo,
@@ -2883,7 +2883,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const result = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingApply,
+          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
             body: {
               repo: fixture.repo,
@@ -2932,7 +2932,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const output = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingCleanup,
+          call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
           with: {
             body: {
               repo: fixture.repo,
@@ -3008,7 +3008,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const landed = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingApply,
+          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
             body: {
               repo: fixture.repo,
@@ -3027,7 +3027,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const dryRunOutput = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingCleanup,
+          call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
           with: {
             body: {
               repo: fixture.repo,
@@ -3043,7 +3043,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const output = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingCleanup,
+          call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
           with: {
             body: {
               repo: fixture.repo,
@@ -3115,7 +3115,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const result = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingApply,
+          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
             body: {
               repo: fixture.repo,
@@ -3181,7 +3181,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const result = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingApply,
+          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
             body: {
               repo: fixture.repo,
@@ -3258,7 +3258,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const result = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingApply,
+          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
             body: {
               repo: fixture.repo,
@@ -3371,7 +3371,7 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       createNativeQuest(fixture.repo, "demo");
       const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
-      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.childPrepare);
+      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.childPrepareWorktree);
       const result = await executeNativeWorkflow(workflow, {
         repo: fixture.repo,
         wtree: "demo",
@@ -3418,7 +3418,7 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       createNativeQuest(fixture.repo, "demo");
       const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
-      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.childPrepare);
+      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.childPrepareWorktree);
       const result = await executeNativeWorkflow(workflow, {
         repo: fixture.repo,
         wtree: "demo",
@@ -3461,7 +3461,7 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       createNativeQuest(fixture.repo, "demo");
       const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
-      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.childPrepare);
+      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.childPrepareWorktree);
       const result = await executeNativeWorkflow(workflow, {
         repo: fixture.repo,
         wtree: "demo",
@@ -3533,7 +3533,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.childPrepare,
+          call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
           with: { body },
         },
       });
@@ -3546,7 +3546,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.childPrepare,
+          call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
           with: { body },
         },
       });
@@ -3568,7 +3568,7 @@ describe("Loopship Fastflow-native bridge", () => {
       runGit(coordinatorWorktree, ["commit", "-m", "fastflow native landing"]);
 
       const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
-      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.landingApply);
+      const workflow = findWorkflowByCall(loadCatalogWorkflows(stepRoot), LOOPSHIP_AFN_CALLS.landingApplyOutcome);
       const result = await executeNativeWorkflow(workflow, {
         status: "landed",
         summary: "landed through Fastflow",
@@ -3599,7 +3599,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const { files } = createNativeQuest(fixture.repo, "demo");
       const result = await (adapters.executeAfn as Function)({
         action: {
-          call: LOOPSHIP_AFN_CALLS.landingApply,
+          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
             body: {
               repo: fixture.repo,

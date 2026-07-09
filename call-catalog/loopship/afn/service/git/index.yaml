@@ -1,6 +1,6 @@
 schemaVersion: fastflow/call-catalog-scope/v2
 calls:
-  - call: loopship.afn.service.git.head
+  - call: loopship.afn.service.git.resolve-commit
     summary: "Resolve a git ref to a commit for Loopship lifecycle evidence."
     inputs:
       required:
