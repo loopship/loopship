@@ -892,6 +892,44 @@ function schemaPathForResource(repoRoot: string, schemaRef: string): string {
   return "";
 }
 
+const SECRET_VALUE_PATTERNS = [
+  /-----BEGIN (?:RSA |OPENSSH |EC |)PRIVATE KEY-----/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/,
+  /\b(?:api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{16,}/i,
+];
+
+function assertNoSecretMaterial(value: unknown, owner: string): void {
+  if (typeof value === "string") {
+    if (SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(value))) {
+      throw new Error(`system_update contains token-like secret material: ${owner}`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoSecretMaterial(item, `${owner}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    assertNoSecretMaterial(child, owner ? `${owner}.${key}` : key);
+  }
+}
+
+function assertExternalDocPath(repoRoot: string, resourceRef: string, relativePath: string): string {
+  if (!relativePath.endsWith(".yaml")) {
+    throw new Error(`system_update external doc must be YAML: ${resourceRef}`);
+  }
+  const docsRoot = resolve(repoRoot, LOOPSHIP_DOCS_DIR);
+  const fullPath = resolve(repoRoot, relativePath);
+  const docsRelative = relative(docsRoot, fullPath);
+  if (!docsRelative || docsRelative.startsWith("..") || docsRelative.startsWith("/")) {
+    throw new Error(`system_update external doc path escapes .loopship/docs: ${resourceRef}`);
+  }
+  return fullPath;
+}
+
 function canonicalManagedEntries(repoRoot: string): Array<{
   resource_ref?: string;
   path: string;
@@ -1119,6 +1157,14 @@ export function applySystemUpdate(
   update: Record<string, unknown>,
   requestId: string,
 ): string[] {
+  const updateErrors = validateSchemaPath(
+    update as Record<string, any>,
+    "schemas/system-update.yaml",
+  );
+  if (updateErrors.length) {
+    throw new Error(`system_update schema validation failed: ${updateErrors.join("; ")}`);
+  }
+  assertNoSecretMaterial(update, "system_update");
   if (String(update.mode ?? "") === "no_change") return [];
   const touched: string[] = [];
   const root = asRecord(update.root);
@@ -1132,10 +1178,6 @@ export function applySystemUpdate(
   if (systemErrors.length) {
     throw new Error(`system_update root schema validation failed: ${systemErrors.join("; ")}`);
   }
-  const systemPath = resolve(repoRoot, LOOPSHIP_SYSTEM_FILE);
-  writeText(systemPath, renderSystemYaml(root));
-  touched.push(systemPath);
-
   const externalDocs = Array.isArray(update.external_docs)
     ? (update.external_docs as Array<Record<string, unknown>>)
     : [];
@@ -1147,6 +1189,12 @@ export function applySystemUpdate(
       .map((resource) => [`resource:${String(resource.id ?? "")}`, resource] as const)
       .filter(([ref]) => ref !== "resource:"),
   );
+  const plannedExternalDocs: Array<{
+    op: string;
+    fullPath: string;
+    relativePath: string;
+    document?: Record<string, unknown>;
+  }> = [];
   for (const item of externalDocs) {
     const op = String(item.op ?? "");
     const resourceRef = String(item.resource_ref ?? "").trim();
@@ -1162,9 +1210,9 @@ export function applySystemUpdate(
     if (schemaRef === "self") {
       throw new Error(`system_update external doc resource cannot use schema self: ${resourceRef}`);
     }
-    const fullPath = resolve(repoRoot, relativePath);
+    const fullPath = assertExternalDocPath(repoRoot, resourceRef, relativePath);
     if (op === "delete") {
-      rmSync(fullPath, { force: true });
+      plannedExternalDocs.push({ op, fullPath, relativePath });
       continue;
     }
     const document = asRecord(item.document);
@@ -1184,9 +1232,22 @@ export function applySystemUpdate(
         `system_update document schema validation failed for ${relativePath}: ${documentErrors.join("; ")}`,
       );
     }
-    mkdirSync(dirname(fullPath), { recursive: true });
-    writeText(fullPath, renderSystemDocYaml(document));
-    touched.push(fullPath);
+    plannedExternalDocs.push({ op, fullPath, relativePath, document });
+  }
+
+  const systemPath = resolve(repoRoot, LOOPSHIP_SYSTEM_FILE);
+  writeText(systemPath, renderSystemYaml(root));
+  touched.push(systemPath);
+
+  for (const item of plannedExternalDocs) {
+    if (item.op === "delete") {
+      rmSync(item.fullPath, { force: true });
+      continue;
+    }
+    if (!item.document) continue;
+    mkdirSync(dirname(item.fullPath), { recursive: true });
+    writeText(item.fullPath, renderSystemDocYaml(item.document));
+    touched.push(item.fullPath);
   }
 
   touched.push(writeSystemManifest(repoRoot, requestId, "loopship fastflow"));
