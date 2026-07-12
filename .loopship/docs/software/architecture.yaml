@@ -164,9 +164,11 @@ runtime:
       worktrees, land into their merge target, and return via child_result. Each task YAML row
       maps to exactly one child CLI-agent flow and one child worktree.
     hook-continuation: |-
-      Hook continuation reads runtime stop events, selects a quest through explicit worktree
-      signals, and continues only when canonical state proves continuation is safe. Hooks use
-      tasks.yaml first, event JSONL second, and terminal task table state third.
+      Hook continuation normalizes each agent runtime's thread identifier and keeps it separate
+      from the Fastflow session identifier. Paused Fastflow tokens and runtime-thread bindings
+      live in worktree-local hook-state.json. Explicit wtree or process-scoped WTREE input binds
+      an unbound thread on its next hook call; later calls select the exact worktree through
+      runtime plus thread id and fail closed when that identity is missing or ambiguous.
     system-update-flow: |-
       system_update_pending flows from child summary to bin storage, root prompt, schema-valid
       system_update payload, bin validation, canonical document writes, and signature refresh.

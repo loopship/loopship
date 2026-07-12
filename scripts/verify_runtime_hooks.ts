@@ -2,6 +2,8 @@
 
 import {
   mkdtempSync,
+  mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -10,6 +12,13 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "./loopship_utils.ts";
+import { nativeResumeRequest } from "./loopship_resume.ts";
+import {
+  recordHookRoute,
+  resolveHookRoute,
+  runtimeHookThreadId,
+  runtimeIdentityFromEnv,
+} from "./loopship_hook_state.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
 
@@ -17,9 +26,15 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-function runLoopship(repo: string, args: string[], input?: Record<string, unknown>) {
+function runLoopship(
+  repo: string,
+  args: string[],
+  input?: Record<string, unknown>,
+  env?: Record<string, string>,
+) {
   return runCommand("bun", [SCRIPT, ...args], {
     cwd: repo,
+    env,
     timeoutMs: 120_000,
     input: input ? JSON.stringify(input) : undefined,
   });
@@ -150,6 +165,7 @@ function main(): number {
   try {
     const repo = createRepo(root);
     const noop = runLoopship(repo, ["hook", "--runtime", "codex"], {
+      session_id: "codex-ordinary-thread",
       cwd: repo,
       hook_event_name: "Stop",
     });
@@ -157,19 +173,109 @@ function main(): number {
     if (noop.stdout.trim() !== "{}") {
       fail(`ordinary hook must no-op without a native Fastflow resume payload: ${noop.stdout}`);
     }
+    if (nativeResumeRequest({ session_id: "codex-thread" }) !== null) {
+      fail("Codex session_id must not be interpreted as a Fastflow sessionId");
+    }
+    if (runtimeHookThreadId({ conversationId: "agy-thread" }) !== "agy-thread") {
+      fail("runtime hook identity must normalize conversationId");
+    }
+    const claudeIdentity = runtimeIdentityFromEnv("claude", {
+      CLAUDE_CODE_SESSION_ID: "claude-thread",
+    });
+    if (claudeIdentity?.threadId !== "claude-thread") {
+      fail("runtime environment identity must normalize Claude sessions");
+    }
 
-    const start = runLoopship(repo, [
-      "stepper",
-      "init",
-      "loopship: build a full stack app",
-      "--repo",
+    const start = runLoopship(
       repo,
-      "--runtime",
-      "codex",
-    ]);
+      [
+        "stepper",
+        "init",
+        "loopship: build a full stack app",
+        "--repo",
+        repo,
+        "--runtime",
+        "codex",
+        "--wtree",
+        "hook-route",
+      ],
+      undefined,
+      { CODEX_THREAD_ID: "" },
+    );
     if (start.status !== 0) fail(start.stderr || start.stdout);
     const started = parseJson(start.stdout, "stepper init");
     const pause = pauseToken(started);
+    const bind = runLoopship(
+      repo,
+      ["hook", "--runtime", "codex", "--repo", repo],
+      {
+        session_id: "codex-thread-a",
+        cwd: repo,
+        hook_event_name: "Stop",
+        stop_hook_active: false,
+      },
+      { WTREE: "hook-route" },
+    );
+    if (bind.status !== 0) fail(bind.stderr || bind.stdout);
+    if (bind.stdout.trim() !== "{}") {
+      fail(`thread binding without a workflow response must no-op: ${bind.stdout}`);
+    }
+    const hookState = parseJson(
+      readFileSync(
+        join(repo, "worktrees", "hook-route", ".loopship", "runtime", "hook-state.json"),
+        "utf8",
+      ),
+      "hook state",
+    );
+    if (hookState.thread_id !== "codex-thread-a") {
+      fail(`hook state must bind the Codex thread id: ${JSON.stringify(hookState)}`);
+    }
+    if (hookState.fastflow?.sessionId !== pause.sessionId) {
+      fail(`hook state must preserve the Fastflow session separately: ${JSON.stringify(hookState)}`);
+    }
+
+    const secondWorkspace = join(repo, "worktrees", "hook-route-b");
+    mkdirSync(join(secondWorkspace, ".loopship", "runtime"), { recursive: true });
+    recordHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "codex-thread-b",
+      workspaceRoot: secondWorkspace,
+      result: {
+        kind: "supervisor_review",
+        nextCall: {
+          args: {
+            sessionId: "fastflow-session-b",
+            nonce: "nonce-b",
+            workspaceRoot: secondWorkspace,
+          },
+        },
+      },
+    });
+    const firstRoute = resolveHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "codex-thread-a",
+    });
+    const secondRoute = resolveHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "codex-thread-b",
+    });
+    if (firstRoute?.wtree !== "hook-route" || secondRoute?.wtree !== "hook-route-b") {
+      fail("concurrent runtime threads must resolve their own worktrees");
+    }
+
+    const routedNoop = runLoopship(repo, ["hook", "--runtime", "codex", "--repo", repo], {
+      session_id: "codex-thread-a",
+      cwd: repo,
+      hook_event_name: "Stop",
+      stop_hook_active: false,
+    });
+    if (routedNoop.status !== 0) fail(routedNoop.stderr || routedNoop.stdout);
+    if (routedNoop.stdout.trim() !== "{}") {
+      fail(`bound thread lookup without a workflow response must no-op: ${routedNoop.stdout}`);
+    }
     const resumePayload =
       pause.kind === "handoff_answer"
         ? { decision: nativePlanDecision() }
@@ -198,6 +304,21 @@ function main(): number {
     if (hook.status !== 0) fail(hook.stderr || hook.stdout);
     const output = parseJson(hook.stdout, "hook resume");
     assertNativeFastflowResponse(output, "hook resume");
+    const updatedHookState = parseJson(
+      readFileSync(
+        join(repo, "worktrees", "hook-route", ".loopship", "runtime", "hook-state.json"),
+        "utf8",
+      ),
+      "updated hook state",
+    );
+    if (output.schemaVersion === "fastflow/interaction-response/v1") {
+      const nextPause = pauseToken(output);
+      if (updatedHookState.fastflow?.sessionId !== nextPause.sessionId) {
+        fail("direct Fastflow resume must refresh the stored hook token");
+      }
+    } else if (updatedHookState.fastflow !== undefined) {
+      fail("terminal Fastflow resume must retire the stored hook token");
+    }
     console.log("loopship native hook verification passed");
     return 0;
   } finally {

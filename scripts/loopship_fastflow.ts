@@ -30,6 +30,7 @@ import {
   writeQuestManifest,
 } from "./loopship_core.ts";
 import type { QuestState } from "./loopship_core.ts";
+import { recordHookRoute, runtimeIdentityFromEnv } from "./loopship_hook_state.ts";
 import { readText, runCommand } from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -899,7 +900,7 @@ export async function runLoopshipFastflowWorkflowRequest(
     inputs,
     superviseStep,
   });
-  return runFastflowNodeSession({
+  const result = runFastflowNodeSession({
     repoRoot: input.repoRoot,
     workspaceRoot,
     catalogRoot,
@@ -910,6 +911,18 @@ export async function runLoopshipFastflowWorkflowRequest(
       inputs,
     },
   });
+  const runtime = String(inputs.runtime ?? "").trim();
+  if (runtime) {
+    const identity = runtimeIdentityFromEnv(runtime);
+    recordHookRoute({
+      repoRoot: input.repoRoot,
+      runtime: identity?.runtime ?? runtime,
+      threadId: identity?.threadId,
+      workspaceRoot,
+      result,
+    });
+  }
+  return result;
 }
 
 export async function runLoopshipFastflowWorkflow(
