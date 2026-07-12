@@ -64,6 +64,14 @@ For mocked runtime lifecycle stepping, `loopship stepper` supports:
 Fastflow owns the stepper `nextCall` resume command and decision payload.
 Loopship only contributes concise supervisor guidance through Fastflow app
 configuration; it does not render continuation commands.
+
+Runtime hooks keep the agent thread ID separate from Fastflow's `sessionId`.
+Each paused run stores `runtime`, `thread_id`, `wtree`, and the Fastflow resume
+token in the worktree-local `.loopship/runtime/hook-state.json`. Runtime-provided
+thread environment variables bind automatically; `loopship hook --wtree <name>`
+or a process-scoped `WTREE=<name>` binds the same state on the next hook call.
+Later hooks resolve the exact worktree by `runtime + thread_id` and no-op when
+that identity is missing or ambiguous.
 In `superviseStep` mode, coordinator quests launch at most one child at a time,
 while ordinary `loopship init` runs may still dispatch multiple children in
 parallel. Supervised child launches use `loopship stepper init` so the child

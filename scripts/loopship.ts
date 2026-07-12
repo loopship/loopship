@@ -34,6 +34,13 @@ import {
   runLoopshipFastflowWorkflow,
 } from "./loopship_fastflow.ts";
 import { nativeResumeRequest } from "./loopship_resume.ts";
+import {
+  resolveHookRoute,
+  runtimeHookPayload,
+  runtimeHookThreadId,
+  updateHookRoute,
+  updateHookRouteForWorkspace,
+} from "./loopship_hook_state.ts";
 
 export { nativeResumeRequest } from "./loopship_resume.ts";
 
@@ -604,6 +611,71 @@ export async function runHook(argv: string[]): Promise<number> {
     ...(envelopeLike ? raw.metadata : {}),
     ...payload,
   };
+  const runtime = String(
+    args.runtime ?? contextPayload.runtime ?? (envelopeLike ? raw.context?.runtime : null) ?? "codex",
+  );
+  if (runtimeHookPayload(payload)) {
+    const threadId = runtimeHookThreadId(payload);
+    if (!threadId) {
+      process.stdout.write("{}");
+      return 0;
+    }
+    const context = resolveRepoContext({
+      repo: args.repo,
+      payload: contextPayload,
+      cwd: resolveCwd(contextPayload),
+    });
+    const explicitWtree =
+      args.wtree ||
+      String(payload.wtree ?? payload.loopship_wtree ?? "").trim() ||
+      String(process.env.WTREE ?? "").trim() ||
+      String(process.env.LOOPSHIP_WTREE ?? "").trim();
+    const route = resolveHookRoute({
+      repoRoot: context.repoRoot,
+      runtime,
+      threadId,
+      ...(explicitWtree ? { wtree: explicitWtree } : {}),
+    });
+    if (!route) {
+      process.stdout.write("{}");
+      return 0;
+    }
+    const hasResponse = ["response", "answer", "decision", "supervisorDecision"].some(
+      (field) => Object.prototype.hasOwnProperty.call(payload, field),
+    );
+    if (!hasResponse) {
+      process.stdout.write("{}");
+      return 0;
+    }
+    const request = nativeResumeRequest({
+      ...route.fastflow,
+      ...(Object.prototype.hasOwnProperty.call(payload, "response")
+        ? { response: payload.response }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(payload, "answer")
+        ? { answer: payload.answer }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(payload, "decision")
+        ? { decision: payload.decision }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(payload, "supervisorDecision")
+        ? { supervisorDecision: payload.supervisorDecision }
+        : {}),
+    });
+    if (!request) {
+      process.stdout.write("{}");
+      return 0;
+    }
+    const result = await resumeLoopshipFastflowWorkflow({
+      repoRoot: context.repoRoot,
+      workspaceRoot: route.workspace_root,
+      request,
+    });
+    updateHookRoute(route, result);
+    questResponse(result);
+    return 0;
+  }
+
   const request = nativeResumeRequest(payload);
   if (!request) {
     process.stdout.write("{}");
@@ -618,6 +690,13 @@ export async function runHook(argv: string[]): Promise<number> {
     repoRoot: context.repoRoot,
     request,
   });
+  if (typeof request.workspaceRoot === "string" && request.workspaceRoot.trim()) {
+    updateHookRouteForWorkspace({
+      repoRoot: context.repoRoot,
+      workspaceRoot: request.workspaceRoot,
+      result,
+    });
+  }
   questResponse(result);
   return 0;
 }
