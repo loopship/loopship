@@ -18,15 +18,15 @@ function main(): number {
   });
   if (stepper.status !== 0) fail(stepper.stderr || stepper.stdout);
 
-  const removedResume = runCommand("bun", [LOOPSHIP, "resume", "--json", "{}"], {
+  const resume = runCommand("bun", [LOOPSHIP, "resume"], {
     cwd: resolve(SCRIPT_DIR, ".."),
     timeoutMs: 30_000,
   });
-  if (removedResume.status === 0) {
-    fail("loopship resume must be removed from the public command parser");
+  if (resume.status === 0) {
+    fail("loopship resume without --wtree or --json must fail");
   }
-  if (!/Usage:/.test(removedResume.stdout)) {
-    fail(`removed resume command must fall through to usage: ${removedResume.stderr || removedResume.stdout}`);
+  if (!/requires --wtree or --json/.test(resume.stderr)) {
+    fail(`loopship resume must explain its required recovery input: ${resume.stderr || resume.stdout}`);
   }
 
   console.log("loopship native quest contract verification passed");

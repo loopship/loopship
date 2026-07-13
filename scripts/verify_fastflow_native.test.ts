@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -56,7 +57,7 @@ const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
       routeRef,
       {
         client: "handoff",
-        resolverPath: "aitl.chat",
+        resolverPath: routeRef,
         routeRef,
       },
     ]),
@@ -420,6 +421,7 @@ function runLoopshipCli(
   repo: string,
   args: string[],
   input?: Record<string, unknown>,
+  extraEnv: Record<string, string | undefined> = {},
 ): { status: number | null; stdout: string; stderr: string } {
   return runCommand("bun", ["--no-install", LOOPSHIP_SCRIPT, ...args], {
     cwd: repo,
@@ -432,6 +434,7 @@ function runLoopshipCli(
       INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
       LOOPSHIP_GLOBAL_BIN: resolve(repo, "..", "bin", "loopship"),
       LOOPSHIP_SCRIPT: resolve(process.cwd(), "index.ts"),
+      ...extraEnv,
     },
     timeoutMs: 600_000,
     input: input ? JSON.stringify(input) : undefined,
@@ -524,24 +527,6 @@ async function resumeQuestPause(
   return result;
 }
 
-async function completeQuestStage(
-  repo: string,
-  started: Record<string, unknown>,
-  decision?: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const direct = workflowOutput(started);
-  if (direct) return direct;
-  const pause = interactionPause(started);
-  expect(pause, JSON.stringify(started)).not.toBeNull();
-  if (!decision && pause?.kind !== "supervisor_review") {
-    throw new Error(`quest stage pause requires a decision: ${JSON.stringify(started)}`);
-  }
-  const resumed = await resumeQuestPause(repo, pause!, decision ?? {});
-  const output = workflowOutput(resumed);
-  expect(output, JSON.stringify(resumed)).not.toBeNull();
-  return output!;
-}
-
 describe("Loopship Fastflow-native bridge", () => {
   test("requires focused native lifecycle release verification", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -571,7 +556,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.engines.node).toBe(">=26.0.0");
     expect(packageJson.dependencies["@cueintent/fastflow"]).toBe("0.1.0");
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#486afa24fae754cf194caca40900cece1e18ba00",
+      "git+ssh://git@github.com/cueintent/fastflow.git#7da0bce3b43dc7c7be362763573d3f9ff2e3a282",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
@@ -593,30 +578,35 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("vendors the private Fastflow runtime in the release artifact", () => {
-    const proc = runCommand(
-      "npm",
-      ["publish", "--dry-run", "--json", "--ignore-scripts"],
-      { cwd: process.cwd(), timeoutMs: 30_000 },
-    );
-    expect(proc.status, proc.stderr || proc.stdout).toBe(0);
-    const result = JSON.parse(proc.stdout) as Record<string, {
-      files?: Array<{ path?: unknown }>;
-    }>;
-    const artifact = Object.values(result)[0];
-    const files = (artifact?.files || [])
-      .map((entry) => entry.path)
-      .filter((path): path is string => typeof path === "string");
-    const fastflowPrefix = "node_modules/@cueintent/fastflow/";
-    expect(files).toContain("bin/loopship");
-    expect(files).toContain(`${fastflowPrefix}package.json`);
-    expect(files).toContain(`${fastflowPrefix}src/index.mjs`);
-    expect(files).toContain(
-      `${fastflowPrefix}vendor/serverlessworkflow/1.0.3/workflow.json`,
-    );
-    expect(files.some((path) => path.startsWith(`${fastflowPrefix}test/`))).toBe(false);
-    expect(files.some((path) => path.startsWith(`${fastflowPrefix}examples/`))).toBe(false);
-  });
+  test(
+    "vendors the private Fastflow runtime in the release artifact",
+    () => {
+      const proc = runCommand(
+        "npm",
+        ["publish", "--dry-run", "--json", "--ignore-scripts"],
+        { cwd: process.cwd(), timeoutMs: 30_000 },
+      );
+      expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+      const result = JSON.parse(proc.stdout) as Record<
+        string,
+        { files?: Array<{ path?: unknown }> }
+      >;
+      const artifact = Object.values(result)[0];
+      const files = (artifact?.files || [])
+        .map((entry) => entry.path)
+        .filter((path): path is string => typeof path === "string");
+      const fastflowPrefix = "node_modules/@cueintent/fastflow/";
+      expect(files).toContain("bin/loopship");
+      expect(files).toContain(`${fastflowPrefix}package.json`);
+      expect(files).toContain(`${fastflowPrefix}src/index.mjs`);
+      expect(files).toContain(
+        `${fastflowPrefix}vendor/serverlessworkflow/1.0.3/workflow.json`,
+      );
+      expect(files.some((path) => path.startsWith(`${fastflowPrefix}test/`))).toBe(false);
+      expect(files.some((path) => path.startsWith(`${fastflowPrefix}examples/`))).toBe(false);
+    },
+    { timeout: 30_000 },
+  );
 
   test("keeps cmdproto response schemas aligned with native Fastflow results", () => {
     expect(
@@ -899,15 +889,15 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
-  test("stepper prefers submitted verification handoff answers over nextCall templates", () => {
+  test("stepper prefers submitted HITL handoff answers over nextCall templates", () => {
     expect(
       nativeStepperResumeRequest({
         schemaVersion: "fastflow/interaction-response/v1",
         kind: "handoff_answer",
         context: {
           request: {
-            reason: "aitl.chat",
-            stepId: "stage_verification_pending",
+            reason: "hitl.review",
+            stepId: "stage_questions_pending",
           },
         },
         nextCall: {
@@ -1004,6 +994,22 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(emptyRepo.status).toBe(1);
       expect(emptyRepo.stderr).toContain("--repo requires a value");
 
+      const unknownResume = runLoopshipCli(fixture.repo, ["resume", "--fex"]);
+      expect(unknownResume.status).toBe(1);
+      expect(unknownResume.stderr).toContain("unknown resume argument: --fex");
+
+      const ambiguousResume = runLoopshipCli(fixture.repo, [
+        "resume",
+        "--wtree",
+        "task",
+        "--json",
+        "{}",
+      ]);
+      expect(ambiguousResume.status).toBe(1);
+      expect(ambiguousResume.stderr).toContain(
+        "loopship resume accepts either --wtree or --json, not both",
+      );
+
       const strayStepper = runLoopshipCli(fixture.repo, [
         "stepper",
         "step",
@@ -1050,6 +1056,100 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test("init refuses an already initialized quest worktree with resume guidance", () => {
+    const fixture = createGitFixture("loopship-native-init-resume-guard-");
+    try {
+      createNativeQuest(fixture.repo, "resume-guard");
+      const proc = runLoopshipCli(fixture.repo, [
+        "init",
+        "loopship: continue existing work",
+        "--repo",
+        fixture.repo,
+        "--wtree",
+        "resume-guard",
+        "--runtime",
+        "codex",
+      ]);
+      expect(proc.status).not.toBe(0);
+      expect(proc.stderr).toContain("loopship init refused");
+      expect(proc.stderr).toContain("already initialized");
+      expect(proc.stderr).toContain(
+        `loopship resume --repo ${fixture.repo} --wtree resume-guard`,
+      );
+      expect(proc.stderr).toContain("nextCall.args");
+      expect(proc.stderr).toContain("sessionId, nonce, and workspaceRoot");
+      expect(proc.stderr).toContain("fastflow workflows resume <sessionId>");
+      expect(proc.stderr).toContain("--response-json @-");
+      expect(proc.stderr).toContain("loopship hook --repo");
+      expect(proc.stderr).toContain("loopship stepper step --repo");
+      expect(proc.stderr).toContain("pause-response-with-answer.json");
+      expect(proc.stderr).toContain("pause-response-with-decision.json");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("resume re-enters an interrupted quest from canonical worktree state", () => {
+    const fixture = createGitFixture("loopship-native-resume-canonical-");
+    try {
+      createNativeQuest(fixture.repo, "resume-canonical");
+      const shimDir = join(fixture.root, "bin");
+      const failedOnce = join(fixture.root, "failed-once");
+      const observedCwd = join(fixture.root, "observed-cwd");
+      const nodePath = runCommand("node", ["-p", "process.execPath"], {
+        timeoutMs: 15_000,
+      }).stdout.trim();
+      expect(nodePath).toBeTruthy();
+      mkdirSync(shimDir, { recursive: true });
+      writeFileSync(
+        join(shimDir, "node"),
+        [
+          "#!/bin/sh",
+          `if [ ! -e ${JSON.stringify(failedOnce)} ]; then`,
+          `  : > ${JSON.stringify(failedOnce)}`,
+          "  exit 73",
+          "fi",
+          `pwd > ${JSON.stringify(observedCwd)}`,
+          `exec ${JSON.stringify(nodePath)} \"$@\"`,
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      chmodSync(join(shimDir, "node"), 0o755);
+      const proc = runLoopshipCli(fixture.repo, [
+        "resume",
+        "--repo",
+        fixture.repo,
+        "--wtree",
+        "resume-canonical",
+      ], undefined, {
+        PATH: `${shimDir}:${process.env.PATH ?? ""}`,
+      });
+      expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+      expect(existsSync(failedOnce)).toBe(true);
+      expect(readFileSync(observedCwd, "utf8").trim()).toBe(
+        join(fixture.repo, "worktrees", "resume-canonical"),
+      );
+      const result = parseJsonObject(proc.stdout, "resume result");
+      expect(interactionPause(result), JSON.stringify(result)).not.toBeNull();
+      const tasks = parseTasksYaml(
+        readFileSync(
+          join(
+            fixture.repo,
+            "worktrees",
+            "resume-canonical",
+            ".loopship",
+            "runtime",
+            "tasks.yaml",
+          ),
+          "utf8",
+        ),
+      );
+      expect(tasks.stage).toBe("initial");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }, 60_000);
   test(
     "records the actual coordinator branch when source branch differs",
     async () => {
@@ -1091,7 +1191,6 @@ describe("Loopship Fastflow-native bridge", () => {
       "currentQuestions",
       "derive_transition",
       "statePatchForPayload",
-      "loopship resume",
       "swe",
       "plan",
       "questions",
@@ -1166,6 +1265,16 @@ describe("Loopship Fastflow-native bridge", () => {
 
     expect(appendIndex).toBeGreaterThan(0);
     expect(cleanupIndex).toBeGreaterThan(appendIndex);
+    expect(flowText).toContain("then: continue_or_stop");
+    expect(flowText).toContain("- persist_stage:\n      then: append_stage_event");
+    expect(flowText).toContain("- continue_or_stop:");
+    expect(flowText).toContain("then: stage_failure_repair_handoff");
+    expect(flowText).toContain("inference: loopship_failure_repair");
+    expect(flowText).toContain("const: aitl.subagent");
+    expect(flowText).toContain("then: select_stage_result");
+    expect(flowText).toContain("- select_stage_result:");
+    expect(flowText).toContain("state.steps.select_stage_result?.action");
+    expect(flowText).toContain("then: read_tasks");
     expect(flowText).toContain("then: cleanup_landed_worktrees");
     expect(flowText).toContain("if: \"${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}\"");
     expect(flowText).toContain("call: loopship.afn.service.landing.cleanup-landed-worktrees");
@@ -1356,14 +1465,14 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(text).toContain("then: stage_leaf_git_head");
     expect(text).toContain("- stage_leaf_target_git_head:");
     expect(text).toContain("then: stage_leaf_execution_route");
-    expect(text).toContain("- stage_leaf_subagent_implementation:");
+    expect(text).toContain("- stage_leaf_native_implementation:");
     expect(text).toContain("inference: loopship_child_implementation");
-    expect(text).toContain("- stage_leaf_git_head_after_subagent:");
-    expect(text).toContain("- stage_leaf_target_git_head_after_subagent:");
+    expect(text).toContain("- stage_leaf_git_head_after_native:");
+    expect(text).toContain("- stage_leaf_target_git_head_after_native:");
     expect(text).toContain("call: loopship.afn.service.git.resolve-commit");
     expect(text).toContain("leaf_execution_recorded");
-    expect(text).toContain("actionCommit(\"stage_leaf_git_head_after_subagent\") || actionCommit(\"stage_leaf_git_head\")");
-    expect(text).toContain("actionCommit(\"stage_leaf_target_git_head_after_subagent\") || actionCommit(\"stage_leaf_target_git_head\")");
+    expect(text).toContain("actionCommit(\"stage_leaf_git_head_after_native\") || actionCommit(\"stage_leaf_git_head\")");
+    expect(text).toContain("actionCommit(\"stage_leaf_target_git_head_after_native\") || actionCommit(\"stage_leaf_target_git_head\")");
     expect(text).toContain("stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action");
   });
 
@@ -1483,8 +1592,8 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("native Fastflow decision");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("terminal child quests");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("run emitted child commands for real");
-    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("aitl.subagent fallback");
-    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("subagent receipts");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("configured native CLI routes with AITL fallback");
+    expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("implementation receipts");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("canonical Loopship runtime");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain("safe clarification prompts");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).toContain(
@@ -1577,7 +1686,6 @@ describe("Loopship Fastflow-native bridge", () => {
     const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
     const expected = new Map([
       ["plan", ["loopship_planning", "llm.cli.codex.gpt-5.5.max"]],
-      ["questions", ["loopship_planning", "llm.cli.codex.gpt-5.5.max"]],
       ["task-graph", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
       ["child-result", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
       ["validation", ["loopship_review", "llm.cli.codex.gpt-5.3-codex-spark.max"]],
@@ -1591,7 +1699,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const metadata = document.metadata as Record<string, any>;
       const group = metadata?.inference?.groups?.[groupName];
       expect(group, name).toBeTruthy();
-      expect(group.try, name).toEqual(expect.arrayContaining([routeRef, "aitl.chat", "hitl.review"]));
+      expect(group.try, name).toEqual([routeRef, "aitl.chat"]);
       let stepUsesGroup = false;
       walk(workflow, (value) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
@@ -1600,6 +1708,23 @@ describe("Loopship Fastflow-native bridge", () => {
       });
       expect(stepUsesGroup, name).toBe(true);
     }
+
+    const questions = loadYamlWorkflow(join(stepRoot, "questions.stable.yaml"));
+    const questionGroup = (questions.document as Record<string, any>).metadata?.inference?.groups?.loopship_planning;
+    expect(questionGroup?.try, "questions").toEqual(["hitl.review"]);
+    let questionsUseGroup = false;
+    walk(questions, (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      const metadata = (value as Record<string, any>).metadata;
+      if (metadata?.inference === "loopship_planning") questionsUseGroup = true;
+    });
+    expect(questionsUseGroup, "questions").toBe(true);
+
+    const validationText = readFileSync(join(stepRoot, "validation.stable.yaml"), "utf8");
+    expect(validationText).toContain("Set top-level `status` to `failed` only when task acceptance");
+    expect(validationText).toContain("environment constraints unrelated to");
+    expect(validationText).toContain("do not require the implementation");
+    expect(validationText).toContain("the landing step owns merge ancestry");
 
     const archivedPath = join(stepRoot, "archived.stable.yaml");
     const archivedText = readFileSync(archivedPath, "utf8");
@@ -1622,7 +1747,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(archivedUsesScript).toBe(true);
   });
 
-  test("routes terminal-child missing implementation commits through aitl.subagent", () => {
+  test("routes terminal-child missing implementation commits through native Codex CLI with AITL fallback", () => {
     const workflow = loadYamlWorkflow(
       join(
         process.cwd(),
@@ -1636,19 +1761,24 @@ describe("Loopship Fastflow-native bridge", () => {
     );
     const document = workflow.document as Record<string, any>;
     const group = document.metadata?.inference?.groups?.loopship_child_implementation;
-    expect(group?.try).toEqual(["aitl.subagent", "hitl.review"]);
+    expect(group?.try).toEqual(["llm.cli.codex.gpt-5.4-mini.max", "aitl.subagent"]);
 
     const route = workflowTaskDefinition(workflow, "stage_leaf_execution_route") as any;
-    expect(route.switch?.[0]?.implementation_missing?.then).toBe("stage_leaf_subagent_implementation");
+    expect(route.switch?.[0]?.implementation_missing?.then).toBe("stage_leaf_native_implementation");
     expect(route.switch?.[1]?.local_commit_present?.then).toBe("stage_result_leaf_executing");
 
-    const fallback = workflowTaskDefinition(workflow, "stage_leaf_subagent_implementation") as any;
-    expect(fallback.metadata?.inference).toBe("loopship_child_implementation");
-    expect(fallback.call).toBe("fastflow.afn.core.request.input");
-    expect(fallback.with.body.answer.schema.properties.subagent_receipt.properties.resolver.const).toBe(
-      "aitl.subagent",
+    const implementation = workflowTaskDefinition(workflow, "stage_leaf_native_implementation") as any;
+    expect(implementation.metadata?.inference).toBe("loopship_child_implementation");
+    expect(implementation.metadata?.validation?.post?.kind).toBe("js");
+    expect(implementation.metadata?.validation?.post?.expression).toContain("implementation_receipt");
+    expect(implementation.metadata?.validation?.post?.expression).not.toContain("ok: true");
+    expect(implementation.call).toBe("fastflow.afn.core.request.input");
+    expect(implementation.with.body.timeout_ms).toBe(1200000);
+    expect(implementation.with.body.instruction).toContain("uncommitted implementation changes");
+    expect(implementation.with.body.answer.schema.properties.implementation_receipt.properties.resolver.enum).toEqual(
+      ["llm.cli.codex.gpt-5.4-mini.max", "aitl.subagent"],
     );
-    expect(fallback.with.body.answer.schema.properties.subagent_receipt.required).toEqual(
+    expect(implementation.with.body.answer.schema.properties.implementation_receipt.required).toEqual(
       expect.arrayContaining([
         "agent_id",
         "worktree_path",
@@ -2412,7 +2542,7 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
-  test("terminal child subagent fallback records receipt with fresh local commit", () => {
+  test("terminal child implementation records receipt with fresh local commit", () => {
     const workflow = loadYamlWorkflow(
       join(
         process.cwd(),
@@ -2425,9 +2555,9 @@ describe("Loopship Fastflow-native bridge", () => {
       ),
     );
     const task = workflowTaskDefinition(workflow, "stage_result_leaf_executing");
-    const subagentReceipt = {
-      resolver: "aitl.subagent",
-      agent_id: "rawl",
+    const implementationReceipt = {
+      resolver: "llm.cli.codex.gpt-5.4-mini.max",
+      agent_id: "codex",
       thread_id: "thread-123",
       worktree_path: "/tmp/repo/worktrees/child-terminal",
       branch_ref: "codex/child-terminal",
@@ -2466,19 +2596,19 @@ describe("Loopship Fastflow-native bridge", () => {
             commit: "parent123",
           },
         },
-        stage_leaf_subagent_implementation: {
+        stage_leaf_native_implementation: {
           action: {
             answer: {
-              subagent_receipt: subagentReceipt,
+              implementation_receipt: implementationReceipt,
             },
           },
         },
-        stage_leaf_git_head_after_subagent: {
+        stage_leaf_git_head_after_native: {
           action: {
             commit: "abc123",
           },
         },
-        stage_leaf_target_git_head_after_subagent: {
+        stage_leaf_target_git_head_after_native: {
           action: {
             commit: "parent123",
           },
@@ -2489,12 +2619,12 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(result.stage_after).toBe("validating");
     expect(result.events[0]).toMatchObject({
       event: "leaf_execution_recorded",
-      subagent_receipt: true,
+      implementation_receipt: true,
     });
     expect(result.state_patch.local_work_receipt).toMatchObject({
       commit: "abc123",
       target_commit: "parent123",
-      subagent_receipt: subagentReceipt,
+      implementation_receipt: implementationReceipt,
     });
   });
 
@@ -2700,181 +2830,251 @@ describe("Loopship Fastflow-native bridge", () => {
   test(
     "terminal child quests complete local execution without emitting child init commands",
     async () => {
-    const fixture = createGitFixture("loopship-terminal-child-lifecycle-");
-    try {
-      ensureSystemScaffold(fixture.repo);
-      runGit(fixture.repo, ["add", ".loopship"]);
-      runGit(fixture.repo, ["commit", "-m", "scaffold"]);
-      const parentWorkspace = ensureCoordinatorWorkspace(fixture.repo, "parent");
-      const prompt =
-        "loopship: execute child task timer-ui: implement the timer UI and local persistence.";
-      const childWtree = "child-terminal";
-      const extraArgs = [
-        "--parent-wtree",
-        "parent",
-        "--parent-task-id",
-        "timer-ui",
-        "--parent-context-ref",
-        join(parentWorkspace.worktree_path, ".loopship", "runtime", "tasks.yaml"),
-        "--target-branch",
-        "parent",
-        "--target-worktree",
-        parentWorkspace.worktree_path,
-      ];
+      const fixture = createGitFixture("loopship-terminal-child-lifecycle-");
+      try {
+        ensureSystemScaffold(fixture.repo);
+        runGit(fixture.repo, ["add", ".loopship"]);
+        runGit(fixture.repo, ["commit", "-m", "scaffold"]);
+        const parentWorkspace = ensureCoordinatorWorkspace(fixture.repo, "parent");
+        const prompt =
+          "loopship: execute child task timer-ui: implement the timer UI and local persistence.";
+        const childWtree = "child-terminal";
+        const extraArgs = [
+          "--parent-wtree",
+          "parent",
+          "--parent-task-id",
+          "timer-ui",
+          "--parent-context-ref",
+          join(parentWorkspace.worktree_path, ".loopship", "runtime", "tasks.yaml"),
+          "--target-branch",
+          "parent",
+          "--target-worktree",
+          parentWorkspace.worktree_path,
+        ];
 
-      const planOutput = await completeQuestStage(
-        fixture.repo,
-        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
-        {
-          classification: "feature",
-          scope: "Implement the assigned timer UI locally in the current child worktree.",
-          summary: "Finish the assigned child task locally and land it back into the parent worktree.",
-          assumptions: [],
-          constraints: ["Do not create child worktrees."],
-          system_context: {
-            relevant_object_refs: [],
-            relevant_assertion_refs: [],
-            relevant_resource_refs: [],
-            relevant_memory_refs: [],
-            durable_implications: [],
+        const planReview = await startQuestStage(
+          fixture.repo,
+          prompt,
+          childWtree,
+          extraArgs,
+        );
+        expect(workflowOutput(planReview)).toBeNull();
+        expect(interactionPause(planReview), JSON.stringify(planReview)).not.toBeNull();
+
+        let childState = parseTasksYaml(
+          readFileSync(
+            join(
+              fixture.repo,
+              "worktrees",
+              childWtree,
+              ".loopship",
+              "runtime",
+              "tasks.yaml",
+            ),
+            "utf8",
+          ),
+        );
+        expect(childState.parent_wtree).toBe("parent");
+        expect(childState.parent_task_id).toBe("timer-ui");
+        expect(childState.stage).toBe("plan_review");
+        expect(childState.tasks?.[0]).toMatchObject({
+          id: "timer-ui",
+          child_wtree: "",
+        });
+        expect(JSON.stringify(planReview)).not.toContain("loopship.child.prepare/v1");
+        expect(JSON.stringify(planReview)).not.toContain("prepared_children");
+
+        const implementationStarted = await resumeQuestPause(
+          fixture.repo,
+          interactionPause(planReview)!,
+          { approved: true },
+        );
+        expect(workflowOutput(implementationStarted)).toBeNull();
+        expect(
+          interactionPause(implementationStarted),
+          JSON.stringify(implementationStarted),
+        ).not.toBeNull();
+        expect(JSON.stringify(implementationStarted)).toContain("implementation_receipt");
+
+        childState = parseTasksYaml(
+          readFileSync(
+            join(
+              fixture.repo,
+              "worktrees",
+              childWtree,
+              ".loopship",
+              "runtime",
+              "tasks.yaml",
+            ),
+            "utf8",
+          ),
+        );
+        const childWorktree = String(childState.coordinator_worktree || "");
+        writeFileSync(join(childWorktree, "CHILD.md"), "# terminal child\n", "utf8");
+        runGit(childWorktree, ["add", "CHILD.md"]);
+        runGit(childWorktree, ["commit", "-m", "terminal child work"]);
+        const implementationCommit = runGit(childWorktree, ["rev-parse", "HEAD"]);
+
+        const validationStarted = await resumeQuestPause(
+          fixture.repo,
+          interactionPause(implementationStarted)!,
+          {
+            implementation_receipt: {
+              resolver: "aitl.subagent",
+              agent_id: "loopship-test-agent",
+              session_id: "loopship-test-session",
+              worktree_path: childWorktree,
+              branch_ref: childWtree,
+              commits: [implementationCommit],
+              checks: [{ name: "terminal-child-smoke", status: "passed" }],
+              artifacts: [{ type: "commit", ref: implementationCommit }],
+            },
           },
-          verification_targets: ["Timer UI files are updated and committed in the current child worktree."],
-          task_graph: {
-            tasks: [
+        );
+        expect(workflowOutput(validationStarted)).toBeNull();
+        expect(
+          interactionPause(validationStarted),
+          JSON.stringify(validationStarted),
+        ).not.toBeNull();
+        expect(JSON.stringify(validationStarted)).toContain("Loopship Validation Step");
+        childState = parseTasksYaml(
+          readFileSync(
+            join(
+              fixture.repo,
+              "worktrees",
+              childWtree,
+              ".loopship",
+              "runtime",
+              "tasks.yaml",
+            ),
+            "utf8",
+          ),
+        );
+        expect(childState.stage).toBe("validating");
+        expect(childState.local_work_receipt).toMatchObject({
+          mode: "shared-head-commit",
+          covered_task_ids: ["timer-ui"],
+        });
+        expect(JSON.stringify(validationStarted)).not.toContain("loopship.child.prepare/v1");
+        expect(JSON.stringify(validationStarted)).not.toContain("prepared_children");
+
+        const verificationStarted = await resumeQuestPause(
+          fixture.repo,
+          interactionPause(validationStarted)!,
+          {
+            status: "passed",
+            checks: [{ name: "terminal-child-smoke", status: "passed" }],
+          },
+        );
+        expect(workflowOutput(verificationStarted)).toBeNull();
+        expect(
+          interactionPause(verificationStarted),
+          JSON.stringify(verificationStarted),
+        ).not.toBeNull();
+        expect(JSON.stringify(verificationStarted)).toContain("Loopship Verification Step");
+        childState = parseTasksYaml(
+          readFileSync(
+            join(
+              fixture.repo,
+              "worktrees",
+              childWtree,
+              ".loopship",
+              "runtime",
+              "tasks.yaml",
+            ),
+            "utf8",
+          ),
+        );
+        expect(childState.stage).toBe("verification_pending");
+        expect(childState.validation_receipt).toMatchObject({ status: "passed" });
+        const taskAcceptance = String(childState.tasks?.[0]?.acceptance || "");
+        expect(taskAcceptance).toBeTruthy();
+
+        const systemUpdateStarted = await resumeQuestPause(
+          fixture.repo,
+          interactionPause(verificationStarted)!,
+          {
+            status: "passed",
+            acceptance_trace: [
               {
-                id: "implement-timer-ui",
-                title: "Implement the timer UI locally",
-                acceptance: [
-                  "Timer UI files are updated and committed in the current child worktree.",
-                ],
+                acceptance: taskAcceptance,
+                status: "passed",
               },
             ],
+            risks: [],
           },
-        },
-      );
-      expect(planOutput.step).toBe("plan");
-      expect(planOutput.step_workflow_task).toBe("stage_planning_terminal_child");
-      expect(planOutput.stage_after).toBe("plan_review");
+        );
+        expect(workflowOutput(systemUpdateStarted)).toBeNull();
+        const systemUpdatePause = interactionPause(systemUpdateStarted);
+        expect(systemUpdatePause, JSON.stringify(systemUpdateStarted)).not.toBeNull();
+        expect(JSON.stringify(systemUpdateStarted)).toContain("system_update");
+        childState = parseTasksYaml(
+          readFileSync(
+            join(
+              fixture.repo,
+              "worktrees",
+              childWtree,
+              ".loopship",
+              "runtime",
+              "tasks.yaml",
+            ),
+            "utf8",
+          ),
+        );
+        expect(childState.stage).toBe("system_update_pending");
+        expect(childState.verification_receipt).toMatchObject({ status: "passed" });
 
-      let childState = parseTasksYaml(
-        readFileSync(
-          join(fixture.repo, "worktrees", childWtree, ".loopship", "runtime", "tasks.yaml"),
-          "utf8",
-        ),
-      );
-      expect(childState.parent_wtree).toBe("parent");
-      expect(childState.parent_task_id).toBe("timer-ui");
-      expect(childState.tasks?.[0]).toMatchObject({
-        id: "timer-ui",
-        child_wtree: "",
-      });
-
-      const approved = await completeQuestStage(
-        fixture.repo,
-        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
-        { approved: true },
-      );
-      expect(approved.step).toBe("task_graph");
-      expect(approved.stage_after).toBe("executing");
-
-      childState = parseTasksYaml(
-        readFileSync(
-          join(fixture.repo, "worktrees", childWtree, ".loopship", "runtime", "tasks.yaml"),
-          "utf8",
-        ),
-      );
-      const childWorktree = String(childState.coordinator_worktree || "");
-      writeFileSync(join(childWorktree, "CHILD.md"), "# terminal child\n", "utf8");
-      runGit(childWorktree, ["add", "CHILD.md"]);
-      runGit(childWorktree, ["commit", "-m", "terminal child work"]);
-
-      const executing = await completeQuestStage(
-        fixture.repo,
-        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
-      );
-      expect(executing.step).toBe("executing");
-      expect(executing.stage_after).toBe("validating");
-      expect(JSON.stringify(executing)).not.toContain("loopship.child.prepare/v1");
-      expect(JSON.stringify(executing)).not.toContain("prepared_children");
-
-      const validated = await completeQuestStage(
-        fixture.repo,
-        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
-        {
-          status: "passed",
-          checks: [{ name: "terminal-child-smoke", status: "passed" }],
-        },
-      );
-      expect(validated.step).toBe("validation");
-      expect(validated.stage_after).toBe("verification_pending");
-
-      const verified = await completeQuestStage(
-        fixture.repo,
-        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
-        {
-          status: "passed",
-          acceptance_trace: [
-            {
-              acceptance: "Timer UI files are updated and committed in the current child worktree.",
-              status: "passed",
+        const systemRootPath = join(childWorktree, ".loopship", "system.yaml");
+        const systemRoot = parseYaml(readFileSync(systemRootPath, "utf8")) as Record<
+          string,
+          unknown
+        >;
+        const updatedTitle = "Terminal Child System Update";
+        systemRoot.title = updatedTitle;
+        const completed = await resumeQuestPause(
+          fixture.repo,
+          systemUpdatePause!,
+          {
+            system_update: {
+              schema_version: 1,
+              mode: "replace",
+              summary:
+                "Refresh the canonical Loopship root after the verified terminal child work.",
+              root: systemRoot,
+              external_docs: [],
             },
-          ],
-          risks: [],
-        },
-      );
-      expect(verified.step).toBe("verification");
-      expect(verified.stage_after).toBe("system_update_pending");
-
-      const systemRootPath = join(childWorktree, ".loopship", "system.yaml");
-      const systemRoot = parseYaml(readFileSync(systemRootPath, "utf8")) as Record<string, unknown>;
-      const updatedTitle = "Terminal Child System Update";
-      systemRoot.title = updatedTitle;
-      const systemUpdateStarted = await startQuestStage(fixture.repo, prompt, childWtree, extraArgs);
-      expect(workflowOutput(systemUpdateStarted)).toBeNull();
-      const systemUpdatePause = interactionPause(systemUpdateStarted);
-      expect(systemUpdatePause, JSON.stringify(systemUpdateStarted)).not.toBeNull();
-      const updated = await completeQuestStage(
-        fixture.repo,
-        systemUpdateStarted,
-        {
-          system_update: {
-            schema_version: 1,
-            mode: "replace",
-            summary: "Refresh the canonical Loopship root after the verified terminal child work.",
-            root: systemRoot,
-            external_docs: [],
           },
-        },
-      );
-      expect(updated.step).toBe("system_update");
-      expect(updated.stage_after).toBe("landing_ready");
-      expect(readFileSync(systemRootPath, "utf8")).toContain(updatedTitle);
+        );
+        const landed = workflowOutput(completed);
+        expect(landed, JSON.stringify(completed)).not.toBeNull();
+        expect(landed?.step).toBe("landing");
+        expect(landed?.stage_after).toBe("archived");
 
-      const landed = await completeQuestStage(
-        fixture.repo,
-        await startQuestStage(fixture.repo, prompt, childWtree, extraArgs),
-      );
-      expect(landed.step).toBe("landing");
-      expect(landed.stage_after).toBe("archived");
-
-      expect(readFileSync(join(parentWorkspace.worktree_path, "CHILD.md"), "utf8")).toContain(
-        "terminal child",
-      );
-      expect(
-        readFileSync(join(parentWorkspace.worktree_path, ".loopship", "system.yaml"), "utf8"),
-      ).toContain(updatedTitle);
-      expect(landed.state_patch).toMatchObject({
-        stage: "archived",
-      });
-      expect(String((landed.state_patch as Record<string, unknown>)?.landed_commit || "")).toMatch(/^[0-9a-f]{40}$/);
-      expect((landed.runtime as Record<string, any>)?.tasks?.local_work_receipt).toMatchObject({
-        mode: "shared-head-commit",
-        covered_task_ids: ["timer-ui"],
-      });
-      expect(existsSync(join(fixture.repo, "worktrees", childWtree))).toBe(false);
-    } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
-    }
+        expect(
+          readFileSync(join(parentWorkspace.worktree_path, "CHILD.md"), "utf8"),
+        ).toContain("terminal child");
+        expect(
+          readFileSync(
+            join(parentWorkspace.worktree_path, ".loopship", "system.yaml"),
+            "utf8",
+          ),
+        ).toContain(updatedTitle);
+        expect(landed?.state_patch).toMatchObject({
+          stage: "archived",
+        });
+        expect(
+          String((landed?.state_patch as Record<string, unknown>)?.landed_commit || ""),
+        ).toMatch(/^[0-9a-f]{40}$/);
+        expect((landed?.runtime as Record<string, any>)?.tasks?.local_work_receipt).toMatchObject(
+          {
+            mode: "shared-head-commit",
+            covered_task_ids: ["timer-ui"],
+          },
+        );
+        expect(existsSync(join(fixture.repo, "worktrees", childWtree))).toBe(false);
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
     },
     { timeout: 600_000 },
   );

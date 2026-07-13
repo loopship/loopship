@@ -59,7 +59,7 @@ export const LOOPSHIP_SUPERVISOR_GUIDANCE = Object.freeze({
   id: "loopship-supervisor",
   version: PACKAGE_JSON.version || "0.0.0",
   summary:
-    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; run emitted child commands for real when the flow delegates work; route terminal-child implementation gaps through the workflow-owned aitl.subagent fallback with subagent receipts instead of supervisor inline edits; and require canonical Loopship runtime, worktree, task, validation, verification, explicit system_update, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor; when upfront scoping misses material clarification, reject or re-run scoping instead of inventing replacement planner clarification payloads. Improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
+    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; run emitted child commands for real when the flow delegates work; route terminal-child implementation gaps through configured native CLI routes with AITL fallback implementation receipts instead of supervisor inline edits; and require canonical Loopship runtime, worktree, task, validation, verification, explicit system_update, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor; when upfront scoping misses material clarification, reject or re-run scoping instead of inventing replacement planner clarification payloads. Improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
   ref: "README.md#mocked-runtime-lifecycle-stepping",
 });
 
@@ -430,12 +430,20 @@ const DESCRIPTOR_BY_CALL = new Map(
   LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => [descriptor.call, descriptor]),
 );
 
+const LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS = 3_600_000;
+
 export type LoopshipFastflowRunInput = {
   repoRoot: string;
   workspaceRoot?: string;
   flowId?: string | null;
   inputs?: Record<string, unknown>;
   superviseStep?: boolean;
+  progressMode?: string;
+};
+
+export type LoopshipFastflowRecoverInput = {
+  repoRoot: string;
+  wtree: string;
   progressMode?: string;
 };
 
@@ -849,8 +857,8 @@ function runFastflowNodeSession(input: {
   );
   try {
     const proc = runCommand("node", [scriptPath, requestPath], {
-      cwd: LOOPSHIP_ROOT,
-      timeoutMs: 900_000,
+      cwd: workspaceRoot,
+      timeoutMs: LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS,
     });
     if (proc.status !== 0) {
       throw new Error(proc.stderr || proc.stdout || "Fastflow session command failed");
@@ -930,15 +938,74 @@ export async function runLoopshipFastflowWorkflow(
   input: LoopshipFastflowRunInput,
 ): Promise<Record<string, unknown>> {
   const flowId = resolveLoopshipFlowId(input.flowId);
-  return runLoopshipFastflowWorkflowRequest({
+  const prepared = resolveRunWorkspace({
+    ...input,
+    flowId,
+  });
+  const request = {
+    workflowRef: loopshipFlowWorkflowRef(flowId),
+    inputs: prepared.inputs,
+    ...(input.superviseStep ? { superviseStep: true } : {}),
+    ...(input.progressMode ? { progressMode: input.progressMode } : {}),
+  };
+  const run = () => runLoopshipFastflowWorkflowRequest({
     repoRoot: input.repoRoot,
-    workspaceRoot: input.workspaceRoot,
-    request: {
-      workflowRef: loopshipFlowWorkflowRef(flowId),
-      inputs: input.inputs || {},
-      ...(input.superviseStep ? { superviseStep: true } : {}),
-      ...(input.progressMode ? { progressMode: input.progressMode } : {}),
+    workspaceRoot: prepared.workspaceRoot,
+    request,
+  });
+  try {
+    return await run();
+  } catch (firstError) {
+    const tasksPath = resolve(
+      prepared.workspaceRoot,
+      LOOPSHIP_RUNTIME_NAMESPACE,
+      "tasks.yaml",
+    );
+    if (!existsSync(tasksPath)) throw firstError;
+    try {
+      return await run();
+    } catch (secondError) {
+      const detail = secondError instanceof Error ? secondError.message : String(secondError);
+      throw new Error(
+        `Fastflow session failed after one automatic restart from canonical quest state at ${tasksPath}: ${detail}`,
+        { cause: secondError },
+      );
+    }
+  }
+}
+
+export async function recoverLoopshipFastflowWorkflow(
+  input: LoopshipFastflowRecoverInput,
+): Promise<Record<string, unknown>> {
+  const repoRoot = resolve(input.repoRoot);
+  const worktreesRoot = resolve(repoRoot, "worktrees");
+  const workspaceRoot = resolve(worktreesRoot, requireString(input.wtree, "wtree"));
+  if (dirname(workspaceRoot) !== worktreesRoot) {
+    throw new Error("wtree must name a direct child of the repo worktrees directory");
+  }
+  const tasksPath = resolve(workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE, "tasks.yaml");
+  if (!existsSync(tasksPath)) {
+    throw new Error(`missing canonical Loopship quest state: ${tasksPath}`);
+  }
+  const state = parseYaml(readFileSync(tasksPath, "utf8"));
+  if (!isPlainObject(state)) {
+    throw new Error(`canonical Loopship quest state must be an object: ${tasksPath}`);
+  }
+  const wtree = requireString(state.wtree, "tasks.wtree");
+  if (wtree !== input.wtree) {
+    throw new Error(`canonical quest wtree '${wtree}' does not match requested wtree '${input.wtree}'`);
+  }
+  return runLoopshipFastflowWorkflow({
+    repoRoot,
+    workspaceRoot,
+    flowId: requireString(state.flow_id, "tasks.flow_id"),
+    inputs: {
+      repoRoot,
+      wtree,
+      ...(optionalString(state.runtime) ? { runtime: optionalString(state.runtime) } : {}),
     },
+    superviseStep: state.supervise_step === true,
+    progressMode: input.progressMode || "compact",
   });
 }
 

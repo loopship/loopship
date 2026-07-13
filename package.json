@@ -74,6 +74,6 @@
     "@cueintent/fastflow"
   ],
   "resolutions": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#486afa24fae754cf194caca40900cece1e18ba00"
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#7da0bce3b43dc7c7be362763573d3f9ff2e3a282"
   }
 }

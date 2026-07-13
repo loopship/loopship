@@ -213,9 +213,15 @@ interfaces:
   quest-commands:
     kind: cli
     text: |-
-      loopship init starts a quest and returns route output. After init, the route or hook
-      response emits the hidden continuation command that carries schema-backed step JSON.
-      Public quest identity is wtree, the base worktree name.
+      loopship init starts a new quest and refuses an already initialized worktree. Inline
+      lifecycle stages continue within the same Fastflow run and restart once automatically
+      from canonical state after a process failure. loopship resume --wtree recovers an
+      interrupted wrapper process, while loopship resume --json consumes the session, nonce,
+      workspace root, and response emitted by a Fastflow handoff. Public quest identity is
+      wtree, the base worktree name. Fastflow and configured CLI-agent subprocesses run with
+      that canonical quest worktree as their current working directory. Question rounds use
+      hitl.review handoffs; failed validation or verification transitions use aitl.subagent
+      repair handoffs before canonical inline continuation.
   hook-command:
     kind: cli
     text: |-

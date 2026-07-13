@@ -317,6 +317,11 @@ function assertStepPromptLifecycleCoherency(): void {
   assertContains(landing, "target_branch", "landing step workflow");
   assertContains(landing, "target_worktree", "landing step workflow");
   assertContains(landing, "source_branch", "landing step workflow");
+
+  const verification = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "verification.stable.yaml"));
+  assertContains(verification, "Trace only acceptance criteria declared by the active plan or task rows", "verification step workflow");
+  assertContains(verification, "do not invent a new global-gates acceptance criterion", "verification step workflow");
+  assertContains(verification, "validation receipt has top-level `status: passed`", "verification step workflow");
 }
 
 function assertSweFlowLifecycleGuards(): void {
@@ -342,7 +347,18 @@ function assertSweFlowLifecycleGuards(): void {
     "landed_commit",
     "landing_strategy",
     "- append_stage_event:",
+    "- persist_stage:\n      then: append_stage_event",
+    "then: continue_or_stop",
+    "- continue_or_stop:",
+    "then: select_stage_result",
+    "- select_stage_result:",
+    "state.steps.select_stage_result?.action",
+    "then: read_tasks",
     "then: cleanup_landed_worktrees",
+    "then: stage_failure_repair_handoff",
+    "- stage_failure_repair_handoff:",
+    "inference: loopship_failure_repair",
+    "const: aitl.subagent",
     "- cleanup_landed_worktrees:",
     "if: \"${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}\"",
     "call: loopship.afn.service.landing.cleanup-landed-worktrees",
@@ -353,6 +369,12 @@ function assertSweFlowLifecycleGuards(): void {
   if (text.indexOf("- cleanup_landed_worktrees:") <= text.indexOf("- append_stage_event:")) {
     throw new Error("SWE flow cleanup must run after append_stage_event.");
   }
+  if (text.indexOf("- continue_or_stop:") <= text.indexOf("- append_stage_event:")) {
+    throw new Error("SWE flow continuation gate must run after append_stage_event.");
+  }
+  if (text.indexOf("- cleanup_landed_worktrees:") <= text.indexOf("- continue_or_stop:")) {
+    throw new Error("SWE flow cleanup must run after the continuation gate.");
+  }
   assertNotContains(text, 'args: ["cleanup"', scope);
   assertNotContains(text, "safe_after_archive", scope);
   assertNotContains(
@@ -362,9 +384,9 @@ function assertSweFlowLifecycleGuards(): void {
   );
 
   const scriptCount = (text.match(/\bscript:/g) ?? []).length;
-  if (scriptCount > 43) {
+  if (scriptCount > 45) {
     throw new Error(
-      `SWE flow script count grew from the audited baseline: expected <=43 script blocks, found ${scriptCount}`,
+      `SWE flow script count grew from the audited baseline: expected <=45 script blocks, found ${scriptCount}`,
     );
   }
 }
@@ -373,8 +395,13 @@ function assertFastflowSessionTimeout(): void {
   const text = readText(resolve(PACKAGE_ROOT, "scripts", "loopship_fastflow.ts"));
   assertContains(
     text,
-    "timeoutMs: 900_000",
+    "const LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS = 3_600_000",
     "Loopship Fastflow node-session timeout must exceed 600s inference groups",
+  );
+  assertContains(
+    text,
+    "timeoutMs: LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS",
+    "Loopship Fastflow node-session timeout must use the audited timeout constant",
   );
   assertContains(
     text,
