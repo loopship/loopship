@@ -5,7 +5,7 @@ document:
   namespace: service-step
   name: system-update
   version: 0.1.0
-  summary: "Submit system doc updates. Loopship writes signed repo docs."
+  summary: "Submit automated system document updates for Loopship to write as signed repo docs."
   metadata:
     catalog:
       tags:
@@ -26,7 +26,6 @@ document:
           try:
             - llm.cli.codex.gpt-5.3-codex-spark.max
             - aitl.chat
-            - hitl.review
 input:
   schema:
     document:

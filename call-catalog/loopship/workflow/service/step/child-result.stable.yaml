@@ -1,9 +1,11 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-step
   name: child-result
   version: 0.1.0
-  summary: "Submit the result of a completed child quest back to the parent flow."
+  summary: "Submit a completed child result to the parent through automated review routing."
   metadata:
     catalog:
       tags:
@@ -24,7 +26,6 @@ document:
           try:
             - llm.cli.codex.gpt-5.3-codex-spark.max
             - aitl.chat
-            - hitl.review
 input:
   schema:
     document:

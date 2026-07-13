@@ -5,7 +5,7 @@ document:
   namespace: service-step
   name: plan
   version: 0.1.0
-  summary: "Submit a decision-complete plan payload with explicit system context. Ask or default every high-impact unknown."
+  summary: "Submit a decision-complete plan through automated planning routing with explicit system context."
   metadata:
     catalog:
       tags:
@@ -26,7 +26,6 @@ document:
           try:
             - llm.cli.codex.gpt-5.5.max
             - aitl.chat
-            - hitl.review
 input:
   schema:
     document:
