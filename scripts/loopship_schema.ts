@@ -39,6 +39,7 @@ export const V3_STEP_SCHEMAS = [
   "landing-input",
   "archive-output",
   "hook-output",
+  "fastflow-response",
   "lock-error",
 ] as const;
 
@@ -291,10 +292,6 @@ function buildAjv(): Ajv2020 {
     ajv.addSchema(schema, repoRelativeSchemaPath(file));
   }
   return ajv;
-}
-
-function schemaFiles(dir: string): string[] {
-  return canonicalSchemaFiles(dir);
 }
 
 function ajvForInlineSchema(schema: SchemaObject): Ajv2020 {

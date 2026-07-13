@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -280,6 +282,52 @@ function main(): number {
     });
     if (firstRoute?.wtree !== "hook-route" || secondRoute?.wtree !== "hook-route-b") {
       fail("concurrent runtime threads must resolve their own worktrees");
+    }
+    const escapedWorkspace = join(root, "escaped-hook-route");
+    mkdirSync(join(escapedWorkspace, ".loopship", "runtime"), { recursive: true });
+    symlinkSync(escapedWorkspace, join(repo, "worktrees", "hook-route-link"), "dir");
+    const escapedRoute = recordHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "escaped-thread",
+      workspaceRoot: join(repo, "worktrees", "hook-route-link"),
+      result: {
+        nextCall: {
+          args: {
+            sessionId: "escaped-session",
+            workspaceRoot: join(repo, "worktrees", "hook-route-link"),
+          },
+        },
+      },
+    });
+    if (escapedRoute !== null) {
+      fail("hook routes must reject worktree symlinks that escape the repository");
+    }
+    if (existsSync(join(escapedWorkspace, ".loopship", "runtime", "hook-state.json"))) {
+      fail("rejected hook routes must not write state outside the repository worktrees root");
+    }
+    const symlinkRootRepo = join(root, "symlink-root-repo");
+    const symlinkRootTarget = join(root, "symlink-root-target");
+    const symlinkRootWorkspace = join(symlinkRootTarget, "hook-route");
+    mkdirSync(join(symlinkRootWorkspace, ".loopship", "runtime"), { recursive: true });
+    mkdirSync(symlinkRootRepo, { recursive: true });
+    symlinkSync(symlinkRootTarget, join(symlinkRootRepo, "worktrees"), "dir");
+    const symlinkRootRoute = recordHookRoute({
+      repoRoot: symlinkRootRepo,
+      runtime: "codex",
+      threadId: "symlink-root-thread",
+      workspaceRoot: join(symlinkRootRepo, "worktrees", "hook-route"),
+      result: {
+        nextCall: {
+          args: {
+            sessionId: "symlink-root-session",
+            workspaceRoot: join(symlinkRootRepo, "worktrees", "hook-route"),
+          },
+        },
+      },
+    });
+    if (symlinkRootRoute !== null) {
+      fail("hook routes must reject a symlinked repository worktrees root");
     }
     const wildcardWorkspace = join(repo, "worktrees", "hook-route-wildcard");
     mkdirSync(join(wildcardWorkspace, ".loopship", "runtime"), { recursive: true });

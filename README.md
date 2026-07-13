@@ -3,6 +3,8 @@
 Spec workflows, looped until shipped.
 
 Publishable Loopship runtime package for deterministic V3 worktree-based quest workflows.
+Installed package entrypoints run under Bun. Node 26 or newer is also required
+for the Fastflow subprocesses launched by the runtime.
 
 ```bash
 npx @omar391/loopship init "loopship: build the app" --runtime codex
@@ -20,8 +22,9 @@ node index.ts cmdproto execjson init '{"request":"loopship:build-the-app","repo"
 node index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
 ```
 
-The launcher skill lives in
-`/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules/skills/loopship/SKILL.md`.
+Init installs or refreshes the launcher skill under `LOOPSHIP_SKILL_HOME`, when
+set, or `~/.agents/skills/loopship` by default. `--skill-home <path>` overrides
+that location for one invocation.
 Lifecycle, prompts, schemas, state, manifests, child subagent flow, and next
 actions are owned by Fastflow workflows and workflow-data operations. Loopship
 is the consumer layer: CLI parsing, repo/runtime bootstrap, Fastflow app
@@ -30,6 +33,13 @@ configuration, and Loopship AFN adapter registration.
 The reusable Fastflow consumer facade is exported at `@omar391/loopship/fastflow`.
 The legacy workflow runner is validation tooling only and is not exported as a
 package API.
+
+The root package resolution pins local development to an immutable commit
+from the private Fastflow GitHub repository. Published Loopship artifacts list Fastflow in
+`bundledDependencies`, so the production package vendors that exact runtime and
+does not require consumer access to the private repository. Update the Fastflow
+commit and `bun.lock` together, then run the release verification before
+publishing.
 
 `cmdproto` is wired in as a transparent command wrapper. `loopship cmdproto`
 mirrors the current public command paths through `cmdproto execjson <path> <payload>`,

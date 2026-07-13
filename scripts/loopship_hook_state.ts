@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { readJson, writeJson } from "./loopship_utils.ts";
 
@@ -43,9 +43,27 @@ function validWtree(value: string): boolean {
   return Boolean(value && value !== "." && value !== ".." && !/[\\/]/.test(value));
 }
 
-function statePath(repoRoot: string, wtree: string): string | null {
+function worktreeDirectory(repoRoot: string, wtree: string): string | null {
   if (!validWtree(wtree)) return null;
-  return resolve(repoRoot, "worktrees", wtree, ".loopship", "runtime", "hook-state.json");
+  const worktreesRoot = resolve(repoRoot, "worktrees");
+  const candidate = resolve(worktreesRoot, wtree);
+  if (!existsSync(worktreesRoot) || !existsSync(candidate)) return null;
+  try {
+    const realRoot = realpathSync(worktreesRoot);
+    if (realRoot !== resolve(realpathSync(repoRoot), "worktrees")) return null;
+    const realCandidate = realpathSync(candidate);
+    const path = relative(realRoot, realCandidate);
+    return path === wtree ? realCandidate : null;
+  } catch {
+    return null;
+  }
+}
+
+function statePath(repoRoot: string, wtree: string): string | null {
+  const workspace = worktreeDirectory(repoRoot, wtree);
+  return workspace
+    ? resolve(workspace, ".loopship", "runtime", "hook-state.json")
+    : null;
 }
 
 function readState(path: string): HookRouteState | null {
@@ -80,15 +98,24 @@ function readState(path: string): HookRouteState | null {
 
 function workspaceWtree(repoRoot: string, workspaceRoot: string): string | null {
   const worktreesRoot = resolve(repoRoot, "worktrees");
-  const path = relative(worktreesRoot, resolve(workspaceRoot));
+  if (!existsSync(worktreesRoot) || !existsSync(workspaceRoot)) return null;
+  let path = "";
+  try {
+    path = relative(realpathSync(worktreesRoot), realpathSync(workspaceRoot));
+  } catch {
+    return null;
+  }
   if (!path || path.startsWith("..") || isAbsolute(path)) return null;
   const [wtree, ...rest] = path.split(/[\\/]/);
-  return validWtree(wtree ?? "") && rest.length === 0 ? wtree : null;
+  return validWtree(wtree ?? "") && rest.length === 0 && worktreeDirectory(repoRoot, wtree!)
+    ? wtree!
+    : null;
 }
 
 function validRouteWorkspace(repoRoot: string, state: HookRouteState): boolean {
-  const expected = resolve(repoRoot, "worktrees", state.wtree);
+  const expected = worktreeDirectory(repoRoot, state.wtree);
   return (
+    Boolean(expected) &&
     resolve(state.workspace_root) === expected &&
     resolve(state.fastflow.workspaceRoot) === expected
   );
@@ -179,13 +206,16 @@ export function recordHookRoute(input: {
   const wtree = workspaceWtree(input.repoRoot, handle.workspaceRoot);
   const path = wtree ? statePath(input.repoRoot, wtree) : null;
   if (!wtree || !path) return null;
+  const workspaceRoot = worktreeDirectory(input.repoRoot, wtree);
+  if (!workspaceRoot) return null;
+  handle.workspaceRoot = workspaceRoot;
   const current = (readJson(path) ?? {}) as Record<string, unknown>;
   const state: HookRouteState = {
     ...current,
     schema_version: 1,
     runtime: input.runtime,
     wtree,
-    workspace_root: handle.workspaceRoot,
+    workspace_root: workspaceRoot,
     fastflow: handle,
     updated_at: new Date().toISOString(),
     ...(stringValue(input.threadId) ? { thread_id: stringValue(input.threadId) } : {}),

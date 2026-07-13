@@ -156,6 +156,10 @@ function scenarioPlanPayload(
   }
   return {
     ...base,
+    decomposition_rationale:
+      scenario.tasks.length === 1
+        ? "The requested scope is cohesive and needs one independently verifiable task."
+        : "The requested scope splits into independently verifiable tasks with explicit boundaries.",
     task_graph: { tasks: scenario.tasks },
   };
 }
@@ -197,6 +201,7 @@ function nativePauseToken(value: Record<string, unknown>): Record<string, unknow
     workspaceRoot: String(args.workspaceRoot ?? "").trim(),
     kind: String(value.kind ?? ""),
     wtree: String(request.wtree ?? request.quest_id ?? "").trim(),
+    answerSchema: context.answerSchema,
   };
 }
 
@@ -221,7 +226,15 @@ function resumeNativePause(
     payload,
     fixture.env,
   );
-  expect(proc.status, proc.stderr || proc.stdout).toBe(0);
+  if (proc.status !== 0) {
+    throw new Error(
+      [
+        proc.stderr || proc.stdout || "loopship hook failed",
+        `pause=${JSON.stringify(pause)}`,
+        `decision=${JSON.stringify(decision)}`,
+      ].join("\n"),
+    );
+  }
   return parseJson(proc.stdout);
 }
 
@@ -434,7 +447,20 @@ function driveScenario(
   expect(landed.step).toBe("landing");
   expect(landed.stage_after).toBe("archived");
 
-  const finalState = latestQuestState(fixture, wtree);
+  const finalStatePath = join(
+    fixture.repo,
+    "worktrees",
+    wtree,
+    ".loopship",
+    "runtime",
+    "tasks.yaml",
+  );
+  const landedRuntime = isRecord(landed.runtime) ? landed.runtime : {};
+  const landedRuntimeTasks = isRecord(landedRuntime.tasks) ? landedRuntime.tasks : {};
+  const landedStatePatch = isRecord(landed.state_patch) ? landed.state_patch : {};
+  const finalState = existsSync(finalStatePath)
+    ? latestQuestState(fixture, wtree)
+    : { ...landedRuntimeTasks, ...landedStatePatch };
   const finalTasks = Array.isArray(finalState.tasks) ? finalState.tasks : [];
   return {
     id: scenario.id,

@@ -217,7 +217,7 @@ function addRecords(
   }
 }
 
-function schemaPathForResource(schemaRef: string, records: Map<string, JsonRecord>): string {
+function schemaPathForResource(schemaRef: string): string {
   if (schemaRef === "self") return "";
   if (schemaRef.startsWith("loopship://schemas/")) return schemaRef.slice("loopship://".length);
   return "";
@@ -690,7 +690,7 @@ function main(): number {
     validateYamlProseStyle(fullPath, errors);
     const doc = readYamlObject(fullPath);
     const schemaRef = stringValue(resource.schema_ref);
-    const schemaPath = schemaPathForResource(schemaRef, records);
+    const schemaPath = schemaPathForResource(schemaRef);
     if (!schemaPath) {
       errors.push(`canonical document resource must resolve schema: ${path}`);
     } else {
@@ -725,7 +725,7 @@ function main(): number {
       } else if (schemaRef === "self") {
         if (kind !== "schema") errors.push(`resource ${id} can use schema self only when kind=schema`);
       } else {
-        const schemaPath = schemaPathForResource(schemaRef, records);
+        const schemaPath = schemaPathForResource(schemaRef);
         if (!schemaPath) {
           errors.push(`resource ${id} schema_ref must point to a loopship schema URI: ${schemaRef}`);
         } else if (!existsSync(resolve(PACKAGE_ROOT, schemaPath))) {

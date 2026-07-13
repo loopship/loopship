@@ -110,9 +110,9 @@ structure:
       continuation decisions. Manually configured runtimes use the same generic hook route.
   components:
     cli-routing: |-
-      Init and internal continuation routing rank quest candidates, propose worktree names, emit
-      create-quest input, validate step payloads, mutate canonical quest state, and return the
-      next compact JSON command.
+      Init starts or resumes native Fastflow workflows in canonical task worktrees. Hook and
+      stepper continuation paths validate native response payloads, mutate canonical quest state,
+      and return compact Fastflow interaction or terminal result objects.
     workflow-runner: |-
       The legacy workflow runner loads flow and step YAML for validation and migration
       checks only; package consumers should use the Fastflow facade and CLI contracts.
@@ -323,8 +323,8 @@ quality:
       canonical tasks.yaml, events.jsonl, emitted child commands, and git worktree state
       first.
     live-smoke: |-
-      Live runtime smoke tests use concrete no-clarification fixtures, execute the emitted
-      new_quest.command directly, and drive the CLI one lifecycle step per turn.
+      Live runtime smoke tests use concrete no-clarification fixtures, consume the native init
+      response directly, and drive subsequent workflow decisions through runtime hooks.
 risks:
   root-growth:
     text: |-

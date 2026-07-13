@@ -20,44 +20,52 @@ function hasCmdprotoDeps() {
   return requiredPaths.every((entry) => fs.existsSync(entry));
 }
 
-function findFastflowRoot() {
-  const candidates = [
-    path.resolve(root, "../../orgs/cueintent/fastflow"),
-    path.resolve(root, "../../../../cueintent/fastflow"),
-    path.resolve(root, "../../../../orgs/cueintent/fastflow"),
-    path.resolve(root, "../../../orgs/cueintent/fastflow"),
-  ];
-  return candidates.find((candidate) =>
-    fs.existsSync(path.join(candidate, "package.json")),
+function sharedNodeModulesRoot() {
+  const commonDir = spawnSync(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { cwd: root, encoding: "utf8" },
   );
+  if (commonDir.status !== 0) return null;
+  const repoRoot = path.dirname(commonDir.stdout.trim());
+  const modules = path.join(repoRoot, "node_modules");
+  return repoRoot !== root && fs.existsSync(modules) ? modules : null;
 }
 
-function ensureFastflowLink() {
-  if (fs.existsSync(fastflowPackagePath)) return true;
-  const source = findFastflowRoot();
-  if (!source) return false;
-  const scopeDir = path.join(root, "node_modules", "@cueintent");
-  const target = path.join(scopeDir, "fastflow");
-  fs.mkdirSync(scopeDir, { recursive: true });
-  fs.rmSync(target, { recursive: true, force: true });
-  fs.symlinkSync(source, target, "dir");
-  return true;
+function ensureCmdprotoLinks() {
+  if (hasCmdprotoDeps()) return true;
+  const shared = sharedNodeModulesRoot();
+  if (!shared) return false;
+  const sharedPackage = path.join(shared, "cmdproto");
+  const sharedBin = path.join(shared, ".bin", "cmdproto");
+  if (!fs.existsSync(sharedPackage) || !fs.existsSync(sharedBin)) return false;
+  const localPackage = path.join(root, "node_modules", "cmdproto");
+  const localBin = path.join(root, "node_modules", ".bin", "cmdproto");
+  fs.mkdirSync(path.dirname(localPackage), { recursive: true });
+  fs.mkdirSync(path.dirname(localBin), { recursive: true });
+  fs.rmSync(localPackage, { recursive: true, force: true });
+  fs.rmSync(localBin, { force: true });
+  fs.symlinkSync(sharedPackage, localPackage, "dir");
+  fs.symlinkSync(sharedBin, localBin, "file");
+  return hasCmdprotoDeps();
 }
 
-if (hasCmdprotoDeps() && ensureFastflowLink()) {
+function hasFastflowDeps() {
+  return fs.existsSync(fastflowPackagePath);
+}
+
+if (ensureCmdprotoLinks() && hasFastflowDeps()) {
   process.exit(0);
 }
 
-process.stderr.write(
-  "cmdproto local dependencies are missing; running bun install for this worktree.\n",
-);
+process.stderr.write("Loopship dependencies are missing; running bun install for this worktree.\n");
 const result = spawnSync("bun", ["install"], {
   cwd: root,
   stdio: "inherit",
 });
 
-const cmdprotoReady = hasCmdprotoDeps();
-const fastflowReady = ensureFastflowLink();
+const cmdprotoReady = ensureCmdprotoLinks();
+const fastflowReady = hasFastflowDeps();
 if (cmdprotoReady && fastflowReady) {
   process.exit(0);
 }
