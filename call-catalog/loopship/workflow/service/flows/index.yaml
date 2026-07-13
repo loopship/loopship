@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 46
-      digest: "sha256:45943eca2f71d5e43ff6f0f7e33c3d918020715a9017d9a098b80f1511d6f8d2"
-      summary: "Rename transition result composition AFN call."
+      release: 56
+      digest: "sha256:027bc3290ee6762fecfcfb526a591536f0579ba183d6ece181c86a61d40677cf"
+      summary: "Continue persisted lifecycle stages to the next inline or handoff boundary."
       inputs:
         required: []
         optional: []
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8qRxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtnQQEAoOQ0G8dNFrrkc7hkm3eT
-    aZLTfar6UuGviyKAdYo5v1QA+wYA8igfA0ZSq0hBBmLRqh+c2pJE7p2szWVfiB9s
-    VFgN
-    =A0g6
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalUnnhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuh5gD/QKnIWJYF2dcVL7zgvP48
+    V1kfJTDMWv1TGsTvQGa85jEA/jB2p9YcNhngNZyDLmcYld7ZIGnxGSOZQDJumtuu
+    cgQH
+    =59od
     -----END PGP SIGNATURE-----
