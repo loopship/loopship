@@ -1,3 +1,5 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-step
@@ -24,7 +26,6 @@ document:
           try:
             - llm.cli.codex.gpt-5.3-codex-spark.max
             - aitl.chat
-            - hitl.review
 input:
   schema:
     document:
@@ -365,6 +366,14 @@ do:
             This step is reusable across flows. The Fastflow orchestrator owns flow transitions and continuation state. Return exactly one JSON payload matching this step's answer schema; do not include command strings, successor-state scaffolding, or fields for a guessed next step.
             
             Perform acceptance trace, risk review, behavior coverage, and evidence review.
+            Trace only acceptance criteria declared by the active plan or task rows;
+            do not invent a new global-gates acceptance criterion. When the
+            validation receipt has top-level `status: passed`, treat failed or
+            skipped broad-repository checks that are explicitly unrelated,
+            pre-existing, or environment-constrained as residual risks rather
+            than failing otherwise-passed task acceptance. Set verification
+            `status` to `failed` only when declared acceptance, changed behavior,
+            or required lifecycle evidence fails.
           request:
             schema:
               "$schema": "https://json-schema.org/draft/2020-12/schema"
