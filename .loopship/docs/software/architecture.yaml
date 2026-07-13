@@ -165,10 +165,11 @@ runtime:
       maps to exactly one child CLI-agent flow and one child worktree.
     hook-continuation: |-
       Hook continuation normalizes each agent runtime's thread identifier and keeps it separate
-      from the Fastflow session identifier. Paused Fastflow tokens and runtime-thread bindings
-      live in worktree-local hook-state.json. Explicit wtree or process-scoped WTREE input binds
-      an unbound thread on its next hook call; later calls select the exact worktree through
-      runtime plus thread id and fail closed when that identity is missing or ambiguous.
+      from the Fastflow session identifier. Paused Fastflow resume handles and soft runtime-thread
+      bindings live in worktree-local hook-state.json. Explicit CLI or payload wtree input transfers
+      ownership while preserving the resume handle; process-scoped WTREE input can bind only
+      unowned state. Later calls select the exact worktree through runtime plus thread id and fail
+      closed when that identity is missing or ambiguous.
     system-update-flow: |-
       system_update_pending flows from child summary to bin storage, root prompt, schema-valid
       system_update payload, bin validation, canonical document writes, and signature refresh.

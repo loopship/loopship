@@ -67,9 +67,11 @@ configuration; it does not render continuation commands.
 
 Runtime hooks keep the agent thread ID separate from Fastflow's `sessionId`.
 Each paused run stores `runtime`, `thread_id`, `wtree`, and the Fastflow resume
-token in the worktree-local `.loopship/runtime/hook-state.json`. Runtime-provided
+handle in the worktree-local `.loopship/runtime/hook-state.json`. Runtime-provided
 thread environment variables bind automatically; `loopship hook --wtree <name>`
-or a process-scoped `WTREE=<name>` binds the same state on the next hook call.
+or a payload `wtree` explicitly transfers that soft binding between runtime
+threads without replacing the Fastflow resume handle. A process-scoped
+`WTREE=<name>` may bind unowned state but cannot transfer an existing binding.
 Later hooks resolve the exact worktree by `runtime + thread_id` and no-op when
 that identity is missing or ambiguous.
 In `superviseStep` mode, coordinator quests launch at most one child at a time,

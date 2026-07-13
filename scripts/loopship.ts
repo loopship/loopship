@@ -625,9 +625,10 @@ export async function runHook(argv: string[]): Promise<number> {
       payload: contextPayload,
       cwd: resolveCwd(contextPayload),
     });
+    const payloadWtree = String(payload.wtree ?? payload.loopship_wtree ?? "").trim();
+    const transferWtree = args.wtree || payloadWtree;
     const explicitWtree =
-      args.wtree ||
-      String(payload.wtree ?? payload.loopship_wtree ?? "").trim() ||
+      transferWtree ||
       String(process.env.WTREE ?? "").trim() ||
       String(process.env.LOOPSHIP_WTREE ?? "").trim();
     const route = resolveHookRoute({
@@ -635,6 +636,7 @@ export async function runHook(argv: string[]): Promise<number> {
       runtime,
       threadId,
       ...(explicitWtree ? { wtree: explicitWtree } : {}),
+      ...(transferWtree ? { allowTransfer: true } : {}),
     });
     if (!route) {
       process.stdout.write("{}");
