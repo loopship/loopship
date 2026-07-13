@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 59
-      digest: "sha256:3e77b2be9d12ffdfb231f3e84708ef2702d6dd3f672a2f134cf8793c93b18c3d"
-      summary: "Tighten failed-transition repair prompt formatting."
+      release: 60
+      digest: "sha256:19c5460e26b32c13557770290dbca590c9adcd570138e7da1f5921821725afce"
+      summary: "Repin lifecycle flow to promoted step routing releases."
       inputs:
         required: []
         optional: []
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalVG9RsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuD8QD/TD+bfRRt0Tonf2CPOvRI
-    RmS9JqdUK8Fx612GdkpFtLUBAJgP6WQ/3/TpSw8kY/C7mJ8aI+ScJhanbrV0krM5
-    7awN
-    =AAot
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalVJHRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGulLgEA/lyGzicZYTQLL2TXGSum
+    dgIF7L3r9s/WWdKDL0JWd9UA/Akp8zB7yNKM3XxMhYkHZrjg6ZOhwAAr9JEB89O9
+    n/4L
+    =sZvG
     -----END PGP SIGNATURE-----
