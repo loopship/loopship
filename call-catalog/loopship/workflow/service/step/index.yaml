@@ -271,9 +271,9 @@ workflows:
       requires: []
   verification:
     stable:
-      release: 5
-      digest: "sha256:f84445a739b4fd2c6c814a33f85324dbbefd8fc0eb8ddd8f5c0690c37d461e02"
-      summary: "Keep verification scoped to declared acceptance and residual baseline risk."
+      release: 6
+      digest: "sha256:da1d1957757e8d63a1950b91424e8d525ad4e07569b1c1a285af636ba026b01c"
+      summary: "Route failed transitions to AITL repair and scope verification to current declared acceptance."
       inputs:
         required: []
         optional:
@@ -306,9 +306,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalU0ihsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt8vwEAgebSZY+4MG7jrUeTFg/g
-    yoAsmzESch5jQDhlkUp3crAA/2xX7dmbn9qIgYzjw4iwKsuTCs480Wm+gktnYqcw
-    bsIP
-    =JvY2
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalU1dhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGu94AEAuixmsB5cd22+WFHjJXzf
+    UdOnLaosvS/+OJsrKm8Yt7IBALkzaovvM7vt0OXJbBjgLfwNpTKX9SEYuQo5JZZo
+    HZ8E
+    =eI+F
     -----END PGP SIGNATURE-----

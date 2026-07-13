@@ -25,7 +25,7 @@ document:
       groups:
         loopship_child_implementation:
           timeoutMs: 1200000
-          on:
+          "true":
             - unavailable
             - timeout
             - transport_error
@@ -34,6 +34,17 @@ document:
             - abstain
           try:
             - llm.cli.codex.gpt-5.4-mini.max
+            - aitl.subagent
+        loopship_failure_repair:
+          timeoutMs: 600000
+          "true":
+            - unavailable
+            - timeout
+            - transport_error
+            - invalid_json
+            - invalid_output
+            - abstain
+          try:
             - aitl.subagent
 input:
   schema:
@@ -280,9 +291,12 @@ do:
               title: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
               type: coding
               status: pending
-              dependencies: []
-              scope_files: []
-              spec_refs: []
+              dependencies:
+                []
+              scope_files:
+                []
+              spec_refs:
+                []
               context_refs:
                 - "${String(state.steps.read_tasks.action.parent_context_ref || '').trim()}"
               acceptance:
@@ -653,7 +667,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:7ff97abc4c7624cb727c342fa98f3443aa32c3a41202ff2ea4d1f9e129f126a1"
+          digest: "sha256:da1d1957757e8d63a1950b91424e8d525ad4e07569b1c1a285af636ba026b01c"
       call: loopship.workflow.service.step.verification
       with:
         version: 0.1.0
@@ -1321,20 +1335,20 @@ do:
           timeout_ms: 1200000
           instruction: |-
             # Loopship Terminal Child Implementation
-
+            
             Complete the assigned terminal child task in the current child
             worktree when no local implementation commit exists yet.
             If a prior native attempt left uncommitted implementation changes,
             review those changes, finish the required checks, and commit the
             completed child work instead of restarting from scratch.
-
+            
             Stay inside `request.coordinator_worktree`. Read the parent context
             and task boundaries from `request.parent_context_ref`. Implement
             only the local terminal-child task rows. Do not create nested child
             worktrees, do not edit parent runtime state directly, and do not
             land or merge into the parent branch; Loopship validation,
             verification, and landing steps own those transitions.
-
+            
             Commit the local child work, run relevant checks, and return exactly
             one `implementation_receipt` with the resolver, agent identity,
             session or thread id when available, worktree, branch, commits,
@@ -2063,9 +2077,142 @@ do:
             then: end
         - failed_transition:
             when: "${String(state.steps.build_stage_result?.action?.transition || '') === 'failed'}"
-            then: end
+            then: stage_failure_repair_handoff
         - continue_inline:
             then: read_tasks
+  - stage_failure_repair_handoff:
+      then: read_tasks
+      metadata:
+        description: "Hand a failed validation or verification transition to an AITL repair agent before continuing from canonical state."
+        inference: loopship_failure_repair
+        validation:
+          post:
+            kind: js
+            expression: |
+              return {
+                ok: Boolean(state?.steps?.stage_failure_repair_handoff?.action?.decision),
+                evidence: { waiting_for_repair: true }
+              };
+        verification:
+          assertions:
+            - id: loopship_failure_repair_handoff_contract
+              kind: behaviour
+              statement: "Failed lifecycle transitions pause for an explicit AITL repair handoff instead of ending silently."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action !== undefined;
+                    return { ok, evidence: { has_action: ok } };
+      call: fastflow.afn.core.request.input
+      with:
+        body:
+          timeout_ms: 600000
+          instruction: |-
+            # Loopship Failed-Transition Repair
+            
+            Act as the assigned AITL repair agent for the current Loopship
+            worktree. Inspect the failed validation or verification result,
+            canonical task state, receipts, git state, and relevant checks.
+            Repair task-owned defects and commit task-owned changes when needed.
+            Do not edit canonical `.loopship/runtime` state directly, do not
+            create nested child worktrees, and do not merge or land manually.
+            If the failure is unrelated, pre-existing, or environment-only,
+            verify that claim and return evidence without changing product code.
+            Return the schema-valid repair receipt; Fastflow will re-read
+            canonical state and continue validation inline after resume.
+          request:
+            schema:
+              type: object
+              additionalProperties: true
+            build:
+              kind: js
+              using:
+                - inputs
+                - state
+              code: |
+                const tasks = state?.steps?.read_tasks?.action || {};
+                return {
+                  repo: String(inputs.repo || inputs.repoRoot || tasks.context_root || ""),
+                  coordinator_worktree: String(tasks.coordinator_worktree || ""),
+                  coordinator_branch: String(tasks.coordinator_branch || ""),
+                  parent_context_ref: String(tasks.parent_context_ref || ""),
+                  tasks: Array.isArray(tasks.tasks) ? tasks.tasks : [],
+                  validation_receipt: tasks.validation_receipt || {},
+                  verification_receipt: tasks.verification_receipt || {},
+                  failed_transition: state?.steps?.build_stage_result?.action || {}
+                };
+          answer:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - repair_receipt
+              properties:
+                repair_receipt:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - resolver
+                    - agent_id
+                    - thread_id
+                    - worktree_path
+                    - status
+                    - summary
+                    - checks
+                  properties:
+                    resolver:
+                      const: aitl.subagent
+                    agent_id:
+                      type: string
+                      minLength: 1
+                    thread_id:
+                      type: string
+                      minLength: 1
+                    worktree_path:
+                      type: string
+                      minLength: 1
+                    status:
+                      enum:
+                        - repaired
+                        - no_change
+                        - blocked
+                    summary:
+                      type: string
+                      minLength: 1
+                    commits:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                    checks:
+                      type: array
+                      minItems: 1
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                          - name
+                          - status
+                        properties:
+                          name:
+                            type: string
+                            minLength: 1
+                          status:
+                            enum:
+                              - passed
+                              - failed
+                              - skipped
+                          summary:
+                            type: string
+                          ref:
+                            type: string
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
   - cleanup_landed_worktrees:
       if: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}"
       metadata:
