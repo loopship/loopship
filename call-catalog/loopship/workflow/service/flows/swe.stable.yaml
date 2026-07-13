@@ -24,8 +24,8 @@ document:
     inference:
       groups:
         loopship_child_implementation:
-          timeoutMs: 600000
-          "true":
+          timeoutMs: 1200000
+          on:
             - unavailable
             - timeout
             - transport_error
@@ -33,8 +33,8 @@ document:
             - invalid_output
             - abstain
           try:
+            - llm.cli.codex.gpt-5.4-mini.max
             - aitl.subagent
-            - hitl.review
 input:
   schema:
     document:
@@ -280,12 +280,9 @@ do:
               title: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
               type: coding
               status: pending
-              dependencies:
-                []
-              scope_files:
-                []
-              spec_refs:
-                []
+              dependencies: []
+              scope_files: []
+              spec_refs: []
               context_refs:
                 - "${String(state.steps.read_tasks.action.parent_context_ref || '').trim()}"
               acceptance:
@@ -320,7 +317,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:198ef58ad3d333748988b7622fc21d4c8053c152c3799d5382bd71caa7e26877"
+          digest: "sha256:47e7a1aaba8563ed01b48f5f5873c8f6129bd1b15ce3457658efcf9636b86fb1"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
@@ -385,7 +382,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:c148837eda2d41990ae817e4a4d2a777105dc0edb904ab6d103acf31b5af482f"
+          digest: "sha256:a3cf68c03262972b46dae3b9e8d2eb3d892b3298140a8f2ded3c992c07be7d0d"
       call: loopship.workflow.service.step.questions
       with:
         version: 0.1.0
@@ -442,7 +439,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:0b91052928aaa130f1e02507b674f5df83e2631f67550ec7cc9624e04b111d33"
+          digest: "sha256:d9b1ab2fa4ed1d3d2bcbd7a0a2a7f75da23af963db070091172a1df2b9ae8e44"
       call: loopship.workflow.service.step.task-graph
       with:
         version: 0.1.0
@@ -542,7 +539,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:2328d11fb655526c7aff8a9c866be93c100b100878671204ee42eb397293bb8a"
+          digest: "sha256:d068283c4a3142d8b29dc324f63d562101cd94b104faca83deb90fde3978f0f1"
       call: loopship.workflow.service.step.child-result
       with:
         version: 0.1.0
@@ -599,7 +596,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:4d75790590dac127845f936eb88524c2e69db8c3d35184cbf2520265244d36c1"
+          digest: "sha256:d957129fd6abf13e65fe7b2c620b8badcd5ba1b6ad31ea35e08ddf21ba3dd4ab"
       call: loopship.workflow.service.step.validation
       with:
         version: 0.1.0
@@ -656,7 +653,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:0a3db8a8e14b6cf321102b7d97af43293101fe37fd592f912a00818d69626fb9"
+          digest: "sha256:7ff97abc4c7624cb727c342fa98f3443aa32c3a41202ff2ea4d1f9e129f126a1"
       call: loopship.workflow.service.step.verification
       with:
         version: 0.1.0
@@ -713,7 +710,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:622baf7a0a26dfc8ce052106884079bb15855b3c2edaa76232b64036860238eb"
+          digest: "sha256:905e2d85297ee5c60b30dc4c3bed865e4532303ba55ff9d169952355e08066b5"
       call: loopship.workflow.service.step.system-update
       with:
         version: 0.1.0
@@ -817,7 +814,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:198ef58ad3d333748988b7622fc21d4c8053c152c3799d5382bd71caa7e26877"
+          digest: "sha256:47e7a1aaba8563ed01b48f5f5873c8f6129bd1b15ce3457658efcf9636b86fb1"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
@@ -918,7 +915,7 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_result_planning:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -976,7 +973,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_replanning:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1032,7 +1029,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_awaiting_user_answers:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1081,7 +1078,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_plan_review:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1130,7 +1127,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_task_graph_ready:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1245,7 +1242,7 @@ do:
         as: "${action}"
   - stage_leaf_execution_route:
       metadata:
-        description: "Route terminal-child execution through subagent fallback only when no local implementation commit exists."
+        description: "Route terminal-child execution through native implementation or AITL fallback only when no local implementation commit exists."
         validation:
           post:
             kind: static
@@ -1278,21 +1275,23 @@ do:
       switch:
         - implementation_missing:
             when: "${Array.isArray(state.steps.read_tasks.action.tasks) && state.steps.read_tasks.action.tasks.some((task) => !String((task || {}).child_wtree || '').trim() && !['child_merged', 'child_archived', 'done', 'merged'].includes(String((task || {}).status || 'pending'))) && (!String(state.steps.stage_leaf_git_head.action.commit || '').trim() || (String(state.steps.stage_leaf_target_git_head.action.commit || '').trim() && String(state.steps.stage_leaf_git_head.action.commit || '') === String(state.steps.stage_leaf_target_git_head.action.commit || '')))}"
-            then: stage_leaf_subagent_implementation
+            then: stage_leaf_native_implementation
         - local_commit_present:
             when: "${true}"
             then: stage_result_leaf_executing
-  - stage_leaf_subagent_implementation:
-      then: stage_leaf_git_head_after_subagent
+  - stage_leaf_native_implementation:
+      then: stage_leaf_git_head_after_native
       metadata:
-        description: "Ask a caller-owned assistant subagent to complete the assigned terminal child task and return a receipt."
+        description: "Ask the configured implementation agent to complete the assigned terminal child task and return a receipt."
         inference: loopship_child_implementation
         validation:
           post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
+            kind: js
+            expression: |
+              const decision = state?.steps?.stage_leaf_native_implementation?.action?.decision || {};
+              const receipt = decision.implementation_receipt || {};
+              const ok = Boolean(receipt && typeof receipt === "object" && Object.keys(receipt).length > 0);
+              return { ok, evidence: { implementation_receipt: ok } };
         verification:
           assertions:
             - id: loopship_native_step_contract
@@ -1308,35 +1307,38 @@ do:
                     stage_after: executing
                     transition: check
                     step: executing
-                    step_workflow_task: stage_leaf_subagent_implementation
+                    step_workflow_task: stage_leaf_native_implementation
                     step_payload: {}
                     step_action: {}
                     state_patch: {}
                     events:
-                      - event: stage_leaf_subagent_implementation_check
+                      - event: stage_leaf_native_implementation_check
                     runtime: {}
                     as_check: true
       call: fastflow.afn.core.request.input
       with:
         body:
-          timeout_ms: 250
+          timeout_ms: 1200000
           instruction: |-
-            # Loopship Terminal Child Implementation Fallback
-            
+            # Loopship Terminal Child Implementation
+
             Complete the assigned terminal child task in the current child
-            worktree when the configured CLI implementation agent did not
-            produce a local commit.
-            
+            worktree when no local implementation commit exists yet.
+            If a prior native attempt left uncommitted implementation changes,
+            review those changes, finish the required checks, and commit the
+            completed child work instead of restarting from scratch.
+
             Stay inside `request.coordinator_worktree`. Read the parent context
             and task boundaries from `request.parent_context_ref`. Implement
             only the local terminal-child task rows. Do not create nested child
             worktrees, do not edit parent runtime state directly, and do not
             land or merge into the parent branch; Loopship validation,
             verification, and landing steps own those transitions.
-            
+
             Commit the local child work, run relevant checks, and return exactly
-            one `subagent_receipt` with the subagent identity, session or thread
-            id, worktree, branch, commits, checks, and artifact evidence.
+            one `implementation_receipt` with the resolver, agent identity,
+            session or thread id when available, worktree, branch, commits,
+            checks, and artifact evidence.
           request:
             schema:
               type: object
@@ -1365,9 +1367,9 @@ do:
               type: object
               additionalProperties: false
               required:
-                - subagent_receipt
+                - implementation_receipt
               properties:
-                subagent_receipt:
+                implementation_receipt:
                   type: object
                   additionalProperties: false
                   required:
@@ -1385,7 +1387,9 @@ do:
                         - thread_id
                   properties:
                     resolver:
-                      const: aitl.subagent
+                      enum:
+                        - llm.cli.codex.gpt-5.4-mini.max
+                        - aitl.subagent
                     agent_id:
                       type: string
                       minLength: 1
@@ -1452,10 +1456,10 @@ do:
             type: object
             additionalProperties: true
         as: "${action}"
-  - stage_leaf_git_head_after_subagent:
-      then: stage_leaf_target_git_head_after_subagent
+  - stage_leaf_git_head_after_native:
+      then: stage_leaf_target_git_head_after_native
       metadata:
-        description: "Resolve the terminal-child HEAD after the subagent implementation fallback returns."
+        description: "Resolve the terminal-child HEAD after native implementation returns."
         validation:
           post:
             kind: static
@@ -1477,12 +1481,12 @@ do:
                     stage_after: executing
                     transition: check
                     step: executing
-                    step_workflow_task: stage_leaf_git_head_after_subagent
+                    step_workflow_task: stage_leaf_git_head_after_native
                     step_payload: {}
                     step_action: {}
                     state_patch: {}
                     events:
-                      - event: stage_leaf_git_head_after_subagent_check
+                      - event: stage_leaf_git_head_after_native_check
                     runtime: {}
                     as_check: true
       call: loopship.afn.service.git.resolve-commit
@@ -1497,10 +1501,10 @@ do:
             type: object
             additionalProperties: true
         as: "${action}"
-  - stage_leaf_target_git_head_after_subagent:
+  - stage_leaf_target_git_head_after_native:
       then: stage_result_leaf_executing
       metadata:
-        description: "Resolve the landing target HEAD after subagent fallback so execution evidence uses fresh commits."
+        description: "Resolve the landing target HEAD after native implementation so execution evidence uses fresh commits."
         validation:
           post:
             kind: static
@@ -1522,12 +1526,12 @@ do:
                     stage_after: executing
                     transition: check
                     step: executing
-                    step_workflow_task: stage_leaf_target_git_head_after_subagent
+                    step_workflow_task: stage_leaf_target_git_head_after_native
                     step_payload: {}
                     step_action: {}
                     state_patch: {}
                     events:
-                      - event: stage_leaf_target_git_head_after_subagent_check
+                      - event: stage_leaf_target_git_head_after_native_check
                     runtime: {}
                     as_check: true
       call: loopship.afn.service.git.resolve-commit
@@ -1543,7 +1547,7 @@ do:
             additionalProperties: true
         as: "${action}"
   - stage_result_leaf_executing:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Record leaf child execution without requiring a nested child_result callback."
         validation:
@@ -1571,33 +1575,33 @@ do:
             function array(value) { return Array.isArray(value) ? value : []; }
             function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
             function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
-            function subagentReceiptFrom(value) { const payload = findPayload(value, (row) => "subagent_receipt" in object(row) || String(object(row).resolver || "") === "aitl.subagent"); const receipt = object(payload.subagent_receipt || payload); return String(receipt.resolver || "") === "aitl.subagent" ? receipt : {}; }
+            function implementationReceiptFrom(value) { const payload = findPayload(value, (row) => "implementation_receipt" in object(row)  || ["llm.cli.codex.gpt-5.4-mini.max", "aitl.subagent"].includes(String(object(row).resolver || ""))); const receipt = object(payload.implementation_receipt || payload); return ["llm.cli.codex.gpt-5.4-mini.max", "aitl.subagent"].includes(String(receipt.resolver || "")) ? receipt : {}; }
             function actionCommit(stepId) { return String(object(state.steps[stepId]?.action).commit || ""); }
             function isDoneStatus(status) { return new Set(["child_merged", "child_archived", "done", "merged"]).has(String(status || "")); }
             function markLeafTasksDone(tasks, mergeCommit) { return { ...tasks, tasks: array(tasks.tasks).map((task) => { const row = object(task); if (String(row.child_wtree || "").trim()) return row; const status = String(row.status || "pending"); const nextStatus = status === "blocked" || status === "failed" ? status : "done"; return { ...row, status: nextStatus, merge_commit: String(mergeCommit || row.merge_commit || "") }; }) }; }
             function localTaskIds(tasks) { return array(object(tasks).tasks).map((task) => object(task)).filter((task) => !String(task.child_wtree || "").trim()).map((task, index) => String(task.id || task.task_id || "task-" + (index + 1)).trim()).filter(Boolean); }
             function pendingLocalTaskIds(tasks) { return array(object(tasks).tasks).map((task) => object(task)).filter((task) => !String(task.child_wtree || "").trim() && !isDoneStatus(task.status)).map((task, index) => String(task.id || task.task_id || "task-" + (index + 1)).trim()).filter(Boolean); }
-            function localWorkReceipt(tasks, mergeCommit, targetCommit, status, subagentReceipt) { const missing = status === "missing_local_commit"; const receipt = { mode: "shared-head-commit", worktree_path: String(tasks.coordinator_worktree || ""), commit: mergeCommit, target_commit: targetCommit, status, covered_task_ids: missing ? [] : localTaskIds(tasks), pending_task_ids: pendingLocalTaskIds(tasks) }; return Object.keys(object(subagentReceipt)).length ? { ...receipt, subagent_receipt: subagentReceipt } : receipt; }
+            function localWorkReceipt(tasks, mergeCommit, targetCommit, status, implementationReceipt) { const missing = status === "missing_local_commit"; const receipt = { mode: "shared-head-commit", worktree_path: String(tasks.coordinator_worktree || ""), commit: mergeCommit, target_commit: targetCommit, status, covered_task_ids: missing ? [] : localTaskIds(tasks), pending_task_ids: pendingLocalTaskIds(tasks) }; return Object.keys(object(implementationReceipt)).length ? { ...receipt, implementation_receipt: implementationReceipt } : receipt; }
             function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
             function sameStringList(left, right) { const a = array(left).map((value) => String(value || "").trim()).filter(Boolean); const b = array(right).map((value) => String(value || "").trim()).filter(Boolean); return a.length === b.length && a.every((value, index) => value === b[index]); }
             function hasMatchingMissingCommitEvent(events, mergeCommit, targetCommit, pendingTaskIds) { return array(events).some((entry) => { const row = object(entry); return String(row.event || "") === "leaf_execution_missing_commit" && String(row.merge_commit || "") === String(mergeCommit || "") && String(row.target_commit || "") === String(targetCommit || "") && sameStringList(row.pending_task_ids, pendingTaskIds); }); }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const tasks = object(state.steps.read_tasks?.action);
-            const subagentReceipt = subagentReceiptFrom(state.steps.stage_leaf_subagent_implementation?.action);
-            const mergeCommit = actionCommit("stage_leaf_git_head_after_subagent") || actionCommit("stage_leaf_git_head");
-            const targetCommit = actionCommit("stage_leaf_target_git_head_after_subagent") || actionCommit("stage_leaf_target_git_head");
+            const implementationReceipt = implementationReceiptFrom(state.steps.stage_leaf_native_implementation?.action);
+            const mergeCommit = actionCommit("stage_leaf_git_head_after_native") || actionCommit("stage_leaf_git_head");
+            const targetCommit = actionCommit("stage_leaf_target_git_head_after_native") || actionCommit("stage_leaf_target_git_head");
             const pendingTaskIds = pendingLocalTaskIds(tasks);
             if (pendingTaskIds.length && (!mergeCommit || (targetCommit && mergeCommit === targetCommit))) {
-              const receipt = localWorkReceipt(tasks, mergeCommit, targetCommit, "missing_local_commit", subagentReceipt);
-              const event = { event: "leaf_execution_missing_commit", stage: "executing", task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, pending_task_ids: pendingTaskIds, subagent_receipt: Object.keys(subagentReceipt).length > 0 };
+              const receipt = localWorkReceipt(tasks, mergeCommit, targetCommit, "missing_local_commit", implementationReceipt);
+              const event = { event: "leaf_execution_missing_commit", stage: "executing", task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, pending_task_ids: pendingTaskIds, implementation_receipt: Object.keys(implementationReceipt).length > 0 };
               const duplicateEvent = hasMatchingMissingCommitEvent(state.steps.query_events?.action, mergeCommit, targetCommit, pendingTaskIds);
               return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "executing", stage_after: "executing", transition: "blocked", step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, step_action: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, state_patch: { stage: "executing", tasks: array(tasks.tasks), local_work_receipt: receipt }, events: duplicateEvent ? [] : [event], runtime: runtimeSnapshot() };
             }
             const nextTasks = markLeafTasksDone(tasks, mergeCommit);
-            const receipt = localWorkReceipt(nextTasks, mergeCommit, targetCommit, "recorded", subagentReceipt);
+            const receipt = localWorkReceipt(nextTasks, mergeCommit, targetCommit, "recorded", implementationReceipt);
             const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
             const targetStage = transition === "complete" ? "validating" : "executing";
-            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, covered_task_ids: receipt.covered_task_ids, subagent_receipt: Object.keys(subagentReceipt).length > 0 };
+            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, covered_task_ids: receipt.covered_task_ids, implementation_receipt: Object.keys(implementationReceipt).length > 0 };
             return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, step_action: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks), local_work_receipt: receipt }, events: [event], runtime: runtimeSnapshot() };
       output:
         schema:
@@ -1606,7 +1610,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_executing:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1660,7 +1664,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_validating:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1707,7 +1711,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_verification_pending:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1751,7 +1755,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_system_update_pending:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1792,7 +1796,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_landing_ready:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1834,7 +1838,7 @@ do:
             additionalProperties: true
         as: "${action.value}"
   - stage_result_archived:
-      then: build_stage_result
+      then: select_stage_result
       metadata:
         description: "Build a stage-local result from the selected stage workflow output."
         validation:
@@ -1869,6 +1873,36 @@ do:
             type: object
             additionalProperties: true
         as: "${action.value}"
+  - select_stage_result:
+      then: build_stage_result
+      metadata:
+        description: "Select the current Loopship stage result before composing the durable transition."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_step_contract
+              kind: behaviour
+              statement: "The current stage result is selected without reusing stale inline-loop state."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const selected = action?.values?.selected_result || action?.selected_result || action || {};
+                    const ok = Object.keys(selected).length > 0;
+                    return { ok, evidence: { has_action: ok, stage_before: String(selected.stage_before || "") } };
+      set:
+        selected_result: "${({ planning: state.steps.stage_result_planning?.action, awaiting_user_answers: state.steps.stage_result_awaiting_user_answers?.action, plan_review: state.steps.stage_result_plan_review?.action, task_graph_ready: state.steps.stage_result_task_graph_ready?.action, executing: state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action, validating: state.steps.stage_result_validating?.action, verification_pending: state.steps.stage_result_verification_pending?.action, system_update_pending: state.steps.stage_result_system_update_pending?.action, landing_ready: state.steps.stage_result_landing_ready?.action, replanning: state.steps.stage_result_replanning?.action, archived: state.steps.stage_result_archived?.action })[String(state.steps.resolve_stage?.action?.current_stage || \"planning\")] || {}}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action.values.selected_result}"
   - build_stage_result:
       then: persist_stage
       metadata:
@@ -1888,34 +1922,34 @@ do:
                 call: loopship.afn.service.flow.compose-transition-result
                 with:
                   body:
-                    schema_version: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).schema_version || \"loopship.stage-result.build/v1\"}"
-                    flow_id: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).flow_id || \"swe\"}"
-                    stage_before: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).stage_before || \"planning\"}"
-                    stage_after: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).stage_after || \"planning\"}"
-                    transition: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).transition || \"pending\"}"
-                    step: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step || \"unknown\"}"
-                    step_workflow_task: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step_workflow_task || \"build_stage_result\"}"
-                    step_payload: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step_payload || {}}"
-                    step_action: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step_action || {}}"
-                    state_patch: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).state_patch || {}}"
-                    events: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).events || []}"
-                    runtime: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).runtime || {}}"
+                    schema_version: "${(state.steps.select_stage_result?.action || {}).schema_version || \"loopship.stage-result.build/v1\"}"
+                    flow_id: "${(state.steps.select_stage_result?.action || {}).flow_id || \"swe\"}"
+                    stage_before: "${(state.steps.select_stage_result?.action || {}).stage_before || \"planning\"}"
+                    stage_after: "${(state.steps.select_stage_result?.action || {}).stage_after || \"planning\"}"
+                    transition: "${(state.steps.select_stage_result?.action || {}).transition || \"pending\"}"
+                    step: "${(state.steps.select_stage_result?.action || {}).step || \"unknown\"}"
+                    step_workflow_task: "${(state.steps.select_stage_result?.action || {}).step_workflow_task || \"build_stage_result\"}"
+                    step_payload: "${(state.steps.select_stage_result?.action || {}).step_payload || {}}"
+                    step_action: "${(state.steps.select_stage_result?.action || {}).step_action || {}}"
+                    state_patch: "${(state.steps.select_stage_result?.action || {}).state_patch || {}}"
+                    events: "${(state.steps.select_stage_result?.action || {}).events || []}"
+                    runtime: "${(state.steps.select_stage_result?.action || {}).runtime || {}}"
                     as_check: true
       call: loopship.afn.service.flow.compose-transition-result
       with:
         body:
-          schema_version: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).schema_version || \"loopship.stage-result.build/v1\"}"
-          flow_id: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).flow_id || \"swe\"}"
-          stage_before: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).stage_before || \"planning\"}"
-          stage_after: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).stage_after || \"planning\"}"
-          transition: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).transition || \"pending\"}"
-          step: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step || \"unknown\"}"
-          step_workflow_task: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step_workflow_task || \"build_stage_result\"}"
-          step_payload: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step_payload || {}}"
-          step_action: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).step_action || {}}"
-          state_patch: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).state_patch || {}}"
-          events: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).events || []}"
-          runtime: "${(state.steps.stage_result_planning?.action || state.steps.stage_result_awaiting_user_answers?.action || state.steps.stage_result_plan_review?.action || state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action || state.steps.stage_result_validating?.action || state.steps.stage_result_verification_pending?.action || state.steps.stage_result_system_update_pending?.action || state.steps.stage_result_landing_ready?.action || state.steps.stage_result_replanning?.action || state.steps.stage_result_archived?.action || {}).runtime || {}}"
+          schema_version: "${(state.steps.select_stage_result?.action || {}).schema_version || \"loopship.stage-result.build/v1\"}"
+          flow_id: "${(state.steps.select_stage_result?.action || {}).flow_id || \"swe\"}"
+          stage_before: "${(state.steps.select_stage_result?.action || {}).stage_before || \"planning\"}"
+          stage_after: "${(state.steps.select_stage_result?.action || {}).stage_after || \"planning\"}"
+          transition: "${(state.steps.select_stage_result?.action || {}).transition || \"pending\"}"
+          step: "${(state.steps.select_stage_result?.action || {}).step || \"unknown\"}"
+          step_workflow_task: "${(state.steps.select_stage_result?.action || {}).step_workflow_task || \"build_stage_result\"}"
+          step_payload: "${(state.steps.select_stage_result?.action || {}).step_payload || {}}"
+          step_action: "${(state.steps.select_stage_result?.action || {}).step_action || {}}"
+          state_patch: "${(state.steps.select_stage_result?.action || {}).state_patch || {}}"
+          events: "${(state.steps.select_stage_result?.action || {}).events || []}"
+          runtime: "${(state.steps.select_stage_result?.action || {}).runtime || {}}"
       output:
         schema:
           document:
@@ -1923,6 +1957,7 @@ do:
             additionalProperties: true
         as: "${action}"
   - persist_stage:
+      then: append_stage_event
       metadata:
         description: "Persist the Fastflow-derived Loopship stage through workflow data."
         validation:
@@ -1958,7 +1993,7 @@ do:
             additionalProperties: true
         as: "${action}"
   - append_stage_event:
-      then: cleanup_landed_worktrees
+      then: continue_or_stop
       metadata:
         description: "Append the Fastflow-derived stage transition event through workflow data."
         validation:
@@ -1993,6 +2028,44 @@ do:
             type: object
             additionalProperties: true
         as: "${action}"
+  - continue_or_stop:
+      metadata:
+        description: "Continue inline Loopship lifecycle stages until a handoff, child dispatch, blocked state, or archive terminal state."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_native_continuation_contract
+              kind: behaviour
+              statement: "Inline lifecycle stages continue inside the same Fastflow run, while handoff and child-dispatch states stop."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action && action.ok === true;
+                    return { ok, evidence: { matched_case: action?.matched_case || "" } };
+      switch:
+        - archived:
+            when: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}"
+            then: cleanup_landed_worktrees
+        - awaiting_user_answers:
+            when: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'awaiting_user_answers'}"
+            then: end
+        - child_dispatch:
+            when: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'executing' && String(state.steps.build_stage_result?.action?.step || '') === 'executing' && String(state.steps.build_stage_result?.action?.step_workflow_task || '') === 'stage_task_graph_ready'}"
+            then: end
+        - blocked_execution:
+            when: "${String(state.steps.build_stage_result?.action?.transition || '') === 'blocked'}"
+            then: end
+        - failed_transition:
+            when: "${String(state.steps.build_stage_result?.action?.transition || '') === 'failed'}"
+            then: end
+        - continue_inline:
+            then: read_tasks
   - cleanup_landed_worktrees:
       if: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'archived'}"
       metadata:
