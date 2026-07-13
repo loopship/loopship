@@ -331,7 +331,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:47e7a1aaba8563ed01b48f5f5873c8f6129bd1b15ce3457658efcf9636b86fb1"
+          digest: "sha256:aae338274e6ebd8fca7da1b41ec4c324a1822bbfc2bad08e99a6ce4372ea6185"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
@@ -396,7 +396,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:a3cf68c03262972b46dae3b9e8d2eb3d892b3298140a8f2ded3c992c07be7d0d"
+          digest: "sha256:41385edfdbfb3108d1fa90d9484834ed00ad28722b989eb8a3efe08cae8b8000"
       call: loopship.workflow.service.step.questions
       with:
         version: 0.1.0
@@ -453,7 +453,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:d9b1ab2fa4ed1d3d2bcbd7a0a2a7f75da23af963db070091172a1df2b9ae8e44"
+          digest: "sha256:d260c68d986f02eb5ddd1b133dd9feb660361ac2adbe55dab9428f662b930222"
       call: loopship.workflow.service.step.task-graph
       with:
         version: 0.1.0
@@ -553,7 +553,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:d068283c4a3142d8b29dc324f63d562101cd94b104faca83deb90fde3978f0f1"
+          digest: "sha256:9664aadffb8c08700a9a4ed995944d5d7b5a3c4b29ea299b34f34fe576577917"
       call: loopship.workflow.service.step.child-result
       with:
         version: 0.1.0
@@ -610,7 +610,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:d957129fd6abf13e65fe7b2c620b8badcd5ba1b6ad31ea35e08ddf21ba3dd4ab"
+          digest: "sha256:d16e9112071a18f941e1c72cbab7b4f42b3cddec87afe9bc2ecc2d4bed4360d3"
       call: loopship.workflow.service.step.validation
       with:
         version: 0.1.0
@@ -724,7 +724,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:905e2d85297ee5c60b30dc4c3bed865e4532303ba55ff9d169952355e08066b5"
+          digest: "sha256:e4b7113d14127110f03f814dba064738a253c27c93dde680c1d1c2c9da057828"
       call: loopship.workflow.service.step.system-update
       with:
         version: 0.1.0
@@ -828,7 +828,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:47e7a1aaba8563ed01b48f5f5873c8f6129bd1b15ce3457658efcf9636b86fb1"
+          digest: "sha256:aae338274e6ebd8fca7da1b41ec4c324a1822bbfc2bad08e99a6ce4372ea6185"
       call: loopship.workflow.service.step.plan
       with:
         version: 0.1.0
