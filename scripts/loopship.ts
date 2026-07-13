@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   expandHome,
   readJson,
-  readStdinJson,
+  readStdinText,
   readText,
   resolveCwd,
   shellQuote,
@@ -25,7 +25,6 @@ import {
   ensureGlobalSkillFiles,
   resolveGlobalLoopshipBinPath,
 } from "./loopship_core.ts";
-import { runLoopshipCmdproto } from "./loopship_cmdproto.ts";
 import { runHandbook } from "./loopship_handbook.ts";
 import { runStepperCli } from "./loopship_stepper.ts";
 import {
@@ -171,12 +170,25 @@ function resolveRepoContext(input?: {
   throw new Error("cannot resolve loopship context");
 }
 
+function requiredOptionValue(argv: string[], index: number, option: string): string {
+  const value = argv[index];
+  if (!value || value.startsWith("-")) {
+    throw new Error(`${option} requires a value`);
+  }
+  return value;
+}
+
+function inlineOptionValue(argument: string, option: string): string {
+  const value = argument.slice(`${option}=`.length);
+  if (!value) throw new Error(`${option} requires a value`);
+  return value;
+}
+
 function parseInitArgs(argv: string[]): {
   repo: string;
   wtree: string | null;
   flowId: string | null;
   objective: string;
-  force: boolean;
   runtime: DoctorArgs["runtime"];
   skillHome: string | null;
   sourceBranch: string | null;
@@ -189,7 +201,6 @@ function parseInitArgs(argv: string[]): {
   let repo: string | null = null;
   let wtree: string | null = null;
   let flowId: string | null = null;
-  let force = false;
   let runtime: DoctorArgs["runtime"] = "all";
   let skillHome: string | null = null;
   let sourceBranch: string | null = null;
@@ -201,34 +212,48 @@ function parseInitArgs(argv: string[]): {
   const objectiveParts: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--repo") repo = argv[++i] ?? repo;
-    else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
+    if (arg === "--repo") repo = requiredOptionValue(argv, ++i, "--repo");
+    else if (arg?.startsWith("--repo=")) repo = inlineOptionValue(arg, "--repo");
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
       throw new Error("loopship init no longer accepts --cwd; run it from the repo root or pass --repo");
     } else if (arg === "--session" || arg?.startsWith("--session=")) {
       throw new Error("loopship init no longer accepts --session");
-    } else if (arg === "--wtree") wtree = argv[++i] ?? null;
-    else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
-    else if (arg === "--source-branch") sourceBranch = argv[++i] ?? null;
-    else if (arg?.startsWith("--source-branch=")) sourceBranch = arg.slice("--source-branch=".length);
-    else if (arg === "--parent-wtree") parentWtree = argv[++i] ?? null;
-    else if (arg?.startsWith("--parent-wtree=")) parentWtree = arg.slice("--parent-wtree=".length);
-    else if (arg === "--parent-task-id") parentTaskId = argv[++i] ?? null;
-    else if (arg?.startsWith("--parent-task-id=")) parentTaskId = arg.slice("--parent-task-id=".length);
-    else if (arg === "--parent-context-ref") parentContextRef = argv[++i] ?? null;
-    else if (arg?.startsWith("--parent-context-ref=")) parentContextRef = arg.slice("--parent-context-ref=".length);
-    else if (arg === "--target-branch") targetBranch = argv[++i] ?? null;
-    else if (arg?.startsWith("--target-branch=")) targetBranch = arg.slice("--target-branch=".length);
-    else if (arg === "--target-worktree") targetWorktree = argv[++i] ?? null;
-    else if (arg?.startsWith("--target-worktree=")) targetWorktree = arg.slice("--target-worktree=".length);
-    else if (arg === "--flow") flowId = argv[++i] ?? flowId;
-    else if (arg?.startsWith("--flow=")) flowId = arg.slice("--flow=".length);
-    else if (arg === "--force") force = true;
+    } else if (arg === "--wtree") wtree = requiredOptionValue(argv, ++i, "--wtree");
+    else if (arg?.startsWith("--wtree=")) wtree = inlineOptionValue(arg, "--wtree");
+    else if (arg === "--source-branch")
+      sourceBranch = requiredOptionValue(argv, ++i, "--source-branch");
+    else if (arg?.startsWith("--source-branch="))
+      sourceBranch = inlineOptionValue(arg, "--source-branch");
+    else if (arg === "--parent-wtree")
+      parentWtree = requiredOptionValue(argv, ++i, "--parent-wtree");
+    else if (arg?.startsWith("--parent-wtree="))
+      parentWtree = inlineOptionValue(arg, "--parent-wtree");
+    else if (arg === "--parent-task-id")
+      parentTaskId = requiredOptionValue(argv, ++i, "--parent-task-id");
+    else if (arg?.startsWith("--parent-task-id="))
+      parentTaskId = inlineOptionValue(arg, "--parent-task-id");
+    else if (arg === "--parent-context-ref")
+      parentContextRef = requiredOptionValue(argv, ++i, "--parent-context-ref");
+    else if (arg?.startsWith("--parent-context-ref="))
+      parentContextRef = inlineOptionValue(arg, "--parent-context-ref");
+    else if (arg === "--target-branch")
+      targetBranch = requiredOptionValue(argv, ++i, "--target-branch");
+    else if (arg?.startsWith("--target-branch="))
+      targetBranch = inlineOptionValue(arg, "--target-branch");
+    else if (arg === "--target-worktree")
+      targetWorktree = requiredOptionValue(argv, ++i, "--target-worktree");
+    else if (arg?.startsWith("--target-worktree="))
+      targetWorktree = inlineOptionValue(arg, "--target-worktree");
+    else if (arg === "--flow") flowId = requiredOptionValue(argv, ++i, "--flow");
+    else if (arg?.startsWith("--flow=")) flowId = inlineOptionValue(arg, "--flow");
     else if (arg === "--runtime")
-      runtime = (argv[++i] as DoctorArgs["runtime"]) ?? runtime;
+      runtime = requiredOptionValue(argv, ++i, "--runtime") as DoctorArgs["runtime"];
     else if (arg?.startsWith("--runtime="))
-      runtime = arg.slice("--runtime=".length) as DoctorArgs["runtime"];
-    else if (arg === "--skill-home") skillHome = argv[++i] ?? null;
+      runtime = inlineOptionValue(arg, "--runtime") as DoctorArgs["runtime"];
+    else if (arg === "--skill-home")
+      skillHome = requiredOptionValue(argv, ++i, "--skill-home");
+    else if (arg?.startsWith("--skill-home="))
+      skillHome = inlineOptionValue(arg, "--skill-home");
     else if (arg?.startsWith("-")) throw new Error(`unknown init argument: ${arg}`);
     else if (arg !== undefined) objectiveParts.push(arg);
   }
@@ -242,7 +267,6 @@ function parseInitArgs(argv: string[]): {
     wtree,
     flowId: flowId?.trim() || null,
     objective,
-    force,
     runtime,
     skillHome,
     sourceBranch: sourceBranch?.trim() || null,
@@ -261,11 +285,18 @@ function parseDoctorArgs(argv: string[]): DoctorArgs {
   let hookScript: string | null = null;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--repo") repo = argv[++i] ?? repo;
+    if (arg === "--repo") repo = requiredOptionValue(argv, ++i, "--repo");
+    else if (arg?.startsWith("--repo=")) repo = inlineOptionValue(arg, "--repo");
     else if (arg === "--runtime")
-      runtime = (argv[++i] as DoctorArgs["runtime"]) ?? runtime;
+      runtime = requiredOptionValue(argv, ++i, "--runtime") as DoctorArgs["runtime"];
+    else if (arg?.startsWith("--runtime="))
+      runtime = inlineOptionValue(arg, "--runtime") as DoctorArgs["runtime"];
     else if (arg === "--fix") fix = true;
-    else if (arg === "--hook-script") hookScript = argv[++i] ?? null;
+    else if (arg === "--hook-script")
+      hookScript = requiredOptionValue(argv, ++i, "--hook-script");
+    else if (arg?.startsWith("--hook-script="))
+      hookScript = inlineOptionValue(arg, "--hook-script");
+    else if (arg !== undefined) throw new Error(`unknown doctor argument: ${arg}`);
   }
   if (!["codex", "gemini", "copilot", "all"].includes(runtime)) {
     throw new Error("--runtime must be codex, gemini, copilot, or all");
@@ -492,15 +523,20 @@ function questResponse(payload: Record<string, unknown>): void {
 
 function readJsonArg(json: string | null): Record<string, any> {
   if (!json) return {};
-  if (json === "@-") return readStdinJson() as Record<string, any>;
-  if (json.startsWith("@")) {
-    return (readJson(resolve(expandHome(json.slice(1)))) ?? {}) as Record<
-      string,
-      any
-    >;
+  let raw = json;
+  if (json === "@-") {
+    raw = readStdinText();
+  } else if (json.startsWith("@")) {
+    const path = resolve(expandHome(json.slice(1)));
+    if (!existsSync(path)) throw new Error(`hook JSON file does not exist: ${path}`);
+    raw = readText(path);
   }
-  const parsed = JSON.parse(json);
-  return parsed && typeof parsed === "object" ? parsed : {};
+  if (!raw.trim()) return {};
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("hook requires a JSON object payload");
+  }
+  return parsed as Record<string, any>;
 }
 
 function simpleHookCommand(binPath: string, runtime: string): string {
@@ -540,7 +576,7 @@ function ensureGitInfoExcludeEntries(repoRoot: string, entries: string[]): void 
 function readHookJsonArg(json: string | null): Record<string, any> {
   if (json) return readJsonArg(json);
   if (process.stdin.isTTY) return {};
-  return readStdinJson() as Record<string, any>;
+  return readJsonArg("@-");
 }
 
 function ensureV3Runtime(input: {
@@ -582,19 +618,20 @@ function parseQuestRepoArg(argv: string[]): {
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--repo") repo = argv[++i] ?? null;
-    else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
+    if (arg === "--repo") repo = requiredOptionValue(argv, ++i, "--repo");
+    else if (arg?.startsWith("--repo=")) repo = inlineOptionValue(arg, "--repo");
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
       throw new Error("loopship no longer accepts --cwd; use --wtree and run from a repo/worktree context");
     } else if (arg === "--session" || arg?.startsWith("--session=")) {
       throw new Error("loopship no longer accepts --session; use --wtree");
-    } else if (arg === "--wtree") wtree = argv[++i] ?? null;
-    else if (arg?.startsWith("--wtree=")) wtree = arg.slice("--wtree=".length);
-    else if (arg === "--runtime") runtime = (argv[++i] as Runtime) ?? null;
+    } else if (arg === "--wtree") wtree = requiredOptionValue(argv, ++i, "--wtree");
+    else if (arg?.startsWith("--wtree=")) wtree = inlineOptionValue(arg, "--wtree");
+    else if (arg === "--runtime")
+      runtime = requiredOptionValue(argv, ++i, "--runtime") as Runtime;
     else if (arg?.startsWith("--runtime="))
-      runtime = arg.slice("--runtime=".length) as Runtime;
-    else if (arg === "--json") json = argv[++i] ?? "@-";
-    else if (arg?.startsWith("--json=")) json = arg.slice("--json=".length);
+      runtime = inlineOptionValue(arg, "--runtime") as Runtime;
+    else if (arg === "--json") json = requiredOptionValue(argv, ++i, "--json");
+    else if (arg?.startsWith("--json=")) json = inlineOptionValue(arg, "--json");
     else if (arg === "--full") full = true;
     else rest.push(arg);
   }
@@ -603,6 +640,9 @@ function parseQuestRepoArg(argv: string[]): {
 
 export async function runHook(argv: string[]): Promise<number> {
   const args = parseQuestRepoArg(argv);
+  if (args.rest.length) {
+    throw new Error(`unknown hook argument: ${args.rest[0]}`);
+  }
   const raw = readHookJsonArg(args.json);
   const envelopeLike = raw.command === "hook";
   const payload = envelopeLike && raw.payload ? raw.payload : raw;
@@ -754,7 +794,11 @@ export async function runCliCommand(argv: string[]): Promise<number> {
     argv.includes("--json") &&
     argv.every((token) => token === "--help" || token === "--json")
   ) {
-    return runLoopshipCmdproto(argv, { control: false });
+    const { runLoopshipCmdproto } = await import("./loopship_cmdproto.ts");
+    return await runLoopshipCmdproto(argv, {
+      control: false,
+      handlers: { runInit, runHook, runDoctor },
+    });
   }
   if (
     argv[0] !== "cmdproto" &&
@@ -769,7 +813,12 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   if (cmd === "hook") return await runHook(rest);
   if (cmd === "stepper") return await runStepperCli(rest);
   if (cmd === "handbook") return runHandbook(rest);
-  if (cmd === "cmdproto") return runLoopshipCmdproto(rest);
+  if (cmd === "cmdproto") {
+    const { runLoopshipCmdproto } = await import("./loopship_cmdproto.ts");
+    return await runLoopshipCmdproto(rest, {
+      handlers: { runInit, runHook, runDoctor },
+    });
+  }
   return runDoctor(rest);
 }
 

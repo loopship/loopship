@@ -9,22 +9,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { V3_STEP_SCHEMAS } from "./loopship_schema.ts";
+import { V3_STEP_SCHEMAS, v3SchemaFilePath } from "./loopship_schema.ts";
 
 const PACKAGE_ROOT = process.cwd();
 const CALL_CATALOG_ROOT = join(PACKAGE_ROOT, "call-catalog");
 
 function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/workflow.mjs"]): string {
   const candidates = [
+    process.env.LOOPSHIP_FASTFLOW_ROOT,
     join(PACKAGE_ROOT, "node_modules", "@cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "orgs", "cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "..", "..", "cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
-  ];
+  ].filter(Boolean) as string[];
   const found = candidates.find((candidate) =>
     existsSync(join(candidate, "package.json")) &&
     requiredFiles.every((file) => existsSync(join(candidate, file))),
@@ -249,10 +246,17 @@ describe("Loopship declarative Fastflow catalog", () => {
   });
 
   it("keeps step schema registry declarative", () => {
-    expect(Object.keys(V3_STEP_SCHEMAS).length).toBeGreaterThan(0);
-    for (const [name, schema] of Object.entries(V3_STEP_SCHEMAS)) {
+    expect(V3_STEP_SCHEMAS.length).toBeGreaterThan(0);
+    const registeredSchemas: string[] = [...V3_STEP_SCHEMAS].sort();
+    const publicStepSchemas = readdirSync(join(PACKAGE_ROOT, "schemas", "steps"))
+      .filter((name) => name.endsWith(".yaml"))
+      .map((name) => name.slice(0, -".yaml".length))
+      .filter((name) => !["afn-action-result", "common"].includes(name))
+      .sort();
+    expect(registeredSchemas).toEqual(publicStepSchemas);
+    for (const name of V3_STEP_SCHEMAS) {
       expect(name).toMatch(/^[a-z0-9-]+$/);
-      expect(schema).toBeTruthy();
+      expect(existsSync(v3SchemaFilePath(name))).toBe(true);
     }
   });
 });

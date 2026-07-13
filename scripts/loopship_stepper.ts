@@ -80,6 +80,48 @@ function usage(exitCode = 1): number {
   return exitCode;
 }
 
+function requiredOptionValue(argv: string[], index: number, option: string): string {
+  const value = argv[index];
+  if (!value || value.startsWith("-")) {
+    throw new Error(`${option} requires a value`);
+  }
+  return value;
+}
+
+function inlineOptionValue(argument: string, option: string): string {
+  const value = argument.slice(`${option}=`.length);
+  if (!value) throw new Error(`${option} requires a value`);
+  return value;
+}
+
+const STEPPER_INIT_VALUE_OPTIONS = new Set([
+  "--repo",
+  "--runtime",
+  "--flow",
+  "--wtree",
+  "--source-branch",
+  "--parent-wtree",
+  "--parent-task-id",
+  "--parent-context-ref",
+  "--target-branch",
+  "--target-worktree",
+]);
+
+function validateInitOptionValues(argv: string[]): void {
+  for (let i = 1; i < argv.length; i += 1) {
+    const argument = argv[i];
+    if (!argument?.startsWith("--")) continue;
+    const separator = argument.indexOf("=");
+    const option = separator < 0 ? argument : argument.slice(0, separator);
+    if (!STEPPER_INIT_VALUE_OPTIONS.has(option)) continue;
+    if (separator >= 0) {
+      inlineOptionValue(argument, option);
+    } else {
+      requiredOptionValue(argv, ++i, option);
+    }
+  }
+}
+
 function parseArgs(argv: string[]): StepperArgs {
   let repo: string | null = null;
   let json: string | null = null;
@@ -101,14 +143,15 @@ function parseArgs(argv: string[]): StepperArgs {
 
   for (let i = 0; i < body.length; i += 1) {
     const arg = body[i];
-    if (arg === "--repo") repo = body[++i] ?? null;
-    else if (arg?.startsWith("--repo=")) repo = arg.slice("--repo=".length);
+    if (arg === "--repo") repo = requiredOptionValue(body, ++i, "--repo");
+    else if (arg?.startsWith("--repo=")) repo = inlineOptionValue(arg, "--repo");
     else if (arg === "--cwd" || arg?.startsWith("--cwd=")) {
       throw new Error("loopship stepper no longer accepts --cwd; use --repo or run from the repo root");
-    } else if (arg === "--json") json = body[++i] ?? "@-";
-    else if (arg?.startsWith("--json=")) json = arg.slice("--json=".length);
+    } else if (arg === "--json") json = requiredOptionValue(body, ++i, "--json");
+    else if (arg?.startsWith("--json=")) json = inlineOptionValue(arg, "--json");
     else if (arg === "--help" || arg === "-h") throw new Error("__STEPPER_HELP__");
     else if (arg?.startsWith("-")) throw new Error(`unknown stepper argument: ${arg}`);
+    else if (arg !== undefined) throw new Error(`unknown stepper argument: ${arg}`);
   }
 
   return {
@@ -143,6 +186,7 @@ function writeJson(payload: Record<string, unknown>): number {
 }
 
 async function runInit(argv: string[]): Promise<number> {
+  validateInitOptionValues(argv);
   const binding = await resolveLoopshipFastflowCommandBinding(
     argv,
     [STEPPER_INIT_BINDING],

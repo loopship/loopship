@@ -45,6 +45,12 @@ type CommandExecution = {
   stderr: string;
 };
 
+export type LoopshipCmdprotoHandlers = {
+  runInit(argv: string[]): Promise<number>;
+  runHook(argv: string[]): Promise<number>;
+  runDoctor(argv: string[]): number;
+};
+
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -53,10 +59,6 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-async function loadLoopshipCommands() {
-  return await import("./loopship.ts");
 }
 
 function isHelpFlag(value: string): boolean {
@@ -108,9 +110,6 @@ function pushFlag(args: string[], flag: string, value: unknown): void {
 
 function pushJsonArg(args: string[], value: unknown): void {
   const payload = objectValue(value);
-  if (Object.keys(payload).length === 0) {
-    return;
-  }
   args.push("--json", JSON.stringify(payload));
 }
 
@@ -273,8 +272,10 @@ function parseExecJsonInvocation(argv: string[]): {
   };
 }
 
-async function invokeInit(params: Record<string, unknown>): Promise<CommandExecution> {
-  const { runInit } = await loadLoopshipCommands();
+async function invokeInit(
+  params: Record<string, unknown>,
+  handlers: LoopshipCmdprotoHandlers,
+): Promise<CommandExecution> {
   const args: string[] = [];
   const request = stringValue(params.request);
   if (request) {
@@ -284,57 +285,54 @@ async function invokeInit(params: Record<string, unknown>): Promise<CommandExecu
   pushFlag(args, "--runtime", params.runtime);
   pushFlag(args, "--flow", params.flow);
   pushFlag(args, "--wtree", params.wtree);
-  const output = await withCapturedOutput(() => runInit(args));
+  pushFlag(args, "--source-branch", params.sourceBranch ?? params.source_branch);
+  pushFlag(args, "--parent-wtree", params.parentWtree ?? params.parent_wtree);
+  pushFlag(args, "--parent-task-id", params.parentTaskId ?? params.parent_task_id);
+  pushFlag(
+    args,
+    "--parent-context-ref",
+    params.parentContextRef ?? params.parent_context_ref,
+  );
+  pushFlag(args, "--target-branch", params.targetBranch ?? params.target_branch);
+  pushFlag(args, "--target-worktree", params.targetWorktree ?? params.target_worktree);
+  pushFlag(args, "--skill-home", params.skillHome ?? params.skill_home);
+  const output = await withCapturedOutput(() => handlers.runInit(args));
   const stdout = output.stdout.trim().startsWith("{")
     ? normalizeJsonStdout(output, "loopship init")
     : renderJsonStdout(parseInstallerOutput(output));
   return { statusCode: output.statusCode, stdout, stderr: output.stderr };
 }
 
-async function invokeHook(params: Record<string, unknown>): Promise<CommandExecution> {
+async function invokeHook(
+  params: Record<string, unknown>,
+  handlers: LoopshipCmdprotoHandlers,
+): Promise<CommandExecution> {
   const payload = objectValue(params.payload);
-  const source =
-    payload.fastflow && typeof payload.fastflow === "object" && !Array.isArray(payload.fastflow)
-      ? (payload.fastflow as Record<string, unknown>)
-      : payload.resume && typeof payload.resume === "object" && !Array.isArray(payload.resume)
-        ? (payload.resume as Record<string, unknown>)
-        : payload;
-  const sessionId = stringValue(source.sessionId ?? source.session_id);
-  if (!sessionId) {
-    return {
-      statusCode: 0,
-      stdout: "{}\n",
-      stderr: "",
-    };
-  }
-  const repo = stringValue(params.repo);
-  if (!repo) {
-    throw new Error("cmdproto hook native resume requires repo");
-  }
-  const { resumeLoopshipFastflowWorkflow } = await import("./loopship_fastflow.ts");
-  const result = await resumeLoopshipFastflowWorkflow({
-    repoRoot: resolve(expandHome(repo)),
-    request: {
-      ...source,
-      sessionId,
-    },
-  });
+  const args: string[] = [];
+  pushFlag(args, "--repo", params.repo);
+  pushFlag(args, "--runtime", params.runtime);
+  pushFlag(args, "--wtree", params.wtree);
+  pushJsonArg(args, payload);
+  const output = await withCapturedOutput(() => handlers.runHook(args));
   return {
-    statusCode: 0,
-    stdout: renderJsonStdout(result),
-    stderr: "",
+    statusCode: output.statusCode,
+    stdout: normalizeJsonStdout(output, "loopship hook"),
+    stderr: output.stderr,
   };
 }
 
-async function invokeDoctor(params: Record<string, unknown>): Promise<CommandExecution> {
-  const { runDoctor } = await loadLoopshipCommands();
+async function invokeDoctor(
+  params: Record<string, unknown>,
+  handlers: LoopshipCmdprotoHandlers,
+): Promise<CommandExecution> {
   const args: string[] = [];
   pushFlag(args, "--repo", params.repo);
   pushFlag(args, "--runtime", params.runtime);
   if (params.fix === true) {
     args.push("--fix");
   }
-  const output = await withCapturedOutput(() => runDoctor(args));
+  pushFlag(args, "--hook-script", params.hookScript ?? params.hook_script);
+  const output = await withCapturedOutput(() => handlers.runDoctor(args));
   return {
     statusCode: output.statusCode,
     stdout: renderJsonStdout(parseDoctorOutput(output)),
@@ -346,14 +344,20 @@ async function invokeHandbook(
   params: Record<string, unknown>,
 ): Promise<CommandExecution> {
   const repo = stringValue(params.repo);
+  const rawMinChars = params.minChars ?? params.min_chars;
   const minChars =
-    typeof params.min_chars === "number" && Number.isInteger(params.min_chars)
-      ? params.min_chars
+    typeof rawMinChars === "number" && Number.isInteger(rawMinChars)
+      ? rawMinChars
       : undefined;
-  if (params.fix_duplicates === true) {
+  if (minChars !== undefined && minChars < 1) {
+    throw new Error("min_chars must be a positive integer");
+  }
+  const failOnDuplicates =
+    params.failOnDuplicates === true || params.fail_on_duplicates === true;
+  if (params.fixDuplicates === true || params.fix_duplicates === true) {
     const payload = fixHandbookDuplicates(repo, { minChars });
     return {
-      statusCode: 0,
+      statusCode: failOnDuplicates && payload.duplicate_count > 0 ? 2 : 0,
       stdout: renderJsonStdout(payload),
       stderr: "",
     };
@@ -361,7 +365,7 @@ async function invokeHandbook(
   if (params.duplicates === true) {
     const payload = detectHandbookDuplicates(repo, { minChars });
     return {
-      statusCode: 0,
+      statusCode: failOnDuplicates && payload.duplicate_count > 0 ? 2 : 0,
       stdout: renderJsonStdout(payload),
       stderr: "",
     };
@@ -383,19 +387,25 @@ async function invokeHandbook(
   };
 }
 
-async function runExecJsonCommand(argv: string[]): Promise<CommandExecution> {
+async function runExecJsonCommand(
+  argv: string[],
+  handlers: LoopshipCmdprotoHandlers,
+): Promise<CommandExecution> {
   const { pathTokens, payload } = parseExecJsonInvocation(argv);
   const path = pathTokens.join(" ");
-  if (path === "init") return await invokeInit(payload);
-  if (path === "doctor") return await invokeDoctor(payload);
+  if (path === "init") return await invokeInit(payload, handlers);
+  if (path === "doctor") return await invokeDoctor(payload, handlers);
   if (path === "handbook") return await invokeHandbook(payload);
-  if (path === "hook") return await invokeHook(payload);
+  if (path === "hook") return await invokeHook(payload, handlers);
   throw new Error(`Unknown command: ${path}`);
 }
 
 export async function runLoopshipCmdproto(
   argv: string[],
-  options: { control?: boolean } = {},
+  options: {
+    control?: boolean;
+    handlers?: LoopshipCmdprotoHandlers;
+  } = {},
 ): Promise<number> {
   const control = options.control !== false;
   if (isHelpOnlyArgv(argv)) {
@@ -404,7 +414,10 @@ export async function runLoopshipCmdproto(
   if (!control) {
     throw new Error("cmdproto control commands must be invoked as `loopship cmdproto ...`");
   }
-  const result = await runExecJsonCommand(argv);
+  if (!options.handlers) {
+    throw new Error("cmdproto command handlers are not configured");
+  }
+  const result = await runExecJsonCommand(argv, options.handlers);
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   return result.statusCode;

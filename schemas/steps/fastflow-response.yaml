@@ -1,0 +1,233 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: schemas/steps/fastflow-response.yaml
+title: Loopship Fastflow Response
+description: Native Fastflow interaction or terminal workflow result returned by Loopship init and hook commands.
+oneOf:
+  - $ref: "#/$defs/inlineAnswer"
+  - $ref: "#/$defs/handoffAnswer"
+  - $ref: "#/$defs/supervisorReview"
+  - $ref: "#/$defs/workflowResult"
+$defs:
+  interactionBase:
+    type: object
+    additionalProperties: false
+    required:
+      - schemaVersion
+      - kind
+      - systemInstructions
+      - instructions
+      - context
+    properties:
+      schemaVersion:
+        const: fastflow/interaction-response/v1
+      kind:
+        type: string
+      systemInstructions:
+        type: string
+        minLength: 1
+      instructions:
+        type: string
+      context:
+        $ref: "#/$defs/context"
+      supervision:
+        $ref: "#/$defs/supervision"
+      nextCall:
+        $ref: "#/$defs/nextCall"
+      checks:
+        $ref: "#/$defs/interactionChecks"
+      artifactRef:
+        $ref: "#/$defs/artifactRef"
+  inlineAnswer:
+    allOf:
+      - $ref: "#/$defs/interactionBase"
+      - type: object
+        required:
+          - kind
+        properties:
+          kind:
+            const: inline_answer
+        not:
+          anyOf:
+            - required: [nextCall]
+            - required: [checks]
+            - required: [artifactRef]
+  handoffAnswer:
+    allOf:
+      - $ref: "#/$defs/interactionBase"
+      - type: object
+        required:
+          - kind
+          - nextCall
+        properties:
+          kind:
+            const: handoff_answer
+        not:
+          anyOf:
+            - required: [checks]
+  supervisorReview:
+    allOf:
+      - $ref: "#/$defs/interactionBase"
+      - type: object
+        required:
+          - kind
+          - nextCall
+          - checks
+        properties:
+          kind:
+            const: supervisor_review
+  context:
+    type: object
+    additionalProperties: false
+    required:
+      - request
+      - answerSchema
+    properties:
+      request: {}
+      answerSchema: {}
+  supervision:
+    type: object
+    additionalProperties: false
+    required:
+      - enabled
+      - mode
+    properties:
+      enabled:
+        const: true
+      mode:
+        enum:
+          - workflow
+          - step
+          - audit
+  nextCall:
+    type: object
+    additionalProperties: false
+    required:
+      - command
+      - args
+    properties:
+      command:
+        type: string
+        minLength: 1
+      args:
+        type: object
+        additionalProperties: true
+        required:
+          - sessionId
+          - response
+        properties:
+          sessionId:
+            type: string
+          nonce:
+            type: string
+          workspaceRoot:
+            type: string
+          response:
+            type: object
+            additionalProperties: true
+  interactionChecks:
+    type: object
+    additionalProperties: false
+    required:
+      - validation
+      - verification
+    properties:
+      validation:
+        $ref: "#/$defs/check"
+      verification:
+        $ref: "#/$defs/check"
+  resultChecks:
+    type: object
+    additionalProperties: false
+    properties:
+      validation:
+        $ref: "#/$defs/check"
+      verification:
+        $ref: "#/$defs/check"
+  check:
+    type: object
+    additionalProperties: true
+    required:
+      - status
+    properties:
+      status:
+        enum:
+          - passed
+          - failed
+          - pending
+          - missing
+          - not_required
+          - unknown
+      failures:
+        type: array
+        items: {}
+  workflowIdentity:
+    type:
+      - object
+      - "null"
+    additionalProperties: false
+    properties:
+      reference:
+        type:
+          - string
+          - "null"
+      name:
+        type:
+          - string
+          - "null"
+      namespace:
+        type:
+          - string
+          - "null"
+      version:
+        type:
+          - string
+          - "null"
+  artifactRef:
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    properties:
+      runPath:
+        type: string
+      statusPath:
+        type: string
+      eventsPath:
+        type: string
+  workflowResult:
+    type: object
+    additionalProperties: false
+    required:
+      - schemaVersion
+      - kind
+      - ok
+      - status
+    properties:
+      schemaVersion:
+        const: fastflow/workflow-run-artifact/v1
+      kind:
+        const: workflow_result
+      ok:
+        type: boolean
+      status:
+        enum:
+          - running
+          - completed
+          - failed
+      workflow:
+        $ref: "#/$defs/workflowIdentity"
+      artifactRef:
+        $ref: "#/$defs/artifactRef"
+      checks:
+        $ref: "#/$defs/resultChecks"
+      output: {}
+      error: {}
+      supervisor:
+        type: object
+        additionalProperties: true
+      repair:
+        type: object
+        additionalProperties: true
+      promotion:
+        type: object
+        additionalProperties: true
+      runtimeIdentities: {}

@@ -405,10 +405,24 @@ export function runHandbook(argv: string[]): number {
   let json = false;
   let failOnDuplicates = false;
   let minChars = DEFAULT_DUPLICATE_MIN_CHARS;
+  const requiredValue = (index: number, option: string): string => {
+    const value = argv[index];
+    if (!value || value.startsWith("-")) throw new Error(`${option} requires a value`);
+    return value;
+  };
+  const inlineValue = (token: string, option: string): string => {
+    const value = token.slice(`${option}=`.length);
+    if (!value) throw new Error(`${option} requires a value`);
+    return value;
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--repo") {
-      repo = argv[++i] ?? "";
+      repo = requiredValue(++i, "--repo");
+      continue;
+    }
+    if (token?.startsWith("--repo=")) {
+      repo = inlineValue(token, "--repo");
       continue;
     }
     if (token === "--raw") {
@@ -432,7 +446,14 @@ export function runHandbook(argv: string[]): number {
       continue;
     }
     if (token === "--min-chars") {
-      minChars = Number(argv[++i] ?? minChars);
+      minChars = Number(requiredValue(++i, "--min-chars"));
+      if (!Number.isInteger(minChars) || minChars < 1) {
+        throw new Error("--min-chars must be a positive integer");
+      }
+      continue;
+    }
+    if (token?.startsWith("--min-chars=")) {
+      minChars = Number(inlineValue(token, "--min-chars"));
       if (!Number.isInteger(minChars) || minChars < 1) {
         throw new Error("--min-chars must be a positive integer");
       }

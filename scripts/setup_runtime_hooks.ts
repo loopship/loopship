@@ -15,13 +15,28 @@ function parseArgs(argv: string[]): {
   let repo = "";
   let runtime: "codex" | "gemini" | "copilot" | "all" = "all";
   let hookScript: string | null = null;
+  const requiredValue = (index: number, option: string): string => {
+    const value = argv[index];
+    if (!value || value.startsWith("-")) throw new Error(`${option} requires a value`);
+    return value;
+  };
+  const inlineValue = (argument: string, option: string): string => {
+    const value = argument.slice(`${option}=`.length);
+    if (!value) throw new Error(`${option} requires a value`);
+    return value;
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--repo") repo = argv[++i] ?? "";
+    if (arg === "--repo") repo = requiredValue(++i, "--repo");
+    else if (arg?.startsWith("--repo=")) repo = inlineValue(arg, "--repo");
     else if (arg === "--runtime")
-      runtime = (argv[++i] as typeof runtime) ?? runtime;
+      runtime = requiredValue(++i, "--runtime") as typeof runtime;
+    else if (arg?.startsWith("--runtime="))
+      runtime = inlineValue(arg, "--runtime") as typeof runtime;
     else if (arg === "--hook-script")
-      hookScript = resolve(expandHome(argv[++i] ?? ""));
+      hookScript = resolve(expandHome(requiredValue(++i, "--hook-script")));
+    else if (arg?.startsWith("--hook-script="))
+      hookScript = resolve(expandHome(inlineValue(arg, "--hook-script")));
     else if (arg === "--help" || arg === "-h") {
       console.log(
         "Install loopship runtime hooks\n\nUsage: bun|node|npx tsx setup_runtime_hooks.ts --repo <path> --runtime <codex|gemini|copilot|all> [--hook-script <path>]",

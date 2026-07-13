@@ -5,7 +5,7 @@
   "module": "index.ts",
   "type": "module",
   "bin": {
-    "loopship": "./index.ts"
+    "loopship": "bin/loopship"
   },
   "exports": {
     ".": "./index.ts",
@@ -17,8 +17,10 @@
     ".loopship/signature.yaml",
     ".loopship/docs",
     "README.md",
+    "bin",
     "index.ts",
     "call-catalog",
+    "!call-catalog/**/*.dev.yaml",
     "references",
     "schemas",
     "scripts",
@@ -36,7 +38,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=22.6.0",
+    "node": ">=26.0.0",
     "bun": ">=1.1.0"
   },
   "scripts": {
@@ -44,9 +46,10 @@
     "cmdproto:gen": "cmdproto build --generate-only",
     "precmdproto:schema": "node scripts/ensure_cmdproto_deps.mjs",
     "cmdproto:schema": "bun run scripts/run_cmdproto_schema.ts",
+    "typecheck": "tsc --noEmit",
     "test": "bun test ./scripts/verify_flow_schema.test.ts ./scripts/verify_runtime_live.test.ts ./scripts/verify_fastflow_native.test.ts",
     "test:integration": "bun test ./scripts/verify_lifecycle_matrix.integration.ts",
-    "verify": "bun run test && bun run scripts/verify_system_model.ts && bun run scripts/verify_coherency.ts && bun run scripts/run_cmdproto_schema.ts && bun run scripts/verify_cmdproto_abi.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts && bun run scripts/report_lifecycle_matrix.ts",
+    "verify": "bun run typecheck && bun run test && bun run scripts/verify_system_model.ts && bun run scripts/verify_coherency.ts && bun run scripts/run_cmdproto_schema.ts && bun run scripts/verify_cmdproto_abi.ts && bun run scripts/verify_quest_contract.ts && bun run scripts/verify_runtime_hooks.ts && bun run scripts/verify_runtime_simulation.ts && bun run scripts/verify_runtime_stepper.ts && bun run scripts/report_lifecycle_matrix.ts",
     "verify:lifecycle": "LOOPSHIP_EXECUTE_LIFECYCLE_MATRIX=1 LOOPSHIP_LIFECYCLE_CASES=bugfix,feature-parallel,vague-greenfield bun run scripts/report_lifecycle_matrix.ts",
     "verify:release": "bun run verify && bun run verify:lifecycle",
     "verify:live": "bun run scripts/verify_runtime_live.ts",
@@ -54,19 +57,23 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/node": "^25.6.0"
-  },
-  "peerDependencies": {
+    "@types/node": "^25.6.0",
     "typescript": "^5"
   },
   "dependencies": {
-    "@cueintent/fastflow": "file:../../orgs/cueintent/fastflow",
+    "@cueintent/fastflow": "0.1.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "cmdproto": "git+https://github.com/omar391/cmdproto.git",
+    "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a",
     "yaml": "^2.8.3"
   },
   "trustedDependencies": [
     "cmdproto"
-  ]
+  ],
+  "bundledDependencies": [
+    "@cueintent/fastflow"
+  ],
+  "resolutions": {
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#486afa24fae754cf194caca40900cece1e18ba00"
+  }
 }

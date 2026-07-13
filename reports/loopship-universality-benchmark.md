@@ -83,7 +83,7 @@ Proof boundary: deterministic scripted ceiling is now above `parallel-20-*`, wit
 - `bun run scripts/verify_runtime_hooks.ts`: passed; `loopship hook --runtime codex --repo <repo> --json @resume.json` parity verified.
 - `bun run scripts/verify_runtime_stepper.ts`: passed; native stepper paused/resumed under `superviseStep` before child execution.
 - `bun run scripts/verify_system_model.ts`: passed; repo root `.loopship/system.yaml`, canonical docs, and `.loopship/signature.yaml` validate.
-- `bun run verify`: passed under sandbox escalation because existing tests write the Loopship shim to `/Users/omar/.local/bin/loopship`.
+- `bun run verify`: passed under sandbox escalation because existing tests wrote the Loopship shim to the configured user-local launcher path (`<home>/.local/bin/loopship`).
 - System-update payloads are schema-validated against `schemas/system-update.yaml`; step payload schema exists at `schemas/steps/system-update-input.yaml`; stable workflow is `call-catalog/loopship/workflow/service/step/system-update.stable.yaml`.
 
 ## Cost/Performance Summary

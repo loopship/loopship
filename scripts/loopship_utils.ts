@@ -47,11 +47,13 @@ export function writeText(path: string, text: string): void {
   writeFileSync(path, text, "utf8");
 }
 
-export function readJson(path: string): any | null {
+export function readJson(path: string): Record<string, unknown> | null {
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readText(path));
-    return parsed && typeof parsed === "object" ? parsed : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
@@ -72,22 +74,17 @@ function nodeSupportsTs(): boolean {
     { timeoutMs: 5_000 },
   );
   if (version.status !== 0) return false;
-  const [major, minor] = version.stdout
-    .trim()
-    .split(".")
-    .map((value) => Number(value));
-  return (
-    Number.isFinite(major) &&
-    Number.isFinite(minor) &&
-    (major > 22 || (major === 22 && minor >= 6))
-  );
+  const major = Number(version.stdout.trim().split(".")[0]);
+  return Number.isFinite(major) && major >= 26;
 }
 
 export function tsRunner(
   script: string,
   args: string[] = [],
 ): { cmd: string; args: string[] } {
-  if (commandExists("bun")) return { cmd: "bun", args: [script, ...args] };
+  if (commandExists("bun")) {
+    return { cmd: "bun", args: ["--no-install", script, ...args] };
+  }
   if (nodeSupportsTs()) return { cmd: "node", args: [script, ...args] };
   if (commandExists("npx"))
     return { cmd: "npx", args: ["-y", "tsx", script, ...args] };
@@ -96,8 +93,8 @@ export function tsRunner(
 
 export function tsShellCommand(script: string, args: string[] = []): string {
   const parts = [shellQuote(script), ...args.map(shellQuote)].join(" ");
-  const nodeGate = `node -e "const [major,minor]=process.versions.node.split('.').map(Number); process.exit(major > 22 || (major === 22 && minor >= 6) ? 0 : 1)" >/dev/null 2>&1`;
-  return `if command -v bun >/dev/null 2>&1; then exec bun ${parts}; elif command -v node >/dev/null 2>&1 && ${nodeGate}; then exec node ${parts}; elif command -v npx >/dev/null 2>&1; then exec npx -y tsx ${parts}; else echo "bun, node, and npx tsx are unavailable" >&2; exit 127; fi`;
+  const nodeGate = `node -e "const major=Number(process.versions.node.split('.')[0]); process.exit(major >= 26 ? 0 : 1)" >/dev/null 2>&1`;
+  return `if command -v bun >/dev/null 2>&1; then exec bun --no-install ${parts}; elif command -v node >/dev/null 2>&1 && ${nodeGate}; then exec node ${parts}; elif command -v npx >/dev/null 2>&1; then exec npx -y tsx ${parts}; else echo "bun, node, and npx tsx are unavailable" >&2; exit 127; fi`;
 }
 
 export function readStdinText(): string {
@@ -184,7 +181,7 @@ export function runCommand(
 
 export function commandExists(cmd: string): boolean {
   return (
-    runCommand("bash", ["-lc", `command -v ${cmd}`], { timeoutMs: 10_000 })
+    runCommand("bash", ["-lc", `command -v ${shellQuote(cmd)}`], { timeoutMs: 10_000 })
       .status === 0
   );
 }

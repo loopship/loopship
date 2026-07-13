@@ -14,9 +14,9 @@ const WORKSPACE_ROOT =
 function resolveAiRulesRoot(): string {
   const candidates = [
     process.env.AI_RULES_ROOT,
-    "/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules",
     join(WORKSPACE_ROOT, "ai-rules"),
     resolve(PACKAGE_ROOT, "..", "..", "..", "personal", "devtools", "ai-rules"),
+    resolve(PACKAGE_ROOT, "..", "..", "..", "..", "..", "personal", "devtools", "ai-rules"),
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   const found = candidates.find((candidate) =>
     existsSync(resolve(candidate, "skills", "loopship", "SKILL.md")),
