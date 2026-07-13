@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 58
-      digest: "sha256:b50ac749b308b2dfe5906a0b6666db68440ed54413dfc776b66af2c783553423"
-      summary: "Keep failed-transition repair handoff checks declarative."
+      release: 59
+      digest: "sha256:3e77b2be9d12ffdfb231f3e84708ef2702d6dd3f672a2f134cf8793c93b18c3d"
+      summary: "Tighten failed-transition repair prompt formatting."
       inputs:
         required: []
         optional: []
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalU16xsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuP6wEA3QJsoMR/ZFcZyv2RMA9k
-    6I3poLCkYrbj4Ekym4+ENGMBAPn+qm4ZIo5By9Q4sSkpTMNlDHp15WP/o4mFCAgZ
-    1XEJ
-    =WXlr
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalVG9RsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuD8QD/TD+bfRRt0Tonf2CPOvRI
+    RmS9JqdUK8Fx612GdkpFtLUBAJgP6WQ/3/TpSw8kY/C7mJ8aI+ScJhanbrV0krM5
+    7awN
+    =AAot
     -----END PGP SIGNATURE-----
