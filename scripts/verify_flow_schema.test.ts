@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -37,7 +38,7 @@ function fastflowImport(path: string): string {
 }
 
 function runNodeCheck(source: string, args: string[] = []): string {
-  const dir = mkdtempSync(join(PACKAGE_ROOT, "tmp", "flow-schema-"));
+  const dir = mkdtempSync(join(tmpdir(), "loopship-flow-schema-"));
   const script = join(dir, "check.mjs");
   writeFileSync(script, source, "utf8");
   try {
@@ -135,7 +136,7 @@ describe("Loopship declarative Fastflow catalog", () => {
   });
 
   it("validates every Loopship workflow with Fastflow native SWF validators", () => {
-    const dir = mkdtempSync(join(PACKAGE_ROOT, "tmp", "flow-schema-workflows-"));
+    const dir = mkdtempSync(join(tmpdir(), "loopship-flow-schema-workflows-"));
     const dataPath = join(dir, "workflows.json");
     const workflows = Object.fromEntries(
       collectWorkflowFiles().map((file) => [file, readYamlObject(file)]),
@@ -212,7 +213,7 @@ describe("Loopship declarative Fastflow catalog", () => {
   it("reports malformed direct stable workflow edits through digest drift", () => {
     const entries = workflowScopeRoots().flatMap((scopeRoot) => workflowDigestEntries(scopeRoot));
     expect(entries.length).toBeGreaterThan(0);
-    const dir = mkdtempSync(join(PACKAGE_ROOT, "tmp", "flow-digests-"));
+    const dir = mkdtempSync(join(tmpdir(), "loopship-flow-digests-"));
     const dataPath = join(dir, "digests.json");
     writeFileSync(dataPath, JSON.stringify(entries), "utf8");
     try {

@@ -164,8 +164,7 @@ export function runtimeIdentityFromEnv(
       if (threadId) return { runtime: candidate, threadId };
     }
   }
-  const threadId = stringValue(env.LOOPSHIP_THREAD_ID);
-  return threadId ? { runtime: "all", threadId } : null;
+  return null;
 }
 
 export function recordHookRoute(input: {
@@ -215,7 +214,7 @@ export function resolveHookRoute(input: {
       writeJson(path!, state);
     } else if (
       state.thread_id !== input.threadId ||
-      (state.runtime !== input.runtime && state.runtime !== "all")
+      state.runtime !== input.runtime
     ) {
       if (!input.allowTransfer) return null;
       state.runtime = input.runtime;
@@ -238,7 +237,7 @@ export function resolveHookRoute(input: {
         Boolean(
           state &&
             validRouteWorkspace(input.repoRoot, state) &&
-            (state.runtime === input.runtime || state.runtime === "all") &&
+            state.runtime === input.runtime &&
             state.thread_id === input.threadId,
         ),
     );

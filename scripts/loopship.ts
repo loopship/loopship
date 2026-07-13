@@ -65,7 +65,7 @@ function usage(): void {
 
 Usage:
   loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow <id>] [--wtree <name>]
-  loopship hook --runtime <codex|gemini|copilot>
+  loopship hook --runtime <runtime> [--wtree <name>]
   loopship stepper init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
   loopship stepper step --json <fastflow-resume-json|@file|@->
   loopship stepper hook [--json <fastflow-resume-json|@file|@->]

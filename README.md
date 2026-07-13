@@ -66,10 +66,15 @@ Loopship only contributes concise supervisor guidance through Fastflow app
 configuration; it does not render continuation commands.
 
 Runtime hooks keep the agent thread ID separate from Fastflow's `sessionId`.
+Loopship installs and diagnoses hooks for Codex, Gemini, and Copilot. The hook
+router itself is runtime-neutral: manually configured Claude, Antigravity, or
+other integrations invoke `loopship hook --runtime <runtime>` and provide their
+native thread identifier in the hook payload.
 Each paused run stores `runtime`, `thread_id`, `wtree`, and the Fastflow resume
 handle in the worktree-local `.loopship/runtime/hook-state.json`. Runtime-provided
-thread environment variables bind automatically; `loopship hook --wtree <name>`
-or a payload `wtree` explicitly transfers that soft binding between runtime
+thread environment variables bind automatically when they identify a concrete
+runtime. `loopship hook --wtree <name>` or a payload `wtree` explicitly
+transfers that soft binding between runtime
 threads without replacing the Fastflow resume handle. A process-scoped
 `WTREE=<name>` may bind unowned state but cannot transfer an existing binding.
 Later hooks resolve the exact worktree by `runtime + thread_id` and no-op when
