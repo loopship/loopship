@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 57
-      digest: "sha256:4d0a09cefc211d2c4de6a8c891782361502bdb17899ca0e71a8dd38861911ad1"
-      summary: "Route failed transitions to AITL repair and scope verification to current declared acceptance."
+      release: 58
+      digest: "sha256:b50ac749b308b2dfe5906a0b6666db68440ed54413dfc776b66af2c783553423"
+      summary: "Keep failed-transition repair handoff checks declarative."
       inputs:
         required: []
         optional: []
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalU1dBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtA3wEA4LCkUqpsXQ4adF7SL4JO
-    ZswWr0KSeCp1v0ZBHxgVEAwA/27G4FlJRrWrM89Uh+mkvc0/dlb+4I/5T54MMe28
-    pbQO
-    =z6Ra
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalU16xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuP6wEA3QJsoMR/ZFcZyv2RMA9k
+    6I3poLCkYrbj4Ekym4+ENGMBAPn+qm4ZIo5By9Q4sSkpTMNlDHp15WP/o4mFCAgZ
+    1XEJ
+    =WXlr
     -----END PGP SIGNATURE-----

@@ -2099,11 +2099,23 @@ do:
               kind: behaviour
               statement: "Failed lifecycle transitions pause for an explicit AITL repair handoff instead of ending silently."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
+                call: loopship.afn.service.flow.compose-transition-result
+                with:
+                  body:
+                    schema_version: loopship.stage-result.build/v1
+                    flow_id: swe
+                    stage_before: validating
+                    stage_after: validating
+                    transition: failed
+                    step: failure_repair
+                    step_workflow_task: stage_failure_repair_handoff
+                    step_payload: {}
+                    step_action: {}
+                    state_patch: {}
+                    events:
+                      - event: failure_repair_handoff_check
+                    runtime: {}
+                    as_check: true
       call: fastflow.afn.core.request.input
       with:
         body:
