@@ -1,4 +1,4 @@
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand, tsRunner, type RunResult } from "./loopship_utils.ts";
 
@@ -35,7 +35,7 @@ export function parseJsonObject(
 ): Record<string, unknown> {
   try {
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error(`${label} must be a JSON object`);
     }
     return parsed as Record<string, unknown>;
@@ -81,6 +81,27 @@ export function normalizeHookEnvelope(
     metadata: {},
     payload: raw,
   };
+}
+
+export function nativeInitWtree(
+  route: Record<string, unknown>,
+  repoRoot: string,
+): string | null {
+  const nextCall =
+    route.nextCall && typeof route.nextCall === "object" && !Array.isArray(route.nextCall)
+      ? (route.nextCall as Record<string, unknown>)
+      : {};
+  const args =
+    nextCall.args && typeof nextCall.args === "object" && !Array.isArray(nextCall.args)
+      ? (nextCall.args as Record<string, unknown>)
+      : {};
+  const workspaceRoot = String(args.workspaceRoot ?? "").trim();
+  if (!workspaceRoot) return null;
+  const workspace = resolve(workspaceRoot);
+  if (dirname(workspace) !== resolve(repoRoot, "worktrees")) {
+    throw new Error(`native init returned a non-canonical worktree: ${workspace}`);
+  }
+  return basename(workspace);
 }
 
 export function readHookDecision(params: {
@@ -153,8 +174,20 @@ export function routeQuestInit(params: {
     route.new_quest && typeof route.new_quest === "object"
       ? (route.new_quest as Record<string, unknown>)
       : {};
-  const wtree = String(newQuest.suggested_wtree ?? "").trim();
+  const nativeWtree = nativeInitWtree(route, params.repoRoot);
+  const wtree = String(newQuest.suggested_wtree ?? nativeWtree ?? "").trim();
   if (!wtree) fail(`missing wtree in init output: ${init.stdout}`);
+
+  if (!Object.keys(newQuest).length) {
+    return {
+      init,
+      route,
+      routeProc: init,
+      createInput: null,
+      createOutput: route,
+      wtree,
+    };
+  }
 
   const createInput =
     newQuest.input && typeof newQuest.input === "object"

@@ -1,21 +1,24 @@
 import {
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CallDescriptor } from "@cueintent/fastflow";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   applyLandingReceipt,
   applySystemUpdate,
+  assertCanonicalWtreeName,
+  assertValidGitBranchRef,
   appendJsonl,
+  createQuest,
   ensureCoordinatorWorkspace,
   ensureTaskWorkspace,
   isTerminalChildQuestState,
@@ -30,6 +33,7 @@ import {
   writeQuestManifest,
 } from "./loopship_core.ts";
 import type { QuestState } from "./loopship_core.ts";
+import { recordHookRoute, runtimeIdentityFromEnv } from "./loopship_hook_state.ts";
 import { readText, runCommand } from "./loopship_utils.ts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -533,6 +537,12 @@ function ensureLoopshipRuntimeDocument(input: {
   const request = String(input.inputs.request ?? input.inputs.prompt ?? "").trim();
   if (!request) return;
   const wtree = String(input.inputs.wtree ?? "").trim() || defaultWtreeName(request);
+  const expectedWorkspace = resolve(repoRoot, "worktrees", assertCanonicalWtreeName(wtree));
+  if (resolve(input.workspaceRoot) !== expectedWorkspace) {
+    throw new Error(
+      `workflow workspace must match its canonical worktree path: ${expectedWorkspace}`,
+    );
+  }
   const coordinatorBranch =
     gitCurrentBranch(input.workspaceRoot) ||
     wtree ||
@@ -546,33 +556,29 @@ function ensureLoopshipRuntimeDocument(input: {
     optionalString(input.inputs.targetWorktree) ||
     optionalString(input.inputs.target_worktree) ||
     landingTargetWorktreePath(repoRoot, landingTargetBranch);
-  mkdirSync(runtimeDir, { recursive: true });
-  writeFileSync(
-    tasksPath,
-    stringifyYaml({
-      schema_version: 1,
-      quest_id: wtree,
-      wtree,
-      prompt: request,
-      context_root: repoRoot,
-      flow_id: input.flowId,
-      runtime: String(input.inputs.runtime ?? ""),
-      supervise_step: input.superviseStep === true,
-      coordinator_branch: coordinatorBranch,
-      coordinator_worktree: input.workspaceRoot,
-      parent_wtree: optionalString(input.inputs.parentWtree) || optionalString(input.inputs.parent_wtree),
-      parent_task_id:
-        optionalString(input.inputs.parentTaskId) || optionalString(input.inputs.parent_task_id),
-      parent_context_ref:
-        optionalString(input.inputs.parentContextRef) ||
-        optionalString(input.inputs.parent_context_ref),
-      landing_target_branch: landingTargetBranch,
-      landing_target_worktree: landingTargetWorktree,
-      tasks: [],
-      question_rounds: [],
-    }),
-    "utf8",
-  );
+  createQuest({
+    repoRoot,
+    wtree,
+    prompt: request,
+    resolutionSource: "fastflow",
+    superviseStep: input.superviseStep === true,
+    workspace: {
+      branch_ref: coordinatorBranch,
+      worktree_path: input.workspaceRoot,
+      mode: gitCurrentBranch(input.workspaceRoot) ? "git" : "directory",
+    },
+    flowId: input.flowId,
+    initialStage: "initial",
+    parentWtree:
+      optionalString(input.inputs.parentWtree) || optionalString(input.inputs.parent_wtree),
+    parentTaskId:
+      optionalString(input.inputs.parentTaskId) || optionalString(input.inputs.parent_task_id),
+    parentContextRef:
+      optionalString(input.inputs.parentContextRef) ||
+      optionalString(input.inputs.parent_context_ref),
+    landingTargetBranch,
+    landingTargetWorktree,
+  });
 }
 
 function resolveRunWorkspace(input: LoopshipFastflowRunInput): {
@@ -719,10 +725,6 @@ function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/catalog.mjs"
   const candidates = [
     overrideRoot,
     resolve(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow"),
-    resolve(LOOPSHIP_ROOT, "..", "..", "cueintent", "fastflow"),
-    resolve(LOOPSHIP_ROOT, "..", "..", "orgs", "cueintent", "fastflow"),
-    resolve(LOOPSHIP_ROOT, "..", "..", "..", "..", "cueintent", "fastflow"),
-    resolve(LOOPSHIP_ROOT, "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
   ].filter(Boolean);
   for (const candidate of candidates) {
     if (
@@ -899,7 +901,7 @@ export async function runLoopshipFastflowWorkflowRequest(
     inputs,
     superviseStep,
   });
-  return runFastflowNodeSession({
+  const result = runFastflowNodeSession({
     repoRoot: input.repoRoot,
     workspaceRoot,
     catalogRoot,
@@ -910,6 +912,18 @@ export async function runLoopshipFastflowWorkflowRequest(
       inputs,
     },
   });
+  const runtime = String(inputs.runtime ?? "").trim();
+  if (runtime) {
+    const identity = runtimeIdentityFromEnv(runtime);
+    recordHookRoute({
+      repoRoot: input.repoRoot,
+      runtime: identity?.runtime ?? runtime,
+      threadId: identity?.threadId,
+      workspaceRoot,
+      result,
+    });
+  }
+  return result;
 }
 
 export async function runLoopshipFastflowWorkflow(
@@ -964,7 +978,7 @@ function prepareChildLaunch(
   task: Record<string, unknown>,
 ): Record<string, unknown> {
   const repo = requireString(body.repo, "repo");
-  const parentWtree = requireString(body.wtree, "wtree");
+  const parentWtree = assertCanonicalWtreeName(requireString(body.wtree, "wtree"));
   const parent = isPlainObject(body.parent) ? body.parent : {};
   const taskId =
     optionalString(body.task_id) ||
@@ -976,10 +990,12 @@ function prepareChildLaunch(
     optionalString(body.child_wtree) ||
     optionalString(task.child_wtree) ||
     taskAssignmentChildWtree(parentWtree, taskId);
+  assertCanonicalWtreeName(childWtree, "child_wtree");
   const branchRef =
     optionalString(body.branch) ||
     optionalString(task.branch_ref) ||
     taskAssignmentBranchRef(parentWtree, taskId);
+  assertValidGitBranchRef(branchRef, "child branch");
   const worktreePath =
     optionalString(body.worktree_path) ||
     optionalString(task.worktree_path) ||
@@ -988,6 +1004,9 @@ function prepareChildLaunch(
     optionalString(body.base_branch) ||
     optionalString(body.target_branch) ||
     parentWtree;
+  if (branchRef === baseBranch) {
+    throw new Error(`child branch must differ from its base branch: ${branchRef}`);
+  }
   const workspace = body.dry_run === true
     ? { branch_ref: branchRef, worktree_path: worktreePath, mode: "dry-run" }
     : ensureTaskWorkspace(repo, branchRef, worktreePath, baseBranch);
@@ -1155,7 +1174,7 @@ function executeSystemApplyUpdate(body: Record<string, unknown>): Record<string,
 }
 
 function gitRevParse(cwd: string, ref: string): string {
-  const proc = runCommand("git", ["rev-parse", "--verify", ref], {
+  const proc = runCommand("git", ["rev-parse", "--verify", "--end-of-options", ref], {
     cwd,
     timeoutMs: 15_000,
   });
@@ -1317,8 +1336,14 @@ function isIgnorableOperationalDirtyPath(path: string): boolean {
     normalized === ".gemini/settings.json" ||
     normalized === ".github/hooks/loopship.json" ||
     normalized === ".github/hooks" ||
-    normalized === ".loopship/runtime/hook-state.json" ||
-    normalized === ".loopship/runtime/lock.json" ||
+    normalized.startsWith(".loopship/runtime/") ||
+    normalized === ".loopship/cache" ||
+    normalized.startsWith(".loopship/cache/") ||
+    normalized === ".loopship/data" ||
+    normalized.startsWith(".loopship/data/") ||
+    normalized === ".loopship/catalog.db" ||
+    normalized === ".loopship/catalog.db-shm" ||
+    normalized === ".loopship/catalog.db-wal" ||
     normalized.startsWith("worktrees/")
   );
 }
@@ -1335,6 +1360,20 @@ function nonLoopshipGitDirtyEntries(path: string): string[] {
       !isDurableLoopshipDirtyPath(dirtyPath)
     );
   });
+}
+
+function nonOperationalGitDirtyEntries(path: string): string[] {
+  return gitWorktreeDirtyEntries(path).filter(
+    (entry) => !isIgnorableOperationalDirtyPath(dirtyEntryPath(entry)),
+  );
+}
+
+function landingTargetDirtyEntries(path: string): string[] {
+  return nonOperationalGitDirtyEntries(path).filter(
+    (entry) =>
+      dirtyEntryPath(entry) !== ".loopship/.gitignore" ||
+      !entry.trimStart().startsWith("?? "),
+  );
 }
 
 function durableLoopshipStagePaths(cwd: string): string[] {
@@ -1398,10 +1437,14 @@ function commitDurableLoopshipState(cwd: string, message: string): string | null
 }
 
 function gitIsAncestor(cwd: string, ancestor: string, descendant: string): boolean {
-  const proc = runCommand("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
-    cwd,
-    timeoutMs: 15_000,
-  });
+  const proc = runCommand(
+    "git",
+    ["merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant],
+    {
+      cwd,
+      timeoutMs: 15_000,
+    },
+  );
   return proc.status === 0;
 }
 
@@ -1440,6 +1483,31 @@ function assertLandingPreflight(input: {
     );
   }
   const coordinatorWorktree = String(input.state.coordinator_worktree ?? "");
+  const coordinatorBranch = assertValidGitBranchRef(
+    String(input.state.coordinator_branch ?? ""),
+    "coordinator branch",
+  );
+  if (
+    !coordinatorWorktree ||
+    !existsSync(coordinatorWorktree) ||
+    (resolve(coordinatorWorktree) !== resolve(input.repo) &&
+      !isInsideRepoWorktrees(input.repo, coordinatorWorktree))
+  ) {
+    throw new Error(
+      `coordinator worktree must be the repository or a canonical task worktree: ${coordinatorWorktree || "(empty)"}`,
+    );
+  }
+  const registeredCoordinator = parseGitWorktrees(input.repo).find(
+    (entry) => entry.branch === coordinatorBranch,
+  );
+  if (
+    !registeredCoordinator ||
+    resolve(registeredCoordinator.worktree) !== resolve(coordinatorWorktree)
+  ) {
+    throw new Error(
+      `coordinator branch ${coordinatorBranch} is not checked out at ${coordinatorWorktree}`,
+    );
+  }
   const dirtyCoordinatorEntries = nonLoopshipGitDirtyEntries(coordinatorWorktree);
   if (dirtyCoordinatorEntries.length) {
     throw new Error(
@@ -1455,6 +1523,8 @@ function gitMergeIntoTarget(input: {
   targetBranch: string;
   targetWorktree: string;
 }): Record<string, unknown> {
+  input.sourceBranch = assertValidGitBranchRef(input.sourceBranch, "source branch");
+  input.targetBranch = assertValidGitBranchRef(input.targetBranch, "target branch");
   const sourceWorktree = parseGitWorktrees(input.repo).find(
     (entry) => entry.branch === input.sourceBranch,
   )?.worktree;
@@ -1464,21 +1534,48 @@ function gitMergeIntoTarget(input: {
       `chore(loopship): record ${input.sourceBranch} durable state`,
     );
   }
-  const workspace = ensureTaskWorkspace(
-    input.repo,
-    input.targetBranch,
-    input.targetWorktree,
+  const existingTargetWorktree = parseGitWorktrees(input.repo).find(
+    (entry) => entry.branch === input.targetBranch,
   );
+  if (existingTargetWorktree) {
+    const existingPath = resolve(existingTargetWorktree.worktree);
+    const requestedPath = resolve(input.targetWorktree);
+    const defaultPath = landingTargetWorktreePath(input.repo, input.targetBranch);
+    if (
+      existingPath !== resolve(input.repo) &&
+      !isInsideRepoWorktrees(input.repo, existingPath)
+    ) {
+      throw new Error(
+        `landing target branch is checked out outside the repository worktrees: ${existingPath}`,
+      );
+    }
+    if (existingPath !== requestedPath && requestedPath !== defaultPath) {
+      throw new Error(
+        `landing target worktree ${requestedPath} does not match the checked-out branch workspace ${existingPath}`,
+      );
+    }
+  }
+  const workspace = existingTargetWorktree
+    ? {
+        branch_ref: input.targetBranch,
+        worktree_path: existingTargetWorktree.worktree,
+        mode: "git",
+      }
+    : ensureTaskWorkspace(
+        input.repo,
+        input.targetBranch,
+        input.targetWorktree,
+      );
   const currentBranch = gitCurrentBranch(workspace.worktree_path);
   if (currentBranch !== input.targetBranch) {
     throw new Error(
       `landing target worktree ${workspace.worktree_path} is on ${currentBranch || "unknown"} instead of ${input.targetBranch}`,
     );
   }
-  const dirtyTargetNonLoopshipEntries = nonLoopshipGitDirtyEntries(workspace.worktree_path);
-  if (dirtyTargetNonLoopshipEntries.length) {
+  const dirtyTargetEntries = landingTargetDirtyEntries(workspace.worktree_path);
+  if (dirtyTargetEntries.length) {
     throw new Error(
-      `cannot merge into dirty landing target worktree ${workspace.worktree_path}: ${dirtyTargetNonLoopshipEntries.slice(0, 5).join(", ")}`,
+      `cannot merge into dirty landing target worktree ${workspace.worktree_path}: ${dirtyTargetEntries.slice(0, 5).join(", ")}`,
     );
   }
   const sourceCommit = gitRevParse(input.repo, input.sourceBranch);
@@ -1493,12 +1590,6 @@ function gitMergeIntoTarget(input: {
     };
   }
   const ffOnly = gitIsAncestor(input.repo, targetCommit, sourceCommit);
-  if (!ffOnly) {
-    commitDurableLoopshipState(
-      workspace.worktree_path,
-      `chore(loopship): record ${input.targetBranch} target state`,
-    );
-  }
   removeUntrackedLoopshipGitignoreConflict(
     workspace.worktree_path,
     input.sourceBranch,
@@ -1517,7 +1608,7 @@ function gitMergeIntoTarget(input: {
         `failed to merge ${input.sourceBranch} into ${input.targetBranch}`,
     );
   }
-  const dirtyAfterMerge = nonLoopshipGitDirtyEntries(workspace.worktree_path);
+  const dirtyAfterMerge = landingTargetDirtyEntries(workspace.worktree_path);
   if (dirtyAfterMerge.length) {
     throw new Error(
       `landing target worktree ${workspace.worktree_path} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
@@ -1546,8 +1637,22 @@ type LandingCleanupSkipped = LandingCleanupCandidate & {
 function isInsideRepoWorktrees(repo: string, path: string): boolean {
   const base = resolve(repo, "worktrees");
   const target = resolve(path);
-  const rel = relative(base, target);
-  return Boolean(rel) && !rel.startsWith("..") && !isAbsolute(rel);
+  if (dirname(target) !== base) return false;
+  if (existsSync(base)) {
+    try {
+      if (realpathSync(base) !== resolve(realpathSync(repo), "worktrees")) return false;
+    } catch {
+      return false;
+    }
+  }
+  if (existsSync(target)) {
+    try {
+      return dirname(realpathSync(target)) === realpathSync(base);
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 function samePath(left: string, right: string): boolean {
@@ -1665,7 +1770,7 @@ export function cleanupLandedWorktrees(input: {
       continue;
     }
     const dirty = existsSync(normalizedWorktree)
-      ? nonLoopshipGitDirtyEntries(normalizedWorktree)
+      ? nonOperationalGitDirtyEntries(normalizedWorktree)
       : [];
     if (dirty.length) {
       result.skipped.push({
@@ -1698,7 +1803,7 @@ export function cleanupLandedWorktrees(input: {
       result.removed_worktrees.push(normalizedWorktree);
     }
     if (branchExists(repo, candidate.branch)) {
-      const branchDelete = runCommand("git", ["branch", "-d", candidate.branch], {
+      const branchDelete = runCommand("git", ["branch", "-d", "--", candidate.branch], {
         cwd: repo,
         timeoutMs: 15_000,
       });
@@ -1722,7 +1827,7 @@ function gitBranchPathText(
   branch: string,
   path: string,
 ): string | null {
-  const result = runCommand("git", ["show", `${branch}:${path}`], {
+  const result = runCommand("git", ["show", "--end-of-options", `${branch}:${path}`], {
     cwd: repo,
     timeoutMs: 15_000,
   });
@@ -1784,11 +1889,48 @@ function verifiedRecordedReceipt(input: {
   targetWorktree: string;
   receipt: Record<string, unknown>;
 }): Record<string, unknown> {
-  const landedCommit = requireString(input.receipt.landed_commit, "receipt.landed_commit");
-  const targetBranch = optionalString(input.receipt.target_branch) || input.targetBranch;
-  const sourceBranch = optionalString(input.receipt.source_branch) || input.sourceBranch;
-  const targetWorktree = optionalString(input.receipt.target_worktree) || input.targetWorktree;
-  gitRevParse(input.repo, landedCommit);
+  input.sourceBranch = assertValidGitBranchRef(input.sourceBranch, "source branch");
+  input.targetBranch = assertValidGitBranchRef(input.targetBranch, "target branch");
+  const receiptTargetBranch = optionalString(input.receipt.target_branch);
+  const receiptSourceBranch = optionalString(input.receipt.source_branch);
+  if (receiptTargetBranch && receiptTargetBranch !== input.targetBranch) {
+    throw new Error(
+      `landing receipt target branch ${receiptTargetBranch} does not match ${input.targetBranch}`,
+    );
+  }
+  if (receiptSourceBranch && receiptSourceBranch !== input.sourceBranch) {
+    throw new Error(
+      `landing receipt source branch ${receiptSourceBranch} does not match ${input.sourceBranch}`,
+    );
+  }
+  const targetBranch = input.targetBranch;
+  const sourceBranch = input.sourceBranch;
+  const receiptTargetWorktree = optionalString(input.receipt.target_worktree);
+  const existingTargetWorktree = parseGitWorktrees(input.repo).find(
+    (entry) => entry.branch === targetBranch,
+  )?.worktree;
+  if (
+    receiptTargetWorktree &&
+    existingTargetWorktree &&
+    resolve(receiptTargetWorktree) !== resolve(existingTargetWorktree)
+  ) {
+    throw new Error(
+      `landing receipt target worktree ${receiptTargetWorktree} does not match ${existingTargetWorktree}`,
+    );
+  }
+  const targetWorktree =
+    receiptTargetWorktree || existingTargetWorktree || input.targetWorktree;
+  if (
+    targetWorktree &&
+    resolve(targetWorktree) !== resolve(input.repo) &&
+    !isInsideRepoWorktrees(input.repo, targetWorktree)
+  ) {
+    throw new Error(`landing receipt target worktree is outside the repository: ${targetWorktree}`);
+  }
+  const landedCommit = gitRevParse(
+    input.repo,
+    requireString(input.receipt.landed_commit, "receipt.landed_commit"),
+  );
   if (sourceBranch) {
     const sourceCommit = gitRevParse(input.repo, sourceBranch);
     if (!gitIsAncestor(input.repo, sourceCommit, landedCommit)) {
@@ -1806,7 +1948,7 @@ function verifiedRecordedReceipt(input: {
     }
   }
   if (targetWorktree && existsSync(targetWorktree)) {
-    const dirtyTargetEntries = nonLoopshipGitDirtyEntries(targetWorktree);
+    const dirtyTargetEntries = landingTargetDirtyEntries(targetWorktree);
     if (dirtyTargetEntries.length) {
       throw new Error(
         `cannot record landing receipt for dirty target worktree ${targetWorktree}: ${dirtyTargetEntries.slice(0, 5).join(", ")}`,

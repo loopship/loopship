@@ -90,6 +90,14 @@ message InitRequest {
       help: "Explicit base worktree name."
     }
   ];
+
+  string source_branch = 6 [(cmdproto.v1.param) = { flag: { long: "source-branch" } help: "Coordinator source branch." }];
+  string parent_wtree = 7 [(cmdproto.v1.param) = { flag: { long: "parent-wtree" } help: "Parent coordinator worktree." }];
+  string parent_task_id = 8 [(cmdproto.v1.param) = { flag: { long: "parent-task-id" } help: "Parent task id." }];
+  string parent_context_ref = 9 [(cmdproto.v1.param) = { flag: { long: "parent-context-ref" } help: "Parent runtime task state path." }];
+  string target_branch = 10 [(cmdproto.v1.param) = { flag: { long: "target-branch" } help: "Landing target branch." }];
+  string target_worktree = 11 [(cmdproto.v1.param) = { flag: { long: "target-worktree" } help: "Landing target worktree." }];
+  string skill_home = 12 [(cmdproto.v1.param) = { flag: { long: "skill-home" } help: "Optional Loopship skill installation root." }];
 }
 
 message HookRequest {
@@ -146,6 +154,8 @@ message DoctorRequest {
       help: "Apply doctor repairs instead of reporting only."
     }
   ];
+
+  string hook_script = 4 [(cmdproto.v1.param) = { flag: { long: "hook-script" } help: "Explicit runtime hook script path." }];
 }
 
 message HandbookRequest {
@@ -162,12 +172,17 @@ message HandbookRequest {
       help: "Return the rendered Markdown in the machine response instead of writing a temp file."
     }
   ];
+
+  bool duplicates = 3 [(cmdproto.v1.param) = { flag: { long: "duplicates" } help: "Report duplicate canonical prose." }];
+  bool fix_duplicates = 4 [(cmdproto.v1.param) = { flag: { long: "fix-duplicates" } help: "Apply schema-safe duplicate prose rewrites." }];
+  bool fail_on_duplicates = 5 [(cmdproto.v1.param) = { flag: { long: "fail-on-duplicates" } help: "Exit nonzero when duplicate groups remain." }];
+  int32 min_chars = 6 [(cmdproto.v1.param) = { flag: { long: "min-chars" } help: "Minimum duplicate prose length." }];
 }
 
 message InitResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/init-output.yaml\"},{\"type\":\"object\",\"required\":[\"mode\",\"files\"],\"properties\":{\"mode\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"additionalProperties\":true}]}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/fastflow-response.yaml\"},{\"$ref\":\"schemas/steps/init-output.yaml\"},{\"type\":\"object\",\"required\":[\"mode\",\"files\"],\"properties\":{\"mode\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"additionalProperties\":true}]}"
     }
   ];
 }
@@ -175,7 +190,7 @@ message InitResponse {
 message HookResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/hook-output.yaml\"},{\"type\":\"object\",\"maxProperties\":0}]}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/fastflow-response.yaml\"},{\"$ref\":\"schemas/steps/hook-output.yaml\"},{\"type\":\"object\",\"maxProperties\":0}]}"
     }
   ];
 }
@@ -191,7 +206,7 @@ message DoctorResponse {
 message HandbookResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
-      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"oneOf\":[{\"required\":[\"path\",\"file_url\"],\"properties\":{\"path\":{\"type\":\"string\"},\"file_url\":{\"type\":\"string\"}},\"additionalProperties\":false},{\"required\":[\"markdown\"],\"properties\":{\"markdown\":{\"type\":\"string\"}},\"additionalProperties\":false}]}"
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"oneOf\":[{\"required\":[\"path\",\"file_url\"],\"properties\":{\"path\":{\"type\":\"string\"},\"file_url\":{\"type\":\"string\"}},\"additionalProperties\":false},{\"required\":[\"markdown\"],\"properties\":{\"markdown\":{\"type\":\"string\"}},\"additionalProperties\":false},{\"required\":[\"repo\",\"min_chars\",\"duplicate_groups\",\"duplicate_count\"],\"properties\":{\"repo\":{\"type\":\"string\"},\"min_chars\":{\"type\":\"integer\",\"minimum\":1},\"duplicate_groups\":{\"type\":\"array\"},\"duplicate_count\":{\"type\":\"integer\",\"minimum\":0},\"applied_fixes\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"skipped_fixes\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"signature_path\":{\"type\":\"string\"}},\"additionalProperties\":false}]}"
     }
   ];
 }

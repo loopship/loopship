@@ -3,6 +3,8 @@
 Spec workflows, looped until shipped.
 
 Publishable Loopship runtime package for deterministic V3 worktree-based quest workflows.
+Installed package entrypoints run under Bun. Node 26 or newer is also required
+for the Fastflow subprocesses launched by the runtime.
 
 ```bash
 npx @omar391/loopship init "loopship: build the app" --runtime codex
@@ -20,8 +22,9 @@ node index.ts cmdproto execjson init '{"request":"loopship:build-the-app","repo"
 node index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
 ```
 
-The launcher skill lives in
-`/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules/skills/loopship/SKILL.md`.
+Init installs or refreshes the launcher skill under `LOOPSHIP_SKILL_HOME`, when
+set, or `~/.agents/skills/loopship` by default. `--skill-home <path>` overrides
+that location for one invocation.
 Lifecycle, prompts, schemas, state, manifests, child subagent flow, and next
 actions are owned by Fastflow workflows and workflow-data operations. Loopship
 is the consumer layer: CLI parsing, repo/runtime bootstrap, Fastflow app
@@ -30,6 +33,13 @@ configuration, and Loopship AFN adapter registration.
 The reusable Fastflow consumer facade is exported at `@omar391/loopship/fastflow`.
 The legacy workflow runner is validation tooling only and is not exported as a
 package API.
+
+The root package resolution pins local development to an immutable commit
+from the private Fastflow GitHub repository. Published Loopship artifacts list Fastflow in
+`bundledDependencies`, so the production package vendors that exact runtime and
+does not require consumer access to the private repository. Update the Fastflow
+commit and `bun.lock` together, then run the release verification before
+publishing.
 
 `cmdproto` is wired in as a transparent command wrapper. `loopship cmdproto`
 mirrors the current public command paths through `cmdproto execjson <path> <payload>`,
@@ -64,6 +74,21 @@ For mocked runtime lifecycle stepping, `loopship stepper` supports:
 Fastflow owns the stepper `nextCall` resume command and decision payload.
 Loopship only contributes concise supervisor guidance through Fastflow app
 configuration; it does not render continuation commands.
+
+Runtime hooks keep the agent thread ID separate from Fastflow's `sessionId`.
+Loopship installs and diagnoses hooks for Codex, Gemini, and Copilot. The hook
+router itself is runtime-neutral: manually configured Claude, Antigravity, or
+other integrations invoke `loopship hook --runtime <runtime>` and provide their
+native thread identifier in the hook payload.
+Each paused run stores `runtime`, `thread_id`, `wtree`, and the Fastflow resume
+handle in the worktree-local `.loopship/runtime/hook-state.json`. Runtime-provided
+thread environment variables bind automatically when they identify a concrete
+runtime. `loopship hook --wtree <name>` or a payload `wtree` explicitly
+transfers that soft binding between runtime
+threads without replacing the Fastflow resume handle. A process-scoped
+`WTREE=<name>` may bind unowned state but cannot transfer an existing binding.
+Later hooks resolve the exact worktree by `runtime + thread_id` and no-op when
+that identity is missing or ambiguous.
 In `superviseStep` mode, coordinator quests launch at most one child at a time,
 while ordinary `loopship init` runs may still dispatch multiple children in
 parallel. Supervised child launches use `loopship stepper init` so the child

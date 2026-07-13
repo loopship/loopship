@@ -5,8 +5,42 @@ import {
   matchProcessSkipReason,
   matchSkipReason,
 } from "./verify_runtime_live.ts";
+import { nativeInitWtree, parseJsonObject } from "./runtime_supervisor.ts";
 
 describe("verify_runtime_live", () => {
+  it("rejects array output where a runtime object is required", () => {
+    expect(() => parseJsonObject("[]", "runtime output")).toThrow(
+      "expected JSON for runtime output",
+    );
+  });
+
+  it("derives native init worktrees without a legacy new_quest command", () => {
+    expect(
+      nativeInitWtree(
+        {
+          nextCall: {
+            args: {
+              workspaceRoot: "/tmp/repo/worktrees/native-quest",
+            },
+          },
+        },
+        "/tmp/repo",
+      ),
+    ).toBe("native-quest");
+    expect(() =>
+      nativeInitWtree(
+        {
+          nextCall: {
+            args: {
+              workspaceRoot: "/tmp/escaped",
+            },
+          },
+        },
+        "/tmp/repo",
+      ),
+    ).toThrow("native init returned a non-canonical worktree");
+  });
+
   it("classifies quota, auth, unhealthy runtimes, and unsupported models as skipped", () => {
     expect(matchSkipReason("HTTP 429 too many requests")).toBe(
       "quota_or_rate_limit",

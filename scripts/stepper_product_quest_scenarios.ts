@@ -54,6 +54,8 @@ export type StepperQuestLikeState = Partial<{
     dependencies: string[];
     scope_files: string[];
     child_wtree: string;
+    branch_ref: string;
+    worktree_path: string;
     acceptance: string;
   }>;
 }>;

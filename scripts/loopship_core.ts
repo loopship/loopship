@@ -4,16 +4,21 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  realpathSync,
   readdirSync,
   rmSync,
 } from "node:fs";
-import { createPrivateKey, sign as signBytes } from "node:crypto";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import {
+  createPrivateKey,
+  createPublicKey,
+  sign as signBytes,
+  verify as verifyBytes,
+} from "node:crypto";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   expandHome,
   hashText,
   nowIso,
-  readJson,
   readText,
   runCommand,
   shellQuote,
@@ -295,6 +300,34 @@ export function normalizeName(input: string): string {
   return value || "main";
 }
 
+export function assertCanonicalWtreeName(value: string, label = "wtree"): string {
+  const normalized = String(value ?? "").trim();
+  if (
+    !normalized ||
+    normalized.length > 96 ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)
+  ) {
+    throw new Error(
+      `${label} must use lowercase letters, numbers, and single hyphen separators`,
+    );
+  }
+  return normalized;
+}
+
+export function assertValidGitBranchRef(value: string, label = "branch"): string {
+  const normalized = String(value ?? "").trim();
+  if (!normalized || normalized.startsWith("-") || normalized.includes("@{")) {
+    throw new Error(`${label} is not a valid Git branch name: ${normalized || "(empty)"}`);
+  }
+  const checked = runCommand("git", ["check-ref-format", "--branch", normalized], {
+    timeoutMs: 10_000,
+  });
+  if (checked.status !== 0) {
+    throw new Error(`${label} is not a valid Git branch name: ${normalized}`);
+  }
+  return normalized;
+}
+
 function normalizedPromptText(value: unknown): string {
   return String(value ?? "")
     .toLowerCase()
@@ -315,15 +348,6 @@ export function isTerminalChildQuestState(
     Boolean(String(state.parent_context_ref ?? "").trim()) ||
     normalizedPromptText(state.prompt).startsWith("execute child task ")
   );
-}
-
-function yamlScalar(value: string): string {
-  return JSON.stringify(String(value ?? ""));
-}
-
-function yamlStringList(values: string[]): string {
-  if (!values.length) return "[]";
-  return `[${values.map((value) => yamlScalar(value)).join(", ")}]`;
 }
 
 function asStringList(value: unknown): string[] {
@@ -385,21 +409,6 @@ export function questWorkspaceRoot(files: QuestFiles): string {
   return files.workspace_root;
 }
 
-function collectYamlFiles(root: string): string[] {
-  if (!existsSync(root)) return [];
-  const entries = readdirSync(root, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const path = resolve(root, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...collectYamlFiles(path));
-      continue;
-    }
-    if (entry.isFile() && path.endsWith(".yaml")) files.push(path);
-  }
-  return files.sort();
-}
-
 function manifestPathKey(root: string, path: string): string {
   const key = relative(root, path).replace(/\\/g, "/");
   return key && !key.startsWith("..") ? key : path;
@@ -453,6 +462,19 @@ function signManifestReceipt(receiptHead: string): Record<string, string> {
     key_id: "loopship-local-v2",
     value,
   };
+}
+
+function manifestSignatureIsValid(receiptHead: string, value: string): boolean {
+  try {
+    return verifyBytes(
+      null,
+      Buffer.from(receiptHead, "utf8"),
+      createPublicKey(createPrivateKey(LOCAL_MANIFEST_PRIVATE_KEY)),
+      Buffer.from(value, "base64"),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function renderYamlDocument(value: Record<string, unknown>): string {
@@ -882,7 +904,7 @@ function systemResources(
     );
 }
 
-function schemaPathForResource(repoRoot: string, schemaRef: string): string {
+function schemaPathForResource(schemaRef: string): string {
   if (schemaRef === "self") return "";
   if (schemaRef.startsWith("loopship://schemas/")) {
     return schemaRef.slice("loopship://".length);
@@ -966,7 +988,7 @@ function canonicalManagedEntries(repoRoot: string): Array<{
       schema_path:
         String(entry.schema_ref) === "self"
           ? String(entry.location)
-          : schemaPathForResource(repoRoot, String(entry.schema_ref)),
+          : schemaPathForResource(String(entry.schema_ref)),
       role: String(entry.role),
     }));
   const byPath = new Map<string, (typeof shippedSchemaEntries)[number] | (typeof resourceEntries)[number]>();
@@ -1063,6 +1085,16 @@ export function verifyRootManifest(repoRoot: string): {
   if (!manifest || typeof manifest !== "object") {
     return { ok: false, errors: [`missing root signature: ${manifestPath}`] };
   }
+  const schemaErrors = validateSchemaPath(
+    manifest as Record<string, any>,
+    "schemas/signature.yaml",
+  );
+  if (schemaErrors.length) {
+    return {
+      ok: false,
+      errors: schemaErrors.map((error) => `invalid root signature: ${error}`),
+    };
+  }
   const errors: string[] = [];
   const root = asRecord(manifest.root);
   if (!root || typeof root.path !== "string" || typeof root.digest !== "string") {
@@ -1083,9 +1115,14 @@ export function verifyRootManifest(repoRoot: string): {
   const actualEntries = Array.isArray(manifest.entries)
     ? (manifest.entries as Array<Record<string, unknown>>)
     : [];
-  const actualByPath = new Map(
+  const actualByPath = new Map<string, Record<string, unknown>>(
     actualEntries
-      .map((entry) => [String(entry.path ?? ""), entry])
+      .map(
+        (entry): [string, Record<string, unknown>] => [
+          String(entry.path ?? ""),
+          entry,
+        ],
+      )
       .filter(([path]) => path.length > 0),
   );
   for (const entry of expectedEntries) {
@@ -1142,11 +1179,13 @@ export function verifyRootManifest(repoRoot: string): {
   if (
     manifest.signer !== "system_update" ||
     signature?.algorithm !== "ed25519" ||
-    typeof signature?.key_id !== "string" ||
+    signature?.key_id !== "loopship-local-v2" ||
     typeof signature?.value !== "string" ||
     !signature.value
   ) {
     errors.push(`root signature must include a system_update ed25519 signature: ${manifestPath}`);
+  } else if (!manifestSignatureIsValid(expectedHead, signature.value)) {
+    errors.push(`root signature cryptographic verification failed: ${manifestPath}`);
   }
   return { ok: errors.length === 0, errors };
 }
@@ -1182,9 +1221,14 @@ export function applySystemUpdate(
   const rootResources = Array.isArray(root.resources)
     ? (root.resources as Array<Record<string, unknown>>)
     : [];
-  const resourceByRef = new Map(
+  const resourceByRef = new Map<string, Record<string, unknown>>(
     rootResources
-      .map((resource) => [`resource:${String(resource.id ?? "")}`, resource] as const)
+      .map(
+        (resource): [string, Record<string, unknown>] => [
+          `resource:${String(resource.id ?? "")}`,
+          resource,
+        ],
+      )
       .filter(([ref]) => ref !== "resource:"),
   );
   const plannedExternalDocs: Array<{
@@ -1217,7 +1261,7 @@ export function applySystemUpdate(
     if (!document) {
       throw new Error(`system_update upsert requires document: ${relativePath}`);
     }
-    const schemaPath = schemaPathForResource(repoRoot, schemaRef);
+    const schemaPath = schemaPathForResource(schemaRef);
     if (!schemaPath) {
       throw new Error(`system_update cannot resolve schema ${schemaRef} for ${resourceRef}`);
     }
@@ -1261,8 +1305,6 @@ export function renderMinimalSkillMd(): string {
     "",
     "# Loopship",
     "",
-    "Package source lives in `/Volumes/Projects/business/AstronLab/orgs/loopship/loopship`.",
-    "",
     'When user prompt is `loopship: {request}`, invoke `loopship init "{request}" --runtime <runtime>` from the repo root and follow the instructions from output.',
     "",
     "```bash",
@@ -1274,11 +1316,9 @@ export function renderMinimalSkillMd(): string {
 
 export function ensureGlobalSkillFiles(skillRoot?: string | null): string {
   const home = process.env.HOME?.trim() || ".";
-  const sharedSkillRoot = "/Volumes/Projects/business/AstronLab/personal/devtools/ai-rules/skills/loopship";
   const base =
     skillRoot?.trim() ||
     process.env.LOOPSHIP_SKILL_HOME?.trim() ||
-    (existsSync(resolve(sharedSkillRoot, "SKILL.md")) ? sharedSkillRoot : "") ||
     resolve(home, ".agents", "skills", "loopship");
   const skillPath = resolve(expandHome(base), "SKILL.md");
   const expected = renderMinimalSkillMd();
@@ -1549,54 +1589,6 @@ export function renderTasksYaml(state: QuestState): string {
     },
     { lineWidth: 0 },
   );
-}
-
-function parseYamlScalar(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed);
-    return typeof parsed === "string" ? parsed : String(parsed);
-  } catch {
-    return trimmed.replace(/^['"]|['"]$/g, "");
-  }
-}
-
-function parseYamlStringList(value: string): string[] {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "[]") return [];
-  try {
-    const parsed = JSON.parse(trimmed);
-    return asStringList(parsed);
-  } catch {
-    return trimmed
-      .replace(/^\[|\]$/g, "")
-      .split(",")
-      .map((item) => parseYamlScalar(item))
-      .filter(Boolean);
-  }
-}
-
-function emptyQuestTask(id: string): QuestTask {
-  return {
-    id,
-    title: "",
-    type: "coding",
-    status: "child_received",
-    dependencies: [],
-    scope_files: [],
-    spec_refs: [],
-    context_refs: [],
-    branch_ref: "",
-    worktree_path: "",
-    child_wtree: "",
-    concurrency_group: "",
-    merge_target: "",
-    merge_lease_id: "",
-    merge_commit: "",
-    system_impact_ref: "",
-    acceptance: "",
-  };
 }
 
 export function parseTasksYaml(text: string): Partial<QuestState> {
@@ -2092,6 +2084,22 @@ export function createQuest(input: {
   landedCommit?: string;
   landingStrategy?: string;
 }): { files: QuestFiles; state: QuestState } {
+  const workspacePath = assertRepoWorktreePath(input.repoRoot, input.workspace.worktree_path);
+  const expectedWorkspacePath = coordinatorWorktreePath(input.repoRoot, input.wtree);
+  if (workspacePath !== expectedWorkspacePath) {
+    throw new Error(
+      `quest workspace must match its canonical worktree path: ${expectedWorkspacePath}`,
+    );
+  }
+  const coordinatorBranch = assertValidGitBranchRef(
+    input.workspace.branch_ref,
+    "coordinator branch",
+  );
+  const landingTargetBranch = assertValidGitBranchRef(
+    input.landingTargetBranch ?? "main",
+    "landing target branch",
+  );
+  if (input.parentWtree) assertCanonicalWtreeName(input.parentWtree, "parent_wtree");
   const files = questFiles(input.repoRoot, input.wtree);
   if (existsSync(files.tasks)) {
     throw new Error(`quest wtree already exists: ${input.wtree}`);
@@ -2107,12 +2115,12 @@ export function createQuest(input: {
     context_root: input.repoRoot,
     resolution_source: input.resolutionSource,
     supervise_step: input.superviseStep === true,
-    coordinator_branch: input.workspace.branch_ref,
-    coordinator_worktree: input.workspace.worktree_path,
+    coordinator_branch: coordinatorBranch,
+    coordinator_worktree: workspacePath,
     parent_wtree: String(input.parentWtree ?? ""),
     parent_task_id: String(input.parentTaskId ?? ""),
     parent_context_ref: String(input.parentContextRef ?? ""),
-    landing_target_branch: String(input.landingTargetBranch ?? "main"),
+    landing_target_branch: landingTargetBranch,
     landing_target_worktree: String(input.landingTargetWorktree ?? ""),
     landed_commit: String(input.landedCommit ?? ""),
     landing_strategy: String(input.landingStrategy ?? ""),
@@ -2257,7 +2265,7 @@ function isRuntimeScaffoldOnlyDirectory(path: string): boolean {
 }
 
 function gitRefCommit(repoRoot: string, ref: string): string | null {
-  const proc = runCommand("git", ["rev-parse", "--verify", ref], {
+  const proc = runCommand("git", ["rev-parse", "--verify", "--end-of-options", ref], {
     cwd: repoRoot,
     timeoutMs: 10_000,
   });
@@ -2285,7 +2293,7 @@ function syncWorkspaceToBaseIfSafe(
   if (!branchCommit || !baseCommit || branchCommit === baseCommit) return;
   const divergence = runCommand(
     "git",
-    ["rev-list", "--left-right", "--count", `${base}...${branchRef}`],
+    ["rev-list", "--left-right", "--count", `${baseCommit}...${branchCommit}`],
     {
       cwd: repoRoot,
       timeoutMs: 10_000,
@@ -2298,7 +2306,7 @@ function syncWorkspaceToBaseIfSafe(
   if (behindCount === 0 || aheadCount !== 0 || !gitWorkspaceClean(worktreePath)) {
     return;
   }
-  const reset = runCommand("git", ["reset", "--hard", base], {
+  const reset = runCommand("git", ["reset", "--hard", baseCommit], {
     cwd: worktreePath,
     timeoutMs: 30_000,
   });
@@ -2315,7 +2323,7 @@ export function coordinatorWorktreePath(
   repoRoot: string,
   wtree: string,
 ): string {
-  return resolve(repoRoot, "worktrees", wtree);
+  return resolve(repoRoot, "worktrees", assertCanonicalWtreeName(wtree));
 }
 
 export function landingTargetWorktreePath(
@@ -2325,12 +2333,49 @@ export function landingTargetWorktreePath(
   return resolve(repoRoot, "worktrees", `landing-${normalizeName(branchRef)}`);
 }
 
+function assertRepoWorktreePath(repoRoot: string, worktreePath: string): string {
+  const worktreesRoot = resolve(repoRoot, "worktrees");
+  const requestedPath = resolve(worktreePath);
+  const relativePath = relative(worktreesRoot, requestedPath);
+  if (
+    !relativePath ||
+    relativePath.startsWith("..") ||
+    isAbsolute(relativePath) ||
+    dirname(requestedPath) !== worktreesRoot
+  ) {
+    throw new Error(`task worktree path must stay inside ${worktreesRoot}: ${requestedPath}`);
+  }
+  if (
+    existsSync(worktreesRoot) &&
+    realpathSync(worktreesRoot) !== resolve(realpathSync(repoRoot), "worktrees")
+  ) {
+    throw new Error(`repository worktrees root must not be a symlink: ${worktreesRoot}`);
+  }
+  if (existsSync(requestedPath)) {
+    try {
+      const realRelative = relative(realpathSync(worktreesRoot), realpathSync(requestedPath));
+      if (realRelative !== relativePath) {
+        throw new Error(
+          `task worktree path must resolve to its canonical location: ${requestedPath}`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("task worktree path must resolve")) {
+        throw error;
+      }
+      throw new Error(`cannot resolve task worktree path: ${requestedPath}`);
+    }
+  }
+  return requestedPath;
+}
+
 function ensureNamedWorkspace(
   repoRoot: string,
   branchRef: string,
   desiredPath: string,
   baseRef?: string,
 ): QuestWorkspace {
+  branchRef = assertValidGitBranchRef(branchRef);
   if (!hasGitCommit(repoRoot)) {
     mkdirSync(desiredPath, { recursive: true });
     return {
@@ -2398,10 +2443,10 @@ function ensureNamedWorkspace(
         timeoutMs: 10_000,
       },
     ).status === 0;
-  let startRef = String(baseRef ?? "").trim() || "HEAD";
-  if (!branchExists && startRef !== "HEAD" && !gitRefCommit(repoRoot, startRef)) {
-    startRef = "HEAD";
-  }
+  const requestedStartRef = String(baseRef ?? "").trim() || "HEAD";
+  const startRef = branchExists
+    ? "HEAD"
+    : gitRefCommit(repoRoot, requestedStartRef) ?? "HEAD";
   const proc = branchExists
     ? runCommand("git", ["worktree", "add", desiredPath, branchRef], {
         cwd: repoRoot,
@@ -2442,7 +2487,19 @@ export function ensureTaskWorkspace(
   worktreePath: string,
   baseRef?: string,
 ): QuestWorkspace {
-  return ensureNamedWorkspace(repoRoot, branchRef, resolve(worktreePath), baseRef);
+  const requestedPath = assertRepoWorktreePath(repoRoot, worktreePath);
+  const existingBranchWorkspace = parseGitWorktrees(repoRoot).find(
+    (entry) => entry.branch === branchRef,
+  );
+  if (
+    existingBranchWorkspace &&
+    resolve(existingBranchWorkspace.worktree) !== requestedPath
+  ) {
+    throw new Error(
+      `task branch ${branchRef} is already checked out outside its requested worktree: ${existingBranchWorkspace.worktree}`,
+    );
+  }
+  return ensureNamedWorkspace(repoRoot, branchRef, requestedPath, baseRef);
 }
 
 function renderLoopshipShim(loopshipScriptAbs: string): string {
@@ -2475,12 +2532,12 @@ function renderLoopshipShim(loopshipScriptAbs: string): string {
     "    ;;",
     "esac",
     "if command -v node >/dev/null 2>&1; then",
-    "  if node -e \"const [major,minor]=process.versions.node.split('.').map(Number); process.exit(major > 22 || (major === 22 && minor >= 6) ? 0 : 1)\" >/dev/null 2>&1; then",
+    "  if node -e \"const major=Number(process.versions.node.split('.')[0]); process.exit(major >= 26 ? 0 : 1)\" >/dev/null 2>&1; then",
     '    exec node "$SCRIPT" "$@"',
     "  fi",
     "fi",
     "if command -v bun >/dev/null 2>&1; then",
-    '  exec bun "$SCRIPT" "$@"',
+    '  exec bun --no-install "$SCRIPT" "$@"',
     "fi",
     "if command -v npx >/dev/null 2>&1; then",
     '  exec npx -y tsx "$SCRIPT" "$@"',

@@ -66,6 +66,7 @@ describe("loopship lifecycle matrix", () => {
     const planned = LIFECYCLE_MATRIX.map((scenario) => ({
       id: scenario.id,
       prompt: scenario.prompt,
+      wtree: scenario.id,
       classification: scenario.classification,
       child_count: scenario.tasks.length,
       archived: true,
