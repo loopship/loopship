@@ -37,9 +37,9 @@ workflows:
       requires: []
   child-result:
     stable:
-      release: 2
-      digest: "sha256:2328d11fb655526c7aff8a9c866be93c100b100878671204ee42eb397293bb8a"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      release: 4
+      digest: "sha256:d068283c4a3142d8b29dc324f63d562101cd94b104faca83deb90fde3978f0f1"
+      summary: "Keep child-result review on native CLI with AITL fallback."
       inputs:
         required: []
         optional:
@@ -126,9 +126,9 @@ workflows:
         - loopship.afn.service.landing.apply-outcome
   plan:
     stable:
-      release: 8
-      digest: "sha256:198ef58ad3d333748988b7622fc21d4c8053c152c3799d5382bd71caa7e26877"
-      summary: "Allow plan task graphs to carry decomposition rationale"
+      release: 10
+      digest: "sha256:47e7a1aaba8563ed01b48f5f5873c8f6129bd1b15ce3457658efcf9636b86fb1"
+      summary: "Keep planning on native CLI with AITL fallback; questions remain HITL."
       inputs:
         required: []
         optional:
@@ -163,8 +163,8 @@ workflows:
   questions:
     stable:
       release: 2
-      digest: "sha256:c148837eda2d41990ae817e4a4d2a777105dc0edb904ab6d103acf31b5af482f"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      digest: "sha256:a3cf68c03262972b46dae3b9e8d2eb3d892b3298140a8f2ded3c992c07be7d0d"
+      summary: "Keep clarification answers on HITL handoff instead of inline CLI."
       inputs:
         required: []
         optional:
@@ -195,9 +195,9 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 7
-      digest: "sha256:622baf7a0a26dfc8ce052106884079bb15855b3c2edaa76232b64036860238eb"
-      summary: "Rename system update AFN call."
+      release: 9
+      digest: "sha256:905e2d85297ee5c60b30dc4c3bed865e4532303ba55ff9d169952355e08066b5"
+      summary: "Keep system update review on native CLI with AITL fallback."
       inputs:
         required: []
         optional: []
@@ -205,9 +205,9 @@ workflows:
         - loopship.afn.service.system.apply-update
   task-graph:
     stable:
-      release: 3
-      digest: "sha256:0b91052928aaa130f1e02507b674f5df83e2631f67550ec7cc9624e04b111d33"
-      summary: "Reject broad task graphs without recursive parallel splits."
+      release: 5
+      digest: "sha256:d9b1ab2fa4ed1d3d2bcbd7a0a2a7f75da23af963db070091172a1df2b9ae8e44"
+      summary: "Keep task-graph review on native CLI with AITL fallback."
       inputs:
         required: []
         optional:
@@ -238,9 +238,9 @@ workflows:
       requires: []
   validation:
     stable:
-      release: 2
-      digest: "sha256:4d75790590dac127845f936eb88524c2e69db8c3d35184cbf2520265244d36c1"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      release: 6
+      digest: "sha256:d957129fd6abf13e65fe7b2c620b8badcd5ba1b6ad31ea35e08ddf21ba3dd4ab"
+      summary: "Validate pre-landing task evidence without requiring landing ancestry."
       inputs:
         required: []
         optional:
@@ -271,9 +271,9 @@ workflows:
       requires: []
   verification:
     stable:
-      release: 2
-      digest: "sha256:0a3db8a8e14b6cf321102b7d97af43293101fe37fd592f912a00818d69626fb9"
-      summary: "Bind Loopship step inference to Codex registry routes."
+      release: 5
+      digest: "sha256:f84445a739b4fd2c6c814a33f85324dbbefd8fc0eb8ddd8f5c0690c37d461e02"
+      summary: "Keep verification scoped to declared acceptance and residual baseline risk."
       inputs:
         required: []
         optional:
@@ -306,9 +306,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCak8pSxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtt4wD/QO797GEWiUVucl+i9tFE
-    ZZydjMgKiQ9O/hdOEY65vfwBAPAgDHVMZP9CrQdbdFiO4VbgxKqe+WeGAf/mHC7X
-    6RQE
-    =Uh8p
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalU0ihsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt8vwEAgebSZY+4MG7jrUeTFg/g
+    yoAsmzESch5jQDhlkUp3crAA/2xX7dmbn9qIgYzjw4iwKsuTCs480Wm+gktnYqcw
+    bsIP
+    =JvY2
     -----END PGP SIGNATURE-----
