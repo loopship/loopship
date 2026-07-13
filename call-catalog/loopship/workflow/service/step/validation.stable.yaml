@@ -1,9 +1,11 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-step
   name: validation
   version: 0.1.0
-  summary: "Submit deterministic validation results only, including schemas, DAG, tests, build, lint/typecheck, manifest, and behavior refs."
+  summary: "Submit task-scoped deterministic validation results with lifecycle and focused-check evidence."
   metadata:
     catalog:
       tags:
@@ -24,7 +26,6 @@ document:
           try:
             - llm.cli.codex.gpt-5.3-codex-spark.max
             - aitl.chat
-            - hitl.review
 input:
   schema:
     document:
@@ -354,18 +355,33 @@ do:
           timeout_ms: 250
           instruction: |-
             # Loopship Validation Step
-            
+
             Act as a top-class deterministic validation engineer for Loopship. Treat this
             instruction block as the validation step's system prompt: run objective
             checks, report their evidence, and return only the schema-valid `validation`
             callback.
-            
+
             ## Step-Local Callback Contract
-            
+
             This step is reusable across flows. The Fastflow orchestrator owns flow transitions and continuation state. Return exactly one JSON payload matching this step's answer schema; do not include command strings, successor-state scaffolding, or fields for a guessed next step.
-            
+
             Run deterministic checks only: schemas, DAG, tests, build, lint/typecheck,
             manifest checks, and live behavior refs when applicable.
+
+            Set top-level `status` to `failed` only when task acceptance,
+            lifecycle evidence, or changed-file verification actually fails.
+            If broad repo checks fail for pre-existing dependency resolution,
+            permissions, network, or other environment constraints unrelated to
+            the assigned task, record those checks as `skipped` or `failed`
+            with a clear summary but do not fail the validation when focused
+            task-specific checks and lifecycle receipts pass.
+
+            Before the landing step runs, do not require the implementation
+            commit to already be reachable from the landing target branch.
+            For pre-landing validation, the relevant lifecycle evidence is the
+            child or coordinator worktree commit, clean status, focused checks,
+            and `local_work_receipt`; the landing step owns merge ancestry and
+            landing-target receipt checks.
           request:
             schema:
               "$schema": "https://json-schema.org/draft/2020-12/schema"

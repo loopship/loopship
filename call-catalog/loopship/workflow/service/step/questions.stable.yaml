@@ -1,9 +1,11 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
 document:
   dsl: 1.0.3
   namespace: service-step
   name: questions
   version: 0.1.0
-  summary: "Submit grouped user answers for the current clarification round."
+  summary: "Submit human-reviewed grouped answers for the current clarification round."
   metadata:
     catalog:
       tags:
@@ -22,8 +24,6 @@ document:
             - invalid_output
             - abstain
           try:
-            - llm.cli.codex.gpt-5.5.max
-            - aitl.chat
             - hitl.review
 input:
   schema:

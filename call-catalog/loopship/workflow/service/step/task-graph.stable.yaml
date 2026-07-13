@@ -5,7 +5,7 @@ document:
   namespace: service-step
   name: task-graph
   version: 0.1.0
-  summary: "Approve or reject the generated task graph, including a replan reason when rejected."
+  summary: "Review the generated task graph through automated routing and record any replan reason."
   metadata:
     catalog:
       tags:
@@ -26,7 +26,6 @@ document:
           try:
             - llm.cli.codex.gpt-5.3-codex-spark.max
             - aitl.chat
-            - hitl.review
 input:
   schema:
     document:
