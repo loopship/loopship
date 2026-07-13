@@ -69,14 +69,38 @@ function main(): number {
     const publicHelpJson = parseJson(publicHelp.stdout, "public cmdproto help");
     const commands = Array.isArray(publicHelpJson.commands) ? publicHelpJson.commands : [];
     const commandPaths = commands.map((entry: any) => String(entry.path ?? "")).sort();
-    if (JSON.stringify(commandPaths) !== JSON.stringify(["doctor", "handbook", "hook", "init"])) {
+    if (
+      JSON.stringify(commandPaths) !==
+      JSON.stringify(["doctor", "handbook", "hook", "init", "resume"])
+    ) {
       fail(`public cmdproto commands are incomplete: ${JSON.stringify(commandPaths)}`);
     }
     if (commandPaths.some((path: string) => path.startsWith("stepper"))) {
       fail("cmdproto help must not expose stepper as a public ABI command");
     }
+    if (!commands.some((entry: any) => String(entry.path ?? "") === "resume")) {
+      fail("cmdproto help must expose canonical quest recovery through resume");
+    }
 
     ensureSystemScaffold(repo);
+    const missingResume = runCommand(
+      "bun",
+      [
+        SCRIPT,
+        "cmdproto",
+        "execjson",
+        "resume",
+        JSON.stringify({ repo, wtree: "missing-quest" }),
+      ],
+      { cwd: repo, timeoutMs: 30_000 },
+    );
+    if (missingResume.status === 0) {
+      fail("cmdproto resume unexpectedly recovered a missing quest");
+    }
+    if (!missingResume.stderr.includes("missing canonical Loopship quest state")) {
+      fail(`cmdproto resume did not select canonical worktree recovery: ${missingResume.stderr}`);
+    }
+
     const handbook = runCommand(
       "bun",
       [

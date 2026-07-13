@@ -9,6 +9,8 @@ for the Fastflow subprocesses launched by the runtime.
 ```bash
 npx @omar391/loopship init "loopship: build the app" --runtime codex
 node index.ts init "loopship: build the app" --runtime codex --flow swe
+node index.ts resume --repo /repo --wtree build-the-app
+node index.ts resume --repo /repo --json @fastflow-resume.json
 node index.ts hook --runtime codex
 node index.ts stepper init "loopship: build me a python app" --runtime codex --flow swe
 node index.ts stepper step --json @fastflow-resume.json
@@ -19,6 +21,7 @@ node index.ts handbook --raw
 node index.ts handbook --duplicates --json
 node index.ts handbook --fix-duplicates --json
 node index.ts cmdproto execjson init '{"request":"loopship:build-the-app","repo":"/repo","runtime":"codex"}'
+node index.ts cmdproto execjson resume '{"repo":"/repo","wtree":"build-the-app"}'
 node index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
 ```
 
@@ -43,12 +46,25 @@ publishing.
 
 `cmdproto` is wired in as a transparent command wrapper. `loopship cmdproto`
 mirrors the current public command paths through `cmdproto execjson <path> <payload>`,
-while still delegating to `loopship init`, `loopship hook`, `loopship doctor`,
-and `loopship handbook` command logic. Local guided stepping remains CLI-only via
+while still delegating to `loopship init`, `loopship resume`, `loopship hook`,
+`loopship doctor`, and `loopship handbook` command logic. Local guided stepping remains CLI-only via
 `loopship stepper` and emits native Fastflow run/resume responses.
-The old hidden `resume` continuation bridge has been removed.
 Fastflow workflow run/resume responses, the Loopship Fastflow consumer adapter,
 and JSON Schema payload contracts are the lifecycle contract.
+
+`loopship resume` has two explicit recovery modes. `--json` forwards the
+`sessionId`, `nonce`, `workspaceRoot`, and answer or decision from a Fastflow
+handoff response. `--wtree` starts a new Fastflow process against an existing
+canonical quest after an unexpected inline-process interruption. Ordinary
+inline process failures are retried once automatically from the same durable
+worktree state; `resume --wtree` covers failures that terminate the wrapper
+itself, such as a machine restart.
+
+Fastflow sessions and their configured CLI agents run with the canonical quest
+worktree as the process working directory. Question rounds pause only through
+`hitl.review`. A failed validation or verification transition pauses through an
+`aitl.subagent` repair handoff, then resumes by re-reading canonical state; it
+does not return a successful nonterminal result or require another `init`.
 
 `loopship handbook` renders a standalone generated Markdown handbook from
 `.loopship/system.yaml` and canonical document resources. By default it writes to a
@@ -71,7 +87,7 @@ For mocked runtime lifecycle stepping, `loopship stepper` supports:
 - `loopship stepper step --repo <repo> --json @-`: resume a native Fastflow pause using `sessionId`, optional `nonce`, and the pause-specific `decision` or supervisor decision fields
 - `loopship stepper hook --repo <repo> --json @-`: explicitly exercise native Fastflow resume passthrough behavior
 
-Fastflow owns the stepper `nextCall` resume command and decision payload.
+Fastflow owns every handoff `nextCall` resume command and decision payload.
 Loopship only contributes concise supervisor guidance through Fastflow app
 configuration; it does not render continuation commands.
 

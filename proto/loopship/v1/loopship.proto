@@ -9,11 +9,23 @@ service LoopshipService {
   rpc Init(InitRequest) returns (InitResponse) {
     option (cmdproto.v1.command) = {
       path: "init"
-      summary: "Start or resume a Loopship quest from an objective."
+      summary: "Start a Loopship quest from an objective."
       example: {
         command: "init loopship:build-the-app --repo . --runtime codex --flow swe --wtree build-the-app"
         description: "Start routing for a Loopship request."
         request_json: "{\"request\":\"loopship:build-the-app\",\"repo\":\".\",\"runtime\":\"codex\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
+      }
+    };
+  }
+
+  rpc Resume(ResumeRequest) returns (ResumeResponse) {
+    option (cmdproto.v1.command) = {
+      path: "resume"
+      summary: "Resume a handoff or recover an interrupted quest from canonical state."
+      example: {
+        command: "resume --repo . --wtree build-the-app"
+        description: "Recover an interrupted inline quest from its canonical worktree state."
+        request_json: "{\"repo\":\".\",\"wtree\":\"build-the-app\"}"
       }
     };
   }
@@ -133,6 +145,32 @@ message HookRequest {
   ];
 }
 
+message ResumeRequest {
+  string repo = 1 [
+    (cmdproto.v1.param) = {
+      flag: { long: "repo" }
+      help: "Repo root containing the quest worktree."
+    }
+  ];
+
+  string wtree = 2 [
+    (cmdproto.v1.param) = {
+      flag: { long: "wtree" }
+      help: "Interrupted quest worktree to recover when no handoff payload is supplied."
+    }
+  ];
+
+  google.protobuf.Struct payload = 3 [
+    (cmdproto.v1.param) = {
+      json: { enabled: true }
+      help: "Optional native Fastflow handoff resume payload."
+    },
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
+    }
+  ];
+}
+
 message DoctorRequest {
   string repo = 1 [
     (cmdproto.v1.param) = {
@@ -191,6 +229,14 @@ message HookResponse {
   google.protobuf.Struct output = 1 [
     (cmdproto.v1.field_json_schema) = {
       json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"$ref\":\"schemas/steps/fastflow-response.yaml\"},{\"$ref\":\"schemas/steps/hook-output.yaml\"},{\"type\":\"object\",\"maxProperties\":0}]}"
+    }
+  ];
+}
+
+message ResumeResponse {
+  google.protobuf.Struct output = 1 [
+    (cmdproto.v1.field_json_schema) = {
+      json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
     }
   ];
 }

@@ -26,6 +26,10 @@ const CMDPROTO_HELP_COMMANDS = [
     path: "init",
     summary: "Start a Loopship quest from an objective.",
   },
+  {
+    path: "resume",
+    summary: "Resume a handoff or recover an interrupted quest from canonical state.",
+  },
 ] as const;
 const CMDPROTO_HELP_EXECJSON = {
   name: "cmdproto execjson",
@@ -47,6 +51,7 @@ type CommandExecution = {
 
 export type LoopshipCmdprotoHandlers = {
   runInit(argv: string[]): Promise<number>;
+  runResume(argv: string[]): Promise<number>;
   runHook(argv: string[]): Promise<number>;
   runDoctor(argv: string[]): number;
 };
@@ -321,6 +326,25 @@ async function invokeHook(
   };
 }
 
+async function invokeResume(
+  params: Record<string, unknown>,
+  handlers: LoopshipCmdprotoHandlers,
+): Promise<CommandExecution> {
+  const args: string[] = [];
+  pushFlag(args, "--repo", params.repo);
+  pushFlag(args, "--wtree", params.wtree);
+  const payload = objectValue(params.payload);
+  if (Object.keys(payload).length) {
+    pushJsonArg(args, payload);
+  }
+  const output = await withCapturedOutput(() => handlers.runResume(args));
+  return {
+    statusCode: output.statusCode,
+    stdout: normalizeJsonStdout(output, "loopship resume"),
+    stderr: output.stderr,
+  };
+}
+
 async function invokeDoctor(
   params: Record<string, unknown>,
   handlers: LoopshipCmdprotoHandlers,
@@ -397,6 +421,7 @@ async function runExecJsonCommand(
   if (path === "doctor") return await invokeDoctor(payload, handlers);
   if (path === "handbook") return await invokeHandbook(payload);
   if (path === "hook") return await invokeHook(payload, handlers);
+  if (path === "resume") return await invokeResume(payload, handlers);
   throw new Error(`Unknown command: ${path}`);
 }
 

@@ -22,12 +22,12 @@
     "cmdproto",
   ],
   "overrides": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#486afa24fae754cf194caca40900cece1e18ba00",
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#7da0bce3b43dc7c7be362763573d3f9ff2e3a282",
   },
   "packages": {
     "@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.0", "", {}, "sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA=="],
 
-    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#486afa24fae754cf194caca40900cece1e18ba00", { "dependencies": { "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a" }, "bin": { "fastflow": "./bin/fastflow.mjs" } }, "486afa24fae754cf194caca40900cece1e18ba00"],
+    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#7da0bce3b43dc7c7be362763573d3f9ff2e3a282", { "dependencies": { "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a" }, "bin": { "fastflow": "./bin/fastflow.mjs" } }, "7da0bce3b43dc7c7be362763573d3f9ff2e3a282"],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
@@ -54,5 +54,7 @@
     "undici-types": ["undici-types@7.21.0", "", {}, "sha512-w9IMgQrz4O0YN1LtB7K5P63vhlIOvC7opSmouCJ+ZywlPAlO9gIkJ+otk6LvGpAs2wg4econaCz3TvQ9xPoyuQ=="],
 
     "yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
+
+    "@cueintent/fastflow/cmdproto": ["cmdproto@github:omar391/cmdproto#b0d9997", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "bin": { "cmdproto": "./scripts/cmdproto.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-b0d9997", "sha512-BjGY1m+Z6sFo7naoggpvnvbp7+yHIX6dRE6RPeYmE4cVnSsuxIb2iTHTJ9H1X41SQLh9qAe2URpXtfaFGSZShg=="],
   }
 }

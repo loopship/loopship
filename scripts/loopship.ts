@@ -6,7 +6,7 @@ import {
   realpathSync,
   rmSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   expandHome,
@@ -28,6 +28,7 @@ import {
 import { runHandbook } from "./loopship_handbook.ts";
 import { runStepperCli } from "./loopship_stepper.ts";
 import {
+  recoverLoopshipFastflowWorkflow,
   resolveLoopshipFlowId,
   resumeLoopshipFastflowWorkflow,
   runLoopshipFastflowWorkflow,
@@ -45,6 +46,7 @@ export { nativeResumeRequest } from "./loopship_resume.ts";
 
 type Command =
   | "init"
+  | "resume"
   | "doctor"
   | "hook"
   | "stepper"
@@ -64,6 +66,8 @@ function usage(): void {
 
 Usage:
   loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow <id>] [--wtree <name>]
+  loopship resume --repo <path> --wtree <name>
+  loopship resume --repo <path> --json <fastflow-resume-json|@file|@->
   loopship hook --runtime <runtime> [--wtree <name>]
   loopship stepper init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
   loopship stepper step --json <fastflow-resume-json|@file|@->
@@ -79,7 +83,7 @@ function parseCommand(argv: string[]): Command {
   const cmd = argv[0] as Command | undefined;
   if (
     !cmd ||
-    !["init", "doctor", "hook", "stepper", "cmdproto", "handbook"].includes(cmd)
+    !["init", "resume", "doctor", "hook", "stepper", "cmdproto", "handbook"].includes(cmd)
   ) {
     usage();
     process.exit(1);
@@ -743,9 +747,63 @@ export async function runHook(argv: string[]): Promise<number> {
   return 0;
 }
 
+export async function runResume(argv: string[]): Promise<number> {
+  const args = parseQuestRepoArg(argv);
+  if (args.rest.length) {
+    throw new Error(`unknown resume argument: ${args.rest[0]}`);
+  }
+  if (args.json && args.wtree) {
+    throw new Error("loopship resume accepts either --wtree or --json, not both");
+  }
+  if (args.json) {
+    const raw = readHookJsonArg(args.json);
+    const envelopeLike = raw.command === "hook";
+    const payload = envelopeLike && raw.payload ? raw.payload : raw;
+    const request = nativeResumeRequest(payload);
+    if (!request) {
+      throw new Error("loopship resume --json requires a native Fastflow payload with sessionId");
+    }
+    const contextPayload = {
+      ...(envelopeLike ? raw.context : {}),
+      ...(envelopeLike ? raw.metadata : {}),
+      ...payload,
+    };
+    const context = resolveRepoContext({
+      repo: args.repo,
+      payload: contextPayload,
+      cwd: resolveCwd(contextPayload),
+    });
+    const result = await resumeLoopshipFastflowWorkflow({
+      repoRoot: context.repoRoot,
+      request,
+    });
+    if (typeof request.workspaceRoot === "string" && request.workspaceRoot.trim()) {
+      updateHookRouteForWorkspace({
+        repoRoot: context.repoRoot,
+        workspaceRoot: request.workspaceRoot,
+        result,
+      });
+    }
+    questResponse(result);
+    return 0;
+  }
+  if (!args.wtree) {
+    throw new Error("loopship resume requires --wtree or --json: use --wtree for canonical recovery and --json for a Fastflow handoff");
+  }
+  const context = resolveRepoContext({ repo: args.repo, cwd: process.cwd() });
+  const result = await recoverLoopshipFastflowWorkflow({
+    repoRoot: context.repoRoot,
+    wtree: args.wtree,
+    progressMode: "compact",
+  });
+  questResponse(result);
+  return 0;
+}
+
 export async function runInit(argv: string[]): Promise<number> {
   const args = parseInitArgs(argv);
   if (args.objective) {
+    assertInitIsNewQuest(args.repo, args.wtree);
     ensureV3Runtime({
       repoRoot: args.repo,
       runtime: args.runtime,
@@ -787,6 +845,25 @@ export async function runInit(argv: string[]): Promise<number> {
   return 0;
 }
 
+function assertInitIsNewQuest(repoRoot: string, wtree: string | null): void {
+  if (!wtree) return;
+  const tasksPath = join(repoRoot, "worktrees", wtree, ".loopship", "runtime", "tasks.yaml");
+  if (!existsSync(tasksPath)) return;
+  throw new Error(
+    [
+      `loopship init refused: worktree '${wtree}' is already initialized at ${tasksPath}.`,
+      `Recover an interrupted inline run with: loopship resume --repo ${repoRoot} --wtree ${wtree}`,
+      "Resume a handoff with the Fastflow pause response instead of starting a new init.",
+      "The resume JSON must include the pause response nextCall.args values, or flattened sessionId, nonce, and workspaceRoot fields.",
+      "Underlying Fastflow resume command: fastflow workflows resume <sessionId> --nonce <nonce> --workspace-root <workspaceRoot> --response-json @-",
+      `Resume handoff payloads with: loopship resume --repo ${repoRoot} --json @pause-response-with-answer.json`,
+      `Resume HITL handoff payloads with: loopship hook --repo ${repoRoot} --json @pause-response-with-answer.json`,
+      `Resume superviseStep payloads with: loopship stepper step --repo ${repoRoot} --json @pause-response-with-decision.json`,
+      "Start a new quest with a different --wtree.",
+    ].join("\n"),
+  );
+}
+
 export async function runCliCommand(argv: string[]): Promise<number> {
   if (
     argv[0] !== "cmdproto" &&
@@ -797,7 +874,7 @@ export async function runCliCommand(argv: string[]): Promise<number> {
     const { runLoopshipCmdproto } = await import("./loopship_cmdproto.ts");
     return await runLoopshipCmdproto(argv, {
       control: false,
-      handlers: { runInit, runHook, runDoctor },
+      handlers: { runInit, runResume, runHook, runDoctor },
     });
   }
   if (
@@ -810,13 +887,14 @@ export async function runCliCommand(argv: string[]): Promise<number> {
   const cmd = parseCommand(argv);
   const rest = argv.slice(1);
   if (cmd === "init") return await runInit(rest);
+  if (cmd === "resume") return await runResume(rest);
   if (cmd === "hook") return await runHook(rest);
   if (cmd === "stepper") return await runStepperCli(rest);
   if (cmd === "handbook") return runHandbook(rest);
   if (cmd === "cmdproto") {
     const { runLoopshipCmdproto } = await import("./loopship_cmdproto.ts");
     return await runLoopshipCmdproto(rest, {
-      handlers: { runInit, runHook, runDoctor },
+      handlers: { runInit, runResume, runHook, runDoctor },
     });
   }
   return runDoctor(rest);
