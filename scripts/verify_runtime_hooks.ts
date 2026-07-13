@@ -276,6 +276,85 @@ function main(): number {
     if (routedNoop.stdout.trim() !== "{}") {
       fail(`bound thread lookup without a workflow response must no-op: ${routedNoop.stdout}`);
     }
+
+    const handoff = runLoopship(
+      repo,
+      [
+        "hook",
+        "--runtime",
+        "claude",
+        "--repo",
+        repo,
+        "--wtree",
+        "hook-route",
+      ],
+      {
+        session_id: "claude-thread-a",
+        cwd: repo,
+        hook_event_name: "Stop",
+      },
+    );
+    if (handoff.status !== 0) fail(handoff.stderr || handoff.stdout);
+    if (handoff.stdout.trim() !== "{}") {
+      fail(`runtime handoff without a workflow response must no-op: ${handoff.stdout}`);
+    }
+    const handedOffState = parseJson(
+      readFileSync(
+        join(repo, "worktrees", "hook-route", ".loopship", "runtime", "hook-state.json"),
+        "utf8",
+      ),
+      "handed off hook state",
+    );
+    if (
+      handedOffState.runtime !== "claude" ||
+      handedOffState.thread_id !== "claude-thread-a"
+    ) {
+      fail(`explicit worktree must transfer the runtime binding: ${JSON.stringify(handedOffState)}`);
+    }
+    if (JSON.stringify(handedOffState.fastflow) !== JSON.stringify(hookState.fastflow)) {
+      fail(`runtime handoff must preserve the Fastflow resume handle: ${JSON.stringify(handedOffState)}`);
+    }
+    if (
+      resolveHookRoute({
+        repoRoot: repo,
+        runtime: "codex",
+        threadId: "codex-thread-a",
+      }) !== null
+    ) {
+      fail("the previous runtime thread must not resolve after handoff");
+    }
+    const handedOffRoute = resolveHookRoute({
+      repoRoot: repo,
+      runtime: "claude",
+      threadId: "claude-thread-a",
+    });
+    if (handedOffRoute?.wtree !== "hook-route") {
+      fail("the new runtime thread must resolve the handed-off worktree");
+    }
+    const staleOwner = runLoopship(
+      repo,
+      ["hook", "--runtime", "codex", "--repo", repo],
+      {
+        session_id: "codex-thread-a",
+        cwd: repo,
+        hook_event_name: "Stop",
+      },
+      { WTREE: "hook-route" },
+    );
+    if (staleOwner.status !== 0) fail(staleOwner.stderr || staleOwner.stdout);
+    const retainedHandoff = parseJson(
+      readFileSync(
+        join(repo, "worktrees", "hook-route", ".loopship", "runtime", "hook-state.json"),
+        "utf8",
+      ),
+      "retained handoff hook state",
+    );
+    if (
+      retainedHandoff.runtime !== "claude" ||
+      retainedHandoff.thread_id !== "claude-thread-a"
+    ) {
+      fail("an ambient WTREE must not reclaim an existing runtime binding");
+    }
     const resumePayload =
       pause.kind === "handoff_answer"
         ? { decision: nativePlanDecision() }

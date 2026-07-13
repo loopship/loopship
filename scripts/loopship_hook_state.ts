@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { readJson, writeJson } from "./loopship_utils.ts";
 
-export type FastflowHookToken = {
+export type FastflowResumeHandle = {
   sessionId: string;
   nonce?: string;
   workspaceRoot: string;
@@ -17,7 +17,7 @@ export type HookRouteState = {
   thread_id?: string;
   wtree: string;
   workspace_root: string;
-  fastflow: FastflowHookToken;
+  fastflow: FastflowResumeHandle;
   updated_at: string;
   [key: string]: unknown;
 };
@@ -94,10 +94,10 @@ function validRouteWorkspace(repoRoot: string, state: HookRouteState): boolean {
   );
 }
 
-function fastflowToken(
+function fastflowResumeHandle(
   result: Record<string, unknown>,
   workspaceRoot?: string,
-): FastflowHookToken | null {
+): FastflowResumeHandle | null {
   const nextCall = objectValue(result.nextCall);
   const args = objectValue(nextCall.args);
   const sessionId = stringValue(args.sessionId);
@@ -175,9 +175,9 @@ export function recordHookRoute(input: {
   workspaceRoot: string;
   result: Record<string, unknown>;
 }): HookRouteState | null {
-  const token = fastflowToken(input.result, input.workspaceRoot);
-  if (!token) return null;
-  const wtree = workspaceWtree(input.repoRoot, token.workspaceRoot);
+  const handle = fastflowResumeHandle(input.result, input.workspaceRoot);
+  if (!handle) return null;
+  const wtree = workspaceWtree(input.repoRoot, handle.workspaceRoot);
   const path = wtree ? statePath(input.repoRoot, wtree) : null;
   if (!wtree || !path) return null;
   const current = (readJson(path) ?? {}) as Record<string, unknown>;
@@ -186,8 +186,8 @@ export function recordHookRoute(input: {
     schema_version: 1,
     runtime: input.runtime,
     wtree,
-    workspace_root: token.workspaceRoot,
-    fastflow: token,
+    workspace_root: handle.workspaceRoot,
+    fastflow: handle,
     updated_at: new Date().toISOString(),
     ...(stringValue(input.threadId) ? { thread_id: stringValue(input.threadId) } : {}),
   };
@@ -201,20 +201,23 @@ export function resolveHookRoute(input: {
   runtime: string;
   threadId: string;
   wtree?: string;
+  allowTransfer?: boolean;
 }): HookRouteState | null {
   const explicit = stringValue(input.wtree);
   if (explicit) {
     const path = statePath(input.repoRoot, explicit);
     const state = path ? readState(path) : null;
-    if (
-      !state ||
-      !validRouteWorkspace(input.repoRoot, state) ||
+    if (!state || !validRouteWorkspace(input.repoRoot, state)) return null;
+    if (!state.thread_id) {
+      state.runtime = input.runtime;
+      state.thread_id = input.threadId;
+      state.updated_at = new Date().toISOString();
+      writeJson(path!, state);
+    } else if (
+      state.thread_id !== input.threadId ||
       (state.runtime !== input.runtime && state.runtime !== "all")
     ) {
-      return null;
-    }
-    if (state.thread_id && state.thread_id !== input.threadId) return null;
-    if (!state.thread_id) {
+      if (!input.allowTransfer) return null;
       state.runtime = input.runtime;
       state.thread_id = input.threadId;
       state.updated_at = new Date().toISOString();
@@ -248,8 +251,8 @@ export function updateHookRoute(
 ): void {
   const directPath = resolve(route.workspace_root, ".loopship", "runtime", "hook-state.json");
   const current = (readJson(directPath) ?? {}) as Record<string, unknown>;
-  const token = fastflowToken(result, route.workspace_root);
-  if (token) current.fastflow = token;
+  const handle = fastflowResumeHandle(result, route.workspace_root);
+  if (handle) current.fastflow = handle;
   else delete current.fastflow;
   current.updated_at = new Date().toISOString();
   writeJson(directPath, current);

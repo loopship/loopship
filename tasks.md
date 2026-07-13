@@ -9,9 +9,10 @@ This ledger tracks the repo's worktree-first lifecycle coverage after the hard c
 - Canonical quest runtime state is written under `worktrees/<wtree>/.loopship/runtime/`.
 - Only `.loopship/system.yaml`, canonical `.loopship/docs/**/*.yaml`, and `.loopship/signature.yaml` are merged back to tracked root `.loopship/**`.
 - Hook continuation counters live in worktree-local `.loopship/runtime/hook-state.json`.
+- Explicit worktree hook input transfers the soft runtime-thread binding while preserving the Fastflow resume handle.
 - Hook routing stores runtime thread IDs separately from Fastflow session IDs and resolves an
-  exact worktree through `runtime + thread_id`, with explicit `wtree`/`WTREE` as the binding
-  fallback.
+  exact worktree through `runtime + thread_id`; explicit `wtree` can transfer ownership, while
+  `WTREE` is an initial-binding fallback only.
 - Hook continuation output stays compact and does not expose legacy identity keys.
 - Simulation flows and child dispatch flows use `wtree` consistently.
 - Legacy quest-state keys fail fast and require manual cleanup or quest recreation.
