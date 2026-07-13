@@ -374,6 +374,9 @@ do:
             than failing otherwise-passed task acceptance. Set verification
             `status` to `failed` only when declared acceptance, changed behavior,
             or required lifecycle evidence fails.
+            After a repair or environment correction, evaluate the current
+            validation receipt and do not keep a superseded historical failure
+            open when current evidence proves that check now passes.
           request:
             schema:
               "$schema": "https://json-schema.org/draft/2020-12/schema"

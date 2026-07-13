@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 56
-      digest: "sha256:027bc3290ee6762fecfcfb526a591536f0579ba183d6ece181c86a61d40677cf"
-      summary: "Continue persisted lifecycle stages to the next inline or handoff boundary."
+      release: 57
+      digest: "sha256:4d0a09cefc211d2c4de6a8c891782361502bdb17899ca0e71a8dd38861911ad1"
+      summary: "Route failed transitions to AITL repair and scope verification to current declared acceptance."
       inputs:
         required: []
         optional: []
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalUnnhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuh5gD/QKnIWJYF2dcVL7zgvP48
-    V1kfJTDMWv1TGsTvQGa85jEA/jB2p9YcNhngNZyDLmcYld7ZIGnxGSOZQDJumtuu
-    cgQH
-    =59od
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalU1dBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtA3wEA4LCkUqpsXQ4adF7SL4JO
+    ZswWr0KSeCp1v0ZBHxgVEAwA/27G4FlJRrWrM89Uh+mkvc0/dlb+4I/5T54MMe28
+    pbQO
+    =z6Ra
     -----END PGP SIGNATURE-----
