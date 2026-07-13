@@ -2122,7 +2122,6 @@ do:
           timeout_ms: 600000
           instruction: |-
             # Loopship Failed-Transition Repair
-            
             Act as the assigned AITL repair agent for the current Loopship
             worktree. Inspect the failed validation or verification result,
             canonical task state, receipts, git state, and relevant checks.
