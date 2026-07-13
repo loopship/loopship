@@ -409,12 +409,6 @@ function nativeResumePrompt(reason: string): string {
   ].join("\n");
 }
 
-function countJsonl(path: string): number {
-  return readText(path)
-    .split(/\r?\n/)
-    .filter((line) => line.trim()).length;
-}
-
 function countEvent(path: string, eventName: string): number {
   return readText(path)
     .split(/\r?\n/)

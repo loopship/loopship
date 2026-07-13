@@ -76,4 +76,4 @@
 
 <!-- END rules:local -->
 
-Load on-demand specs: [`code-review`](~/.agents/skills/agent-md/assets/specs/code-review.md)
+Load on-demand specs: [`code-review`](~/.agents/skills/agent-md/assets/specs/code-review.md), [`sharia`](~/.agents/skills/agent-md/assets/specs/sharia.md)

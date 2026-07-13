@@ -93,7 +93,7 @@ export function nativeResumeRequest(
         : Object.keys(nextArgs).length
           ? nextArgs
           : value;
-  const sessionId = String(source.sessionId ?? source.session_id ?? "").trim();
+  const sessionId = String(source.sessionId ?? "").trim();
   if (!sessionId) return null;
   const request: Record<string, unknown> = { sessionId };
   for (const field of ["nonce", "workspaceRoot", "executionName", "progressMode"]) {

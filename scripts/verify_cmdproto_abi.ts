@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureSystemScaffold } from "./loopship_core.ts";
 import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
@@ -57,20 +58,75 @@ function main(): number {
     });
     if (help.status !== 0) fail(help.stderr || help.stdout);
     const helpJson = parseJson(help.stdout, "cmdproto help");
-    const commands = Array.isArray(helpJson.commands) ? helpJson.commands : [];
-    if (commands.some((entry: any) => String(entry.path ?? "").startsWith("stepper"))) {
+    if (Object.prototype.hasOwnProperty.call(helpJson, "commands")) {
+      fail("cmdproto control help must expose only the execjson control surface");
+    }
+    const publicHelp = runCommand("bun", [SCRIPT, "--help", "--json"], {
+      cwd: repo,
+      timeoutMs: 30_000,
+    });
+    if (publicHelp.status !== 0) fail(publicHelp.stderr || publicHelp.stdout);
+    const publicHelpJson = parseJson(publicHelp.stdout, "public cmdproto help");
+    const commands = Array.isArray(publicHelpJson.commands) ? publicHelpJson.commands : [];
+    const commandPaths = commands.map((entry: any) => String(entry.path ?? "")).sort();
+    if (JSON.stringify(commandPaths) !== JSON.stringify(["doctor", "handbook", "hook", "init"])) {
+      fail(`public cmdproto commands are incomplete: ${JSON.stringify(commandPaths)}`);
+    }
+    if (commandPaths.some((path: string) => path.startsWith("stepper"))) {
       fail("cmdproto help must not expose stepper as a public ABI command");
+    }
+
+    ensureSystemScaffold(repo);
+    const handbook = runCommand(
+      "bun",
+      [
+        SCRIPT,
+        "cmdproto",
+        "execjson",
+        "handbook",
+        JSON.stringify({ repo, duplicates: true, minChars: 80 }),
+      ],
+      { cwd: repo, timeoutMs: 30_000 },
+    );
+    if (handbook.status !== 0) fail(handbook.stderr || handbook.stdout);
+    const handbookJson = parseJson(handbook.stdout, "cmdproto handbook duplicates");
+    if (!Array.isArray(handbookJson.duplicate_groups)) {
+      fail(`cmdproto handbook duplicate output is malformed: ${handbook.stdout}`);
     }
 
     const hook = runCommand(
       "bun",
-      [SCRIPT, "cmdproto", "execjson", "hook", JSON.stringify({ repo, payload: {} })],
+      [
+        SCRIPT,
+        "cmdproto",
+        "execjson",
+        "hook",
+        JSON.stringify({
+          repo,
+          runtime: "codex",
+          payload: {
+            session_id: "runtime-thread-not-fastflow",
+            cwd: repo,
+            hook_event_name: "Stop",
+          },
+        }),
+      ],
       { cwd: repo, timeoutMs: 30_000 },
     );
     if (hook.status !== 0) fail(hook.stderr || hook.stdout);
     const hookJson = parseJson(hook.stdout, "cmdproto hook");
     if (Object.keys(hookJson).length !== 0) {
-      fail(`cmdproto hook without native resume payload must no-op: ${hook.stdout}`);
+      fail(`cmdproto runtime hook without a route must no-op: ${hook.stdout}`);
+    }
+
+    const emptyHook = runCommand(
+      "bun",
+      [SCRIPT, "cmdproto", "execjson", "hook", JSON.stringify({ repo, payload: {} })],
+      { cwd: repo, timeoutMs: 30_000 },
+    );
+    if (emptyHook.status !== 0) fail(emptyHook.stderr || emptyHook.stdout);
+    if (Object.keys(parseJson(emptyHook.stdout, "empty cmdproto hook")).length !== 0) {
+      fail(`cmdproto hook with an empty payload must no-op: ${emptyHook.stdout}`);
     }
 
     console.log("loopship cmdproto ABI verification passed");

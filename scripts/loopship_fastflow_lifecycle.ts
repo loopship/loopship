@@ -10,7 +10,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const LOOPSHIP_ROOT = resolve(SCRIPT_DIR, "..");
 const FASTFLOW_ROOT = process.env.LOOPSHIP_FASTFLOW_ROOT
   ? resolve(process.env.LOOPSHIP_FASTFLOW_ROOT)
-  : resolve(LOOPSHIP_ROOT, "..", "..", "..", "..", "cueintent", "fastflow");
+  : resolve(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow");
 const FASTFLOW_INDEX = resolve(FASTFLOW_ROOT, "src", "index.mjs");
 const FASTFLOW_LIFECYCLE_SCRIPT = resolve(FASTFLOW_ROOT, "scripts", "fastflow-internal-lifecycle.mjs");
 

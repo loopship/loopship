@@ -8,22 +8,20 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { V3_STEP_SCHEMAS } from "./loopship_schema.ts";
+import { V3_STEP_SCHEMAS, v3SchemaFilePath } from "./loopship_schema.ts";
 
 const PACKAGE_ROOT = process.cwd();
 const CALL_CATALOG_ROOT = join(PACKAGE_ROOT, "call-catalog");
 
 function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/workflow.mjs"]): string {
   const candidates = [
+    process.env.LOOPSHIP_FASTFLOW_ROOT,
     join(PACKAGE_ROOT, "node_modules", "@cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "orgs", "cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "..", "..", "cueintent", "fastflow"),
-    resolve(PACKAGE_ROOT, "..", "..", "..", "..", "orgs", "cueintent", "fastflow"),
-  ];
+  ].filter(Boolean) as string[];
   const found = candidates.find((candidate) =>
     existsSync(join(candidate, "package.json")) &&
     requiredFiles.every((file) => existsSync(join(candidate, file))),
@@ -37,7 +35,7 @@ function fastflowImport(path: string): string {
 }
 
 function runNodeCheck(source: string, args: string[] = []): string {
-  const dir = mkdtempSync(join(PACKAGE_ROOT, "tmp", "flow-schema-"));
+  const dir = mkdtempSync(join(tmpdir(), "loopship-flow-schema-"));
   const script = join(dir, "check.mjs");
   writeFileSync(script, source, "utf8");
   try {
@@ -135,7 +133,7 @@ describe("Loopship declarative Fastflow catalog", () => {
   });
 
   it("validates every Loopship workflow with Fastflow native SWF validators", () => {
-    const dir = mkdtempSync(join(PACKAGE_ROOT, "tmp", "flow-schema-workflows-"));
+    const dir = mkdtempSync(join(tmpdir(), "loopship-flow-schema-workflows-"));
     const dataPath = join(dir, "workflows.json");
     const workflows = Object.fromEntries(
       collectWorkflowFiles().map((file) => [file, readYamlObject(file)]),
@@ -212,7 +210,7 @@ describe("Loopship declarative Fastflow catalog", () => {
   it("reports malformed direct stable workflow edits through digest drift", () => {
     const entries = workflowScopeRoots().flatMap((scopeRoot) => workflowDigestEntries(scopeRoot));
     expect(entries.length).toBeGreaterThan(0);
-    const dir = mkdtempSync(join(PACKAGE_ROOT, "tmp", "flow-digests-"));
+    const dir = mkdtempSync(join(tmpdir(), "loopship-flow-digests-"));
     const dataPath = join(dir, "digests.json");
     writeFileSync(dataPath, JSON.stringify(entries), "utf8");
     try {
@@ -248,10 +246,17 @@ describe("Loopship declarative Fastflow catalog", () => {
   });
 
   it("keeps step schema registry declarative", () => {
-    expect(Object.keys(V3_STEP_SCHEMAS).length).toBeGreaterThan(0);
-    for (const [name, schema] of Object.entries(V3_STEP_SCHEMAS)) {
+    expect(V3_STEP_SCHEMAS.length).toBeGreaterThan(0);
+    const registeredSchemas: string[] = [...V3_STEP_SCHEMAS].sort();
+    const publicStepSchemas = readdirSync(join(PACKAGE_ROOT, "schemas", "steps"))
+      .filter((name) => name.endsWith(".yaml"))
+      .map((name) => name.slice(0, -".yaml".length))
+      .filter((name) => !["afn-action-result", "common"].includes(name))
+      .sort();
+    expect(registeredSchemas).toEqual(publicStepSchemas);
+    for (const name of V3_STEP_SCHEMAS) {
       expect(name).toMatch(/^[a-z0-9-]+$/);
-      expect(schema).toBeTruthy();
+      expect(existsSync(v3SchemaFilePath(name))).toBe(true);
     }
   });
 });

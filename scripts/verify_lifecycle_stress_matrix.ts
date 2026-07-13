@@ -648,8 +648,7 @@ function stepVerification(id: string): Record<string, unknown> {
 function resolveFastflowRoot(): string {
   const candidates = [
     process.env.LOOPSHIP_FASTFLOW_ROOT,
-    "/Volumes/Projects/business/AstronLab/orgs/cueintent/fastflow",
-    resolve(PACKAGE_ROOT, "..", "..", "..", "..", "cueintent", "fastflow"),
+    resolve(PACKAGE_ROOT, "node_modules", "@cueintent", "fastflow"),
   ].filter(Boolean) as string[];
   const found = candidates.find((candidate) =>
     existsSync(join(candidate, "src", "index.mjs")) &&
