@@ -68,8 +68,9 @@ context:
     and verification scripts. Git worktrees isolate child implementation state from root
     coordination and protect the main branch from direct agent edits.
 
-    Hook integrations cover Codex CLI, Codex Desktop, Gemini CLI, Copilot CLI, and Copilot
-    in VS Code through runtime-specific JSON stdin and continuation responses. Cmdproto
+    Built-in hook installers cover Codex CLI, Codex Desktop, Gemini CLI, Copilot CLI, and
+    Copilot in VS Code. The runtime-neutral hook route also accepts manually configured Claude,
+    Antigravity, and other integrations through their native JSON thread identifiers. Cmdproto
     execjson mirrors the public CLI as a machine interface without replacing the lifecycle.
 solution_strategy: |-
   Loopship treats workflow steps, task payloads, child dispatches, system updates, and route
@@ -105,8 +106,8 @@ structure:
       Durable system knowledge stores `.loopship/system.yaml`, concrete canonical docs, optional
       packs, and `.loopship/signature.yaml`.
     hook-integrations: |-
-      Runtime hook shims translate Codex, Gemini, and Copilot stop events into Loopship
-      continuation decisions.
+      Built-in runtime hook shims translate Codex, Gemini, and Copilot stop events into Loopship
+      continuation decisions. Manually configured runtimes use the same generic hook route.
   components:
     cli-routing: |-
       Init and internal continuation routing rank quest candidates, propose worktree names, emit
@@ -168,8 +169,9 @@ runtime:
       from the Fastflow session identifier. Paused Fastflow resume handles and soft runtime-thread
       bindings live in worktree-local hook-state.json. Explicit CLI or payload wtree input transfers
       ownership while preserving the resume handle; process-scoped WTREE input can bind only
-      unowned state. Later calls select the exact worktree through runtime plus thread id and fail
-      closed when that identity is missing or ambiguous.
+      unowned state. Runtime all remains unbound until a concrete runtime hook identifies itself.
+      Later calls select the exact worktree through runtime plus thread id and fail closed when
+      that identity is missing or ambiguous.
     system-update-flow: |-
       system_update_pending flows from child summary to bin storage, root prompt, schema-valid
       system_update payload, bin validation, canonical document writes, and signature refresh.
@@ -204,8 +206,9 @@ deployment:
       The developer machine hosts Bun, Git, schema files, workflow assets, runtime hook shims,
       optional external CLI runtimes, and verification commands.
     runtime-hook-host: |-
-      Runtime hook hosts include Codex CLI/Desktop, Gemini CLI, Copilot CLI, and Copilot in VS
-      Code hook lanes.
+      Built-in runtime hook hosts include Codex CLI/Desktop, Gemini CLI, Copilot CLI, and Copilot
+      in VS Code. Manually configured Claude, Antigravity, and other hosts use the generic hook
+      command with their runtime name and native thread identifier.
 interfaces:
   quest-commands:
     kind: cli
@@ -381,7 +384,7 @@ diagrams:
         RootAgent[Root Agent] --> Loopship
         Loopship --> Worktrees[Git Worktrees]
         Loopship --> SystemKnowledge[.loopship/system.yaml and canonical docs]
-        Hooks[Codex/Gemini/Copilot Hooks] --> Loopship
+        Hooks[Built-in and Manually Configured Hooks] --> Loopship
         ChildAgents[Child CLI Agents] --> Worktrees
   quest-lifecycle-sequence:
     kind: sequence

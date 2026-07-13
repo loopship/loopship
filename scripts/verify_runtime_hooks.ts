@@ -185,6 +185,22 @@ function main(): number {
     if (claudeIdentity?.threadId !== "claude-thread") {
       fail("runtime environment identity must normalize Claude sessions");
     }
+    const allCodexIdentity = runtimeIdentityFromEnv("all", {
+      CODEX_THREAD_ID: "codex-thread-from-all",
+    });
+    if (
+      allCodexIdentity?.runtime !== "codex" ||
+      allCodexIdentity.threadId !== "codex-thread-from-all"
+    ) {
+      fail("runtime all must retain a concrete environment identity when available");
+    }
+    if (
+      runtimeIdentityFromEnv("all", {
+        LOOPSHIP_THREAD_ID: "runtime-unknown-thread",
+      }) !== null
+    ) {
+      fail("runtime all must remain unbound when no concrete runtime identity is available");
+    }
 
     const start = runLoopship(
       repo,
@@ -264,6 +280,32 @@ function main(): number {
     });
     if (firstRoute?.wtree !== "hook-route" || secondRoute?.wtree !== "hook-route-b") {
       fail("concurrent runtime threads must resolve their own worktrees");
+    }
+    const wildcardWorkspace = join(repo, "worktrees", "hook-route-wildcard");
+    mkdirSync(join(wildcardWorkspace, ".loopship", "runtime"), { recursive: true });
+    recordHookRoute({
+      repoRoot: repo,
+      runtime: "all",
+      threadId: "shared-thread",
+      workspaceRoot: wildcardWorkspace,
+      result: {
+        kind: "supervisor_review",
+        nextCall: {
+          args: {
+            sessionId: "fastflow-session-wildcard",
+            workspaceRoot: wildcardWorkspace,
+          },
+        },
+      },
+    });
+    if (
+      resolveHookRoute({
+        repoRoot: repo,
+        runtime: "codex",
+        threadId: "shared-thread",
+      }) !== null
+    ) {
+      fail("runtime all must not act as a wildcard during implicit route lookup");
     }
 
     const routedNoop = runLoopship(repo, ["hook", "--runtime", "codex", "--repo", repo], {
@@ -360,29 +402,19 @@ function main(): number {
         ? { decision: nativePlanDecision() }
         : { supervisorDecision: "ok" };
 
-    const resumePath = join(root, "resume.json");
-    writeFileSync(
-      resumePath,
-      JSON.stringify({
-        sessionId: pause.sessionId,
-        ...(pause.nonce ? { nonce: pause.nonce } : {}),
-        ...(pause.workspaceRoot ? { workspaceRoot: pause.workspaceRoot } : {}),
-        ...resumePayload,
-      }),
-      "utf8",
-    );
-    const hook = runLoopship(repo, [
-      "hook",
-      "--runtime",
-      "codex",
-      "--repo",
+    const hook = runLoopship(
       repo,
-      "--json",
-      `@${resumePath}`,
-    ]);
+      ["hook", "--runtime", "claude", "--repo", repo],
+      {
+        session_id: "claude-thread-a",
+        cwd: repo,
+        hook_event_name: "Stop",
+        ...resumePayload,
+      },
+    );
     if (hook.status !== 0) fail(hook.stderr || hook.stdout);
-    const output = parseJson(hook.stdout, "hook resume");
-    assertNativeFastflowResponse(output, "hook resume");
+    const output = parseJson(hook.stdout, "handed-off hook resume");
+    assertNativeFastflowResponse(output, "handed-off hook resume");
     const updatedHookState = parseJson(
       readFileSync(
         join(repo, "worktrees", "hook-route", ".loopship", "runtime", "hook-state.json"),
@@ -393,10 +425,52 @@ function main(): number {
     if (output.schemaVersion === "fastflow/interaction-response/v1") {
       const nextPause = pauseToken(output);
       if (updatedHookState.fastflow?.sessionId !== nextPause.sessionId) {
-        fail("direct Fastflow resume must refresh the stored hook token");
+        fail("handed-off runtime resume must refresh the stored Fastflow handle");
+      }
+      const directResumePayload =
+        nextPause.kind === "handoff_answer"
+          ? { decision: nativePlanDecision() }
+          : { supervisorDecision: "ok" };
+      const resumePath = join(root, "resume.json");
+      writeFileSync(
+        resumePath,
+        JSON.stringify({
+          sessionId: nextPause.sessionId,
+          ...(nextPause.nonce ? { nonce: nextPause.nonce } : {}),
+          ...(nextPause.workspaceRoot ? { workspaceRoot: nextPause.workspaceRoot } : {}),
+          ...directResumePayload,
+        }),
+        "utf8",
+      );
+      const directHook = runLoopship(repo, [
+        "hook",
+        "--runtime",
+        "codex",
+        "--repo",
+        repo,
+        "--json",
+        `@${resumePath}`,
+      ]);
+      if (directHook.status !== 0) fail(directHook.stderr || directHook.stdout);
+      const directOutput = parseJson(directHook.stdout, "direct Fastflow hook resume");
+      assertNativeFastflowResponse(directOutput, "direct Fastflow hook resume");
+      const directlyUpdatedState = parseJson(
+        readFileSync(
+          join(repo, "worktrees", "hook-route", ".loopship", "runtime", "hook-state.json"),
+          "utf8",
+        ),
+        "directly updated hook state",
+      );
+      if (directOutput.schemaVersion === "fastflow/interaction-response/v1") {
+        const directNextPause = pauseToken(directOutput);
+        if (directlyUpdatedState.fastflow?.sessionId !== directNextPause.sessionId) {
+          fail("direct Fastflow resume must refresh the stored handle");
+        }
+      } else if (directlyUpdatedState.fastflow !== undefined) {
+        fail("terminal direct Fastflow resume must retire the stored handle");
       }
     } else if (updatedHookState.fastflow !== undefined) {
-      fail("terminal Fastflow resume must retire the stored hook token");
+      fail("terminal handed-off runtime resume must retire the stored Fastflow handle");
     }
     console.log("loopship native hook verification passed");
     return 0;

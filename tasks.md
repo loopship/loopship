@@ -13,6 +13,9 @@ This ledger tracks the repo's worktree-first lifecycle coverage after the hard c
 - Hook routing stores runtime thread IDs separately from Fastflow session IDs and resolves an
   exact worktree through `runtime + thread_id`; explicit `wtree` can transfer ownership, while
   `WTREE` is an initial-binding fallback only.
+- Runtime `all` remains unbound until a hook supplies a concrete runtime and thread identity.
+- Built-in hook installation covers Codex, Gemini, and Copilot; manually configured runtimes use
+  the same runtime-neutral hook command and native thread-id normalization.
 - Hook continuation output stays compact and does not expose legacy identity keys.
 - Simulation flows and child dispatch flows use `wtree` consistently.
 - Legacy quest-state keys fail fast and require manual cleanup or quest recreation.

@@ -62,7 +62,7 @@ entries:
     path: .loopship/docs/software/architecture.yaml
     schema: loopship://schemas/docs/software-architecture.yaml
     role: canonical
-    digest: a4d2b9176a926659bc89c7b8a5ffe6e5a4d522a64e3f450fa2d965c6268879f5
+    digest: 91bd1d28917e8665bea7eea662aeedb2dc5621ee1045ab92b6c0086211aa8acf
   - resource_ref: resource:decisions
     path: .loopship/docs/decisions/records.yaml
     schema: loopship://schemas/docs/decision-records.yaml
@@ -78,11 +78,11 @@ entries:
     schema: loopship://schemas/docs/agent-system-card.yaml
     role: canonical
     digest: 1b25775d7c7d52eab01a6226aab6bab8f8c3ef69eefd593d26f939d93b24dfa8
-previous_receipt_head: 2dd245caaf230373c2a4edbe83546c253f85f6dc2ec89fbb288515974f7701e2
-receipt_head: 8c4a3a177c7cddc439b3e112e0f76d47536f8863b158ab492af0f48ac1f257f6
-signed_at: 2026-07-13T08:18:26Z
+previous_receipt_head: 8c4a3a177c7cddc439b3e112e0f76d47536f8863b158ab492af0f48ac1f257f6
+receipt_head: 4eed1cfaff41db1c533dd98316ec760d1b84ed8c0bdd6d3f607d49774c0e1bae
+signed_at: 2026-07-13T09:11:50Z
 signer: system_update
 signature:
   algorithm: ed25519
   key_id: loopship-local-v2
-  value: Zls2RAx6FWbYiItthKV6U5r1SQEGWJP0rxPER57kQm5lMcubUka4JSKZVa0iU5Mfu4ikVtD6PVwsQhJvONjtAg==
+  value: tyIgKHBwqq3CgUASZSGrYbGEvu8ZSFByjKKT9uFoTf5YKRNj5T4BMW4hwBX83CkXC8TiUJ/cxYKmghZzjkpyDQ==
