@@ -162,9 +162,9 @@ workflows:
       requires: []
   questions:
     stable:
-      release: 3
-      digest: "sha256:41385edfdbfb3108d1fa90d9484834ed00ad28722b989eb8a3efe08cae8b8000"
-      summary: "Separate human questions from automated lifecycle routing and scope validation to task evidence."
+      release: 4
+      digest: "sha256:7afa035773f34458a13899242651c00955f6b47d7618a6eacd7351e37cb7ff27"
+      summary: "Route clarification waits through the Native durable handoff."
       inputs:
         required: []
         optional:
@@ -306,9 +306,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalVIixsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGvVSgD/Sae1fr24uC/xv4sVBec5
-    UmAyXLapwjsk6X6AayLt3wUA/jRCJV6K4rrbp6A+MoTuBeYQPtYaRn1r9h2YEBsP
-    hhQH
-    =6psm
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalv7IBsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtgrAEA3HUH55cKz9KZ8/WlMt4Z
+    opEaP25SH4qlwJYrH+uhC4QBAOofWWzbUvyScC2LrC5GggLkzI5BXFJLuhwip1QS
+    qfAJ
+    =F4hp
     -----END PGP SIGNATURE-----
