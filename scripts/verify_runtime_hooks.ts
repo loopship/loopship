@@ -7,6 +7,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -16,13 +17,31 @@ import { fileURLToPath } from "node:url";
 import { runCommand } from "./loopship_utils.ts";
 import { nativeResumeRequest } from "./loopship_resume.ts";
 import {
+  startLoopshipTestScheduler,
+  type LoopshipTestScheduler,
+} from "./loopship_fastflow_test_scheduler.ts";
+import {
   recordHookRoute,
   resolveHookRoute,
   runtimeHookThreadId,
   runtimeIdentityFromEnv,
+  updateHookRoute,
 } from "./loopship_hook_state.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
+const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
+  Object.fromEntries(
+    [
+      "llm.cli.codex.gpt-5.5.max",
+      "llm.cli.codex.gpt-5.3-codex-spark.max",
+      "llm.cli.codex.gpt-5.3-codex-spark.high",
+    ].map((routeRef) => [
+      routeRef,
+      { client: "handoff", resolverPath: routeRef, routeRef },
+    ]),
+  ),
+);
+let nativeRuntimeEnv: Record<string, string> = {};
 
 function fail(message: string): never {
   throw new Error(message);
@@ -36,7 +55,7 @@ function runLoopship(
 ) {
   return runCommand("bun", [SCRIPT, ...args], {
     cwd: repo,
-    env,
+    env: { ...nativeRuntimeEnv, ...env },
     timeoutMs: 120_000,
     input: input ? JSON.stringify(input) : undefined,
   });
@@ -62,7 +81,7 @@ function assertNoOldEnvelope(value: Record<string, any>, label: string): void {
 
 type PauseToken = {
   sessionId: string;
-  nonce?: string;
+  nonce: string;
   workspaceRoot?: string;
   kind: string;
 };
@@ -84,13 +103,16 @@ function pauseToken(value: Record<string, any>): PauseToken {
   if (!sessionId) {
     fail(`missing Fastflow interaction nextCall sessionId: ${JSON.stringify(value)}`);
   }
+  if (!nonce) {
+    fail(`missing Fastflow interaction nextCall nonce: ${JSON.stringify(value)}`);
+  }
   const kind = String(value.kind ?? "").trim();
   if (kind !== "handoff_answer" && kind !== "supervisor_review" && kind !== "inline_answer") {
     fail(`unsupported Fastflow interaction kind: ${JSON.stringify(value)}`);
   }
   return {
     sessionId,
-    ...(nonce ? { nonce } : {}),
+    nonce,
     ...(workspaceRoot ? { workspaceRoot } : {}),
     kind,
   };
@@ -162,10 +184,24 @@ function nativePlanDecision(): Record<string, unknown> {
   };
 }
 
-function main(): number {
+async function main(): Promise<number> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-native-hooks-")));
+  let scheduler: LoopshipTestScheduler | null = null;
   try {
     const repo = createRepo(root);
+    scheduler = await startLoopshipTestScheduler({
+      dbPath: join(root, "scheduler", "native-v1.sqlite"),
+      home: join(root, "home"),
+    });
+    nativeRuntimeEnv = {
+      ...scheduler.env,
+      HOME: join(root, "home"),
+      INFERENCE_CLIENT: "handoff",
+      INFERENCE_PROVIDER: "",
+      INFERENCE_MODEL: "",
+      OPENAI_API_KEY: "",
+      INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+    };
     const noop = runLoopship(repo, ["hook", "--runtime", "codex"], {
       session_id: "codex-ordinary-thread",
       cwd: repo,
@@ -238,19 +274,136 @@ function main(): number {
     if (bind.stdout.trim() !== "{}") {
       fail(`thread binding without a workflow response must no-op: ${bind.stdout}`);
     }
-    const hookState = parseJson(
-      readFileSync(
-        join(repo, "worktrees", "hook-route", ".loopship", "runtime", "hook-state.json"),
-        "utf8",
-      ),
-      "hook state",
+    const hookStatePath = join(
+      repo,
+      "worktrees",
+      "hook-route",
+      ".loopship",
+      "runtime",
+      "hook-state.json",
     );
+    const hookState = parseJson(readFileSync(hookStatePath, "utf8"), "hook state");
+    if ((statSync(hookStatePath).mode & 0o777) !== 0o600) {
+      fail("new Native hook-route state must be owner-readable only");
+    }
+    if (hookState.schema_version !== 2) {
+      fail(`hook state must use the Native v1 route schema: ${JSON.stringify(hookState)}`);
+    }
     if (hookState.thread_id !== "codex-thread-a") {
       fail(`hook state must bind the Codex thread id: ${JSON.stringify(hookState)}`);
     }
     if (hookState.fastflow?.sessionId !== pause.sessionId) {
       fail(`hook state must preserve the Fastflow session separately: ${JSON.stringify(hookState)}`);
     }
+    const legacyHookState = structuredClone(hookState);
+    legacyHookState.schema_version = 1;
+    delete legacyHookState.fastflow.nonce;
+    writeFileSync(hookStatePath, `${JSON.stringify(legacyHookState)}\n`, "utf8");
+    let legacyHookRejected = false;
+    try {
+      resolveHookRoute({
+        repoRoot: repo,
+        runtime: "codex",
+        threadId: "codex-thread-a",
+        wtree: "hook-route",
+      });
+    } catch (error) {
+      legacyHookRejected =
+        (error as { code?: string }).code === "legacy_execution_unsupported";
+    } finally {
+      writeFileSync(hookStatePath, `${JSON.stringify(hookState)}\n`, "utf8");
+    }
+    if (!legacyHookRejected) {
+      fail("legacy persisted hook routes must fail with legacy_execution_unsupported");
+    }
+    writeFileSync(hookStatePath, "{\"schema_version\":2", "utf8");
+    let corruptHookRejected = false;
+    try {
+      resolveHookRoute({
+        repoRoot: repo,
+        runtime: "codex",
+        threadId: "codex-thread-a",
+        wtree: "hook-route",
+      });
+    } catch (error) {
+      corruptHookRejected =
+        (error as { code?: string }).code === "loopship_hook_state_corrupt";
+    } finally {
+      writeFileSync(hookStatePath, `${JSON.stringify(hookState)}\n`, "utf8");
+    }
+    if (!corruptHookRejected) {
+      fail("corrupt persisted hook routes must fail explicitly");
+    }
+    const unrelatedCorruptWorkspace = join(repo, "worktrees", "unrelated-corrupt-route");
+    const unrelatedCorruptState = join(
+      unrelatedCorruptWorkspace,
+      ".loopship",
+      "runtime",
+      "hook-state.json",
+    );
+    mkdirSync(dirname(unrelatedCorruptState), { recursive: true });
+    writeFileSync(unrelatedCorruptState, "{\"schema_version\":2", "utf8");
+    try {
+      const healthyRoute = resolveHookRoute({
+        repoRoot: repo,
+        runtime: "codex",
+        threadId: "codex-thread-a",
+      });
+      if (healthyRoute?.wtree !== "hook-route") {
+        fail("an unrelated corrupt route must not poison a healthy implicit route");
+      }
+      const unboundRoute = resolveHookRoute({
+        repoRoot: repo,
+        runtime: "codex",
+        threadId: "unbound-codex-thread",
+      });
+      if (unboundRoute !== null) {
+        fail("an unrelated corrupt route must not bind an otherwise unbound thread");
+      }
+    } finally {
+      rmSync(unrelatedCorruptWorkspace, { recursive: true, force: true });
+    }
+
+    const primaryWorkspace = join(repo, "worktrees", "hook-route");
+    for (const nonce of ["nonce-payload-pause-2", "nonce-payload-pause-3"]) {
+      recordHookRoute({
+        repoRoot: repo,
+        runtime: "all",
+        workspaceRoot: primaryWorkspace,
+        result: {
+          kind: "supervisor_review",
+          nextCall: {
+            args: {
+              sessionId: "fastflow-session-a",
+              nonce,
+              workspaceRoot: primaryWorkspace,
+            },
+          },
+        },
+      });
+    }
+    const payloadBoundRoute = resolveHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "codex-thread-a",
+    });
+    if (
+      payloadBoundRoute?.runtime !== "codex" ||
+      payloadBoundRoute.thread_id !== "codex-thread-a" ||
+      payloadBoundRoute.fastflow.nonce !== "nonce-payload-pause-3"
+    ) {
+      fail("runtime=all resume sync must preserve a payload-bound concrete hook route");
+    }
+    recordHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "codex-thread-a",
+      workspaceRoot: primaryWorkspace,
+      result: {
+        kind: hookState.fastflow.kind,
+        nextCall: { args: hookState.fastflow },
+      },
+    });
 
     const secondWorkspace = join(repo, "worktrees", "hook-route-b");
     mkdirSync(join(secondWorkspace, ".loopship", "runtime"), { recursive: true });
@@ -282,6 +435,103 @@ function main(): number {
     });
     if (firstRoute?.wtree !== "hook-route" || secondRoute?.wtree !== "hook-route-b") {
       fail("concurrent runtime threads must resolve their own worktrees");
+    }
+    const secondHookStatePath = join(
+      secondWorkspace,
+      ".loopship",
+      "runtime",
+      "hook-state.json",
+    );
+    const lockPath = `${secondHookStatePath}.lock.sqlite`;
+    const reclaimedRoute = resolveHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "codex-thread-b",
+      wtree: "hook-route-b",
+    });
+    if (reclaimedRoute?.wtree !== "hook-route-b" || !existsSync(lockPath)) {
+      fail("hook route updates must use crash-safe exclusive lock authority");
+    }
+    const terminalWorkspace = join(repo, "worktrees", "hook-route-terminal");
+    mkdirSync(join(terminalWorkspace, ".loopship", "runtime"), { recursive: true });
+    const terminalRoute = recordHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "terminal-thread",
+      workspaceRoot: terminalWorkspace,
+      result: {
+        kind: "supervisor_review",
+        nextCall: {
+          args: {
+            sessionId: "terminal-session",
+            nonce: "terminal-nonce",
+            workspaceRoot: terminalWorkspace,
+          },
+        },
+      },
+    });
+    if (!terminalRoute) fail("terminal hook fixture must persist its initial route");
+    rmSync(terminalWorkspace, { recursive: true, force: true });
+    updateHookRoute(terminalRoute, {
+      schemaVersion: "fastflow/workflow-run-artifact/v1",
+      kind: "workflow_result",
+      ok: true,
+      status: "completed",
+    });
+    if (existsSync(terminalWorkspace)) {
+      fail("terminal hook route retirement must not recreate a removed worktree");
+    }
+    const staleWorkspace = join(repo, "worktrees", "hook-route-stale-update");
+    mkdirSync(join(staleWorkspace, ".loopship", "runtime"), { recursive: true });
+    const staleRoute = recordHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "stale-update-thread",
+      workspaceRoot: staleWorkspace,
+      result: {
+        kind: "supervisor_review",
+        nextCall: {
+          args: {
+            sessionId: "stale-execution",
+            nonce: "stale-nonce",
+            workspaceRoot: staleWorkspace,
+          },
+        },
+      },
+    });
+    if (!staleRoute) fail("stale route fixture must persist its initial pause");
+    recordHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "stale-update-thread",
+      workspaceRoot: staleWorkspace,
+      result: {
+        kind: "supervisor_review",
+        nextCall: {
+          args: {
+            sessionId: "new-execution",
+            nonce: "new-nonce",
+            workspaceRoot: staleWorkspace,
+          },
+        },
+      },
+    });
+    updateHookRoute(staleRoute, {
+      schemaVersion: "fastflow/workflow-run-artifact/v1",
+      kind: "workflow_result",
+      ok: true,
+      status: "completed",
+    });
+    const newestRoute = resolveHookRoute({
+      repoRoot: repo,
+      runtime: "codex",
+      threadId: "stale-update-thread",
+    });
+    if (
+      newestRoute?.fastflow.sessionId !== "new-execution" ||
+      newestRoute.fastflow.nonce !== "new-nonce"
+    ) {
+      fail("a stale terminal update must not retire a newer execution pause");
     }
     const escapedWorkspace = join(root, "escaped-hook-route");
     mkdirSync(join(escapedWorkspace, ".loopship", "runtime"), { recursive: true });
@@ -447,8 +697,8 @@ function main(): number {
     }
     const resumePayload =
       pause.kind === "handoff_answer"
-        ? { decision: nativePlanDecision() }
-        : { supervisorDecision: "ok" };
+        ? { response: { answer: nativePlanDecision() } }
+        : { response: { decision: "ok" } };
 
     const hook = runLoopship(
       repo,
@@ -477,14 +727,14 @@ function main(): number {
       }
       const directResumePayload =
         nextPause.kind === "handoff_answer"
-          ? { decision: nativePlanDecision() }
-          : { supervisorDecision: "ok" };
+          ? { response: { answer: nativePlanDecision() } }
+          : { response: { decision: "ok" } };
       const resumePath = join(root, "resume.json");
       writeFileSync(
         resumePath,
         JSON.stringify({
           sessionId: nextPause.sessionId,
-          ...(nextPause.nonce ? { nonce: nextPause.nonce } : {}),
+          nonce: nextPause.nonce,
           ...(nextPause.workspaceRoot ? { workspaceRoot: nextPause.workspaceRoot } : {}),
           ...directResumePayload,
         }),
@@ -523,12 +773,14 @@ function main(): number {
     console.log("loopship native hook verification passed");
     return 0;
   } finally {
+    await scheduler?.stop();
+    nativeRuntimeEnv = {};
     rmSync(root, { recursive: true, force: true });
   }
 }
 
 try {
-  process.exit(main());
+  process.exit(await main());
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

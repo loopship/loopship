@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -10,12 +13,19 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import {
+  createAfnInvocation,
+  digestNativeContract,
+  type JsonValue,
+  validateExecutionDecision,
+} from "@cueintent/fastflow";
 import {
   applyQuestPlanToTasks,
   createQuest,
@@ -23,9 +33,13 @@ import {
   ensureTaskWorkspace,
   ensureSystemScaffold,
   applySystemUpdate,
+  landingTargetWorktreePath,
   parseTasksYaml,
+  questFiles,
   renderTasksYaml,
   taskAssignmentChildWtree,
+  updateQuestStage,
+  verifyQuestManifest,
   verifyRootManifest,
   type QuestState,
   type QuestTask,
@@ -36,17 +50,98 @@ import {
   LOOPSHIP_CALL_CATALOG_ROOT,
   LOOPSHIP_DATA_CALLS,
   LOOPSHIP_SUPERVISOR_GUIDANCE,
+  cleanupCompletedNativeWorkspaceResidue,
   cleanupLandedWorktrees,
   createLoopshipFastflowAdapters,
   ensureLoopshipFastflowWorkflowCatalog,
   loopshipFlowWorkflowRef,
+  recoverLoopshipFastflowWorkflow,
+  resumeLoopshipFastflowWorkflow,
+  runLoopshipFastflowWorkflow,
+  runLoopshipFastflowWorkflowRequest,
 } from "./loopship_fastflow.ts";
 import { validateSchemaPath, validateV3Input } from "./loopship_schema.ts";
 import { nativeResumeRequest } from "./loopship.ts";
 import { nativeResumeRequest as nativeStepperResumeRequest } from "./loopship_stepper.ts";
-import { runCommand } from "./loopship_utils.ts";
+import {
+  startLoopshipTestScheduler,
+  type LoopshipTestScheduler,
+} from "./loopship_fastflow_test_scheduler.ts";
+import {
+  markLoopshipNativeExecutionCompleted,
+  loopshipNativeResultIsTerminal,
+  readLoopshipNativeExecutionRequest,
+  resolveLoopshipNativeExecutionRequest,
+} from "./loopship_native_execution.ts";
+import { recordHookRoute } from "./loopship_hook_state.ts";
+import {
+  acquireCrashSafeFileLock,
+  runCommand,
+  writeJson as writeJsonFile,
+  writeText,
+} from "./loopship_utils.ts";
 
 const LOOPSHIP_SCRIPT = resolve(process.cwd(), "scripts", "loopship.ts");
+const FASTFLOW_RUNTIME_GITIGNORE =
+  "# fastflow runtime data\ncache/\ndata/\ncatalog.db\ncatalog.db-shm\ncatalog.db-wal\n";
+let nativeInvocationSequence = 0;
+
+type LoopshipTestAfnOutput = Record<string, unknown> & {
+  actions?: Record<string, { args: string[] }>;
+  branch_ref?: string;
+  landed_commit?: string;
+  prepared_children?: Array<Record<string, unknown>>;
+};
+
+async function executeLoopshipAfn(
+  adapters: Record<string, unknown>,
+  request: Record<string, unknown> & {
+    action?: { call?: string; with?: { body?: Record<string, unknown> } };
+  },
+  identity: { executionId?: string; effectKey?: string } = {},
+): Promise<LoopshipTestAfnOutput> {
+  const call = String(request.action?.call || "");
+  const dispatch = adapters.afnDispatch as {
+    listRoutes(): Array<{
+      callId: string;
+      contractDigest: string;
+      implementationDigest: string;
+    }>;
+    dispatch(invocation: Record<string, unknown>): Promise<Record<string, unknown>>;
+  };
+  const route = dispatch.listRoutes().find((entry) => entry.callId === call);
+  if (!route) throw new Error(`Unknown Loopship Native AFN route: ${call}`);
+  nativeInvocationSequence += 1;
+  const executionId = identity.executionId || `loopship-native-test-${nativeInvocationSequence}`;
+  const invocation = createAfnInvocation({
+    executionId,
+    nodeId: call,
+    invocationId: digestNativeContract({ executionId, call, attempt: 1 }),
+    attempt: 1,
+    call: {
+      callId: route.callId,
+      contractDigest: route.contractDigest,
+      implementationDigest: route.implementationDigest,
+    },
+    input: (request.action?.with?.body || {}) as unknown as JsonValue,
+    effectKey: identity.effectKey || digestNativeContract({ executionId, call, effect: 1 }),
+    bindingRefs: [],
+    affinityRefs: [],
+    grants: [],
+  });
+  const decision = validateExecutionDecision(
+    await dispatch.dispatch(JSON.parse(JSON.stringify(invocation))),
+  );
+  if (decision.kind === "completed") {
+    return decision.output as LoopshipTestAfnOutput;
+  }
+  throw new Error(
+    decision.kind === "failed"
+      ? decision.error.message
+      : `Loopship AFN '${call}' returned '${decision.kind}'.`,
+  );
+}
+
 const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
   Object.fromEntries(
     [
@@ -91,6 +186,21 @@ function runNodeCheck(source: string, args: string[] = []): string {
   writeFileSync(script, source);
   try {
     return execFileSync("node", [script, ...args], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function runBunCheck(source: string, args: string[] = []): string {
+  const dir = mkdtempSync(join(process.cwd(), "tmp", "loopship-fastflow-bun-"));
+  const script = join(dir, "check.mjs");
+  writeFileSync(script, source);
+  try {
+    return execFileSync(process.execPath, ["--no-install", script, ...args], {
       cwd: process.cwd(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -174,14 +284,15 @@ function executeNativeWorkflow(
   inputs: Record<string, unknown>,
 ): Record<string, any> {
   const dir = mkdtempSync(join(process.cwd(), "tmp", "loopship-fastflow-exec-"));
-  const workflowFile = join(dir, "workflow.json");
+  const workflowFile = join(dir, "workflow.yaml");
   const inputsFile = join(dir, "inputs.json");
-  writeFileSync(workflowFile, JSON.stringify(workflow), "utf8");
+  writeFileSync(workflowFile, stringifyYaml(workflow), "utf8");
   writeFileSync(inputsFile, JSON.stringify(inputs), "utf8");
   try {
-    const output = runNodeCheck(
+    const output = runBunCheck(
       `
         import { readFileSync } from "node:fs";
+        import { parse as parseYaml } from "yaml";
         import { configureFastflowApp } from ${JSON.stringify(fastflowImport("root"))};
         import {
           normalizeSwfWorkflow,
@@ -189,13 +300,13 @@ function executeNativeWorkflow(
           validateFastflowWorkflowSchema,
         } from ${JSON.stringify(fastflowImport("workflow"))};
         import { markWorkflowRecordValidated } from ${JSON.stringify(fastflowSourceImport("src/lib/workflows.mjs"))};
-        import { executeWorkflow } from ${JSON.stringify(fastflowSourceImport("src/lib/engine.mjs"))};
+        import { executeNativeWorkflow as executeWorkflow } from ${JSON.stringify(fastflowSourceImport("src/lib/native-workflow-runtime.mjs"))};
         import {
           LOOPSHIP_CALL_CATALOG_ROOT,
           createLoopshipFastflowAdapters,
         } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "scripts", "loopship_fastflow.ts")).href)};
 
-        const workflow = JSON.parse(readFileSync(process.argv[2], "utf8"));
+        const workflow = parseYaml(readFileSync(process.argv[2], "utf8"));
         const inputs = JSON.parse(readFileSync(process.argv[3], "utf8"));
         configureFastflowApp({
           appName: "loopship",
@@ -204,7 +315,7 @@ function executeNativeWorkflow(
           adapters: createLoopshipFastflowAdapters(),
         });
         const recordSeed = {
-          filePath: "generated/loopship-native-test.yaml",
+          filePath: process.argv[2],
           store: "project",
         };
         const errors = [];
@@ -241,6 +352,7 @@ function executeNativeWorkflow(
         };
         const result = await executeWorkflow(runtime, record, inputs, {
           workspaceRoot: process.cwd(),
+          schedulerMode: "test",
         });
         console.log(JSON.stringify({
           output: result.output,
@@ -393,6 +505,21 @@ function createNativeQuest(repo: string, wtree = "demo") {
   });
 }
 
+function createFastflowQuest(repo: string, wtree: string, prompt: string) {
+  const workspace = ensureCoordinatorWorkspace(repo, wtree);
+  return createQuest({
+    repoRoot: repo,
+    wtree,
+    prompt,
+    resolutionSource: "fastflow",
+    workspace,
+    flowId: "swe",
+    initialStage: "initial",
+    landingTargetBranch: "main",
+    landingTargetWorktree: landingTargetWorktreePath(repo, "main"),
+  });
+}
+
 function questTaskFixture(
   input: Pick<QuestTask, "id"> & Partial<QuestTask>,
 ): QuestTask {
@@ -434,6 +561,7 @@ function runLoopshipCli(
       INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
       LOOPSHIP_GLOBAL_BIN: resolve(repo, "..", "bin", "loopship"),
       LOOPSHIP_SCRIPT: resolve(process.cwd(), "index.ts"),
+      FASTFLOW_SCHEDULER_MODE: "test",
       ...extraEnv,
     },
     timeoutMs: 600_000,
@@ -442,11 +570,42 @@ function runLoopshipCli(
 }
 
 function parseJsonObject(text: string, label: string): Record<string, unknown> {
-  const parsed = JSON.parse(text);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(
+      `${label} returned invalid JSON (${text.length} bytes): ${error instanceof Error ? error.message : String(error)}; tail=${JSON.stringify(text.slice(-500))}`,
+    );
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`${label} must be a JSON object: ${text}`);
   }
   return parsed as Record<string, unknown>;
+}
+
+async function readFirstLine(
+  stream: ReadableStream<Uint8Array>,
+  timeoutMs: number,
+): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  const read = async (): Promise<string> => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error(`stream ended before its first line: ${buffered}`);
+      buffered += decoder.decode(value, { stream: true });
+      const newline = buffered.indexOf("\n");
+      if (newline >= 0) return buffered.slice(0, newline);
+    }
+  };
+  return Promise.race([
+    read(),
+    Bun.sleep(timeoutMs).then(() => {
+      throw new Error(`timed out waiting for first line: ${buffered}`);
+    }),
+  ]);
 }
 
 async function startQuestStage(
@@ -454,6 +613,7 @@ async function startQuestStage(
   prompt: string,
   wtree: string,
   extraArgs: string[] = [],
+  extraEnv: Record<string, string | undefined> = {},
 ): Promise<Record<string, unknown>> {
   const proc = runLoopshipCli(repo, [
     "init",
@@ -465,7 +625,7 @@ async function startQuestStage(
     "--wtree",
     wtree,
     ...extraArgs,
-  ]);
+  ], undefined, extraEnv);
   expect(proc.status, proc.stderr || proc.stdout).toBe(0);
   const result = parseJsonObject(proc.stdout, "loopship init");
   expect(validateSchemaPath(result, "schemas/steps/fastflow-response.yaml")).toEqual([]);
@@ -496,10 +656,12 @@ function interactionPause(value: Record<string, unknown>): Record<string, unknow
       ? (nextCall.args as Record<string, unknown>)
       : {};
   const sessionId = String(args.sessionId ?? "").trim();
+  const nonce = String(args.nonce ?? "").trim();
   expect(sessionId).toBeTruthy();
+  expect(nonce).toBeTruthy();
   return {
     sessionId,
-    nonce: String(args.nonce ?? "").trim(),
+    nonce,
     workspaceRoot: String(args.workspaceRoot ?? "").trim(),
     kind: String(value.kind ?? ""),
   };
@@ -509,18 +671,24 @@ async function resumeQuestPause(
   repo: string,
   pause: Record<string, unknown>,
   decision: Record<string, unknown>,
+  extraEnv: Record<string, string | undefined> = {},
 ): Promise<Record<string, unknown>> {
   const payload = {
     sessionId: String(pause.sessionId),
-    ...(String(pause.nonce ?? "").trim() ? { nonce: String(pause.nonce) } : {}),
+    nonce: String(pause.nonce),
     ...(String(pause.workspaceRoot ?? "").trim()
       ? { workspaceRoot: String(pause.workspaceRoot) }
       : {}),
-    ...(pause.kind === "supervisor_review"
-      ? { supervisorDecision: "ok" }
-      : { decision }),
+    response: pause.kind === "supervisor_review"
+      ? { decision: "ok" }
+      : { answer: decision },
   };
-  const proc = runLoopshipCli(repo, ["hook", "--repo", repo, "--json", "@-"], payload);
+  const proc = runLoopshipCli(
+    repo,
+    ["hook", "--repo", repo, "--json", "@-"],
+    payload,
+    extraEnv,
+  );
   expect(proc.status, proc.stderr || proc.stdout).toBe(0);
   const result = parseJsonObject(proc.stdout, "loopship hook");
   expect(validateSchemaPath(result, "schemas/steps/fastflow-response.yaml")).toEqual([]);
@@ -528,13 +696,88 @@ async function resumeQuestPause(
 }
 
 describe("Loopship Fastflow-native bridge", () => {
+  test("keeps running Native workflow results on the current execution ledger", () => {
+    expect(loopshipNativeResultIsTerminal({
+      schemaVersion: "fastflow/workflow-run-artifact/v1",
+      kind: "workflow_result",
+      status: "running",
+    })).toBe(false);
+    expect(loopshipNativeResultIsTerminal({
+      schemaVersion: "fastflow/workflow-run-artifact/v1",
+      kind: "workflow_result",
+      status: "completed",
+    })).toBe(true);
+    expect(loopshipNativeResultIsTerminal({
+      schemaVersion: "fastflow/workflow-run-artifact/v1",
+      kind: "workflow_result",
+      status: "failed",
+    })).toBe(true);
+  });
+
+  test("atomic state writes preserve private modes and reject symbolic-link targets", () => {
+    const root = mkdtempSync(join(tmpdir(), "loopship-atomic-write-"));
+    try {
+      const textPath = join(root, ".codex", "hooks.json");
+      mkdirSync(dirname(textPath), { recursive: true });
+      writeFileSync(textPath, "old\n", "utf8");
+      chmodSync(textPath, 0o600);
+      writeText(textPath, "new\n");
+      expect(statSync(textPath).mode & 0o777).toBe(0o600);
+
+      const jsonPath = join(root, ".gemini", "settings.json");
+      mkdirSync(dirname(jsonPath), { recursive: true });
+      writeFileSync(jsonPath, "{}\n", "utf8");
+      chmodSync(jsonPath, 0o600);
+      writeJsonFile(jsonPath, { enabled: true });
+      expect(statSync(jsonPath).mode & 0o777).toBe(0o600);
+
+      const runtimePath = join(root, ".loopship", "runtime", "hook-state.json");
+      writeJsonFile(runtimePath, {});
+      expect(statSync(runtimePath).mode & 0o777).toBe(0o600);
+
+      const linkedTarget = join(root, "shared-hooks.json");
+      const linkedPath = join(root, ".codex", "linked-hooks.json");
+      writeFileSync(linkedTarget, "shared\n", "utf8");
+      symlinkSync(linkedTarget, linkedPath);
+      expect(() => writeText(linkedPath, "replacement\n")).toThrow(
+        "refusing to replace symbolic-link target",
+      );
+      expect(lstatSync(linkedPath).isSymbolicLink()).toBe(true);
+      expect(readFileSync(linkedTarget, "utf8")).toBe("shared\n");
+
+      const externalDatabase = join(root, "external.sqlite");
+      const linkedDatabase = join(root, ".loopship", "runtime", "linked-lock.sqlite");
+      writeFileSync(externalDatabase, "not-a-loopship-lock\n", "utf8");
+      symlinkSync(externalDatabase, linkedDatabase);
+      expect(() => acquireCrashSafeFileLock(linkedDatabase, 10)).toThrow(
+        "refusing symbolic-link SQLite lock target",
+      );
+      expect(readFileSync(externalDatabase, "utf8")).toBe("not-a-loopship-lock\n");
+
+      const hardLinkedDatabase = join(root, "hard-linked-external.sqlite");
+      const hardLinkPath = join(root, ".loopship", "runtime", "hard-linked-lock.sqlite");
+      writeFileSync(hardLinkedDatabase, "hard-linked-marker\n", "utf8");
+      const hardLinkedMode = statSync(hardLinkedDatabase).mode & 0o777;
+      linkSync(hardLinkedDatabase, hardLinkPath);
+      expect(() => acquireCrashSafeFileLock(hardLinkPath, 10)).toThrow(
+        "refusing hard-linked SQLite lock target",
+      );
+      expect(readFileSync(hardLinkedDatabase, "utf8")).toBe("hard-linked-marker\n");
+      expect(statSync(hardLinkedDatabase).mode & 0o777).toBe(hardLinkedMode);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("requires focused native lifecycle release verification", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      version: string;
       scripts: Record<string, string>;
       engines: Record<string, string>;
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
       peerDependencies?: Record<string, string>;
+      exports?: Record<string, string>;
       bundledDependencies?: string[];
       resolutions?: Record<string, string>;
       bin?: Record<string, string>;
@@ -552,11 +795,16 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.scripts["verify:release"]).toContain(
       "bun run verify:lifecycle",
     );
+    expect(packageJson.scripts["verify:release"]).toContain(
+      "bun run verify:stress",
+    );
     expect(packageJson.scripts.prepublishOnly).toBe("bun run verify:release");
+    expect(packageJson.version).toBe("1.0.0");
     expect(packageJson.engines.node).toBe(">=26.0.0");
-    expect(packageJson.dependencies["@cueintent/fastflow"]).toBe("0.1.0");
+    expect(packageJson.engines.bun).toBe(">=1.3.0");
+    expect(packageJson.dependencies["@cueintent/fastflow"]).toBe("1.0.0");
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#7da0bce3b43dc7c7be362763573d3f9ff2e3a282",
+      "git+ssh://git@github.com/cueintent/fastflow.git#310653f9502813846d6a70689877aaff6fd87735",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
@@ -565,8 +813,26 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.devDependencies.typescript).toBe("^5");
     expect(packageJson.peerDependencies).toBeUndefined();
     expect(packageJson.bin?.loopship).toBe("bin/loopship");
+    expect(packageJson.bin?.["loopship-fastflow-daemon"]).toBe(
+      "bin/loopship-fastflow-daemon",
+    );
+    expect(packageJson.exports?.["./fastflow/daemon"]).toBe(
+      "./scripts/loopship_fastflow_daemon.mjs",
+    );
+    const readme = readFileSync("README.md", "utf8");
+    expect(readme).toContain("Native v1 is the sole execution path");
+    expect(readme).toContain("local-durable");
+    expect(readme).toContain("legacy_execution_unsupported");
+    expect(readme).toContain("Bun is the canonical application and daemon runtime");
+    expect(readme).toContain("it is not a second supported Loopship application host");
+    expect(readme).not.toContain("retried once automatically");
     expect(readFileSync("index.ts", "utf8").startsWith("#!/usr/bin/env bun\n")).toBe(true);
     expect(readFileSync("bin/loopship", "utf8").startsWith("#!/usr/bin/env bun\n")).toBe(true);
+    expect(
+      readFileSync("bin/loopship-fastflow-daemon", "utf8").startsWith(
+        "#!/usr/bin/env bun\n",
+      ),
+    ).toBe(true);
     for (const file of [
       "scripts/ensure_cmdproto_deps.mjs",
       "scripts/loopship_fastflow.ts",
@@ -604,9 +870,1930 @@ describe("Loopship Fastflow-native bridge", () => {
       );
       expect(files.some((path) => path.startsWith(`${fastflowPrefix}test/`))).toBe(false);
       expect(files.some((path) => path.startsWith(`${fastflowPrefix}examples/`))).toBe(false);
+
+      const adapters = createLoopshipFastflowAdapters();
+      const implementation = (adapters.describeCallImplementation as Function)({
+        call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
+      }) as Record<string, unknown>;
+      const shippedLoopshipFiles = files
+        .filter((path) => !path.includes("node_modules/") && !path.startsWith("../"))
+        .sort();
+      expect(implementation.implementation_manifest).toBe("package.json#files+bun.lock");
+      expect(implementation.implementation_files).toEqual(shippedLoopshipFiles);
+      expect(implementation.implementation_files).toContain("bun.lock");
+      expect(implementation.implementation_files).toContain(
+        "bin/loopship-fastflow-daemon",
+      );
+      expect(implementation.implementation_files).toContain("scripts/loopship_core.ts");
+      expect(implementation.implementation_files).toContain(
+        "scripts/loopship_fastflow_daemon.mjs",
+      );
+      expect(implementation.implementation_files).toContain(
+        "scripts/loopship_native_execution.ts",
+      );
+      expect(implementation.implementation_files).toContain("scripts/loopship_sqlite.ts");
+      expect(implementation.implementation_files).toContain("scripts/loopship_utils.ts");
+      expect(implementation.dependency_lock_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(implementation.implementation_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(implementation.runtime_ref).toBe(`bun:${process.versions.bun}`);
+      const routeDigests = (adapters.afnDispatch as {
+        listRoutes(): Array<{ implementationDigest: string }>;
+      }).listRoutes().map((route) => route.implementationDigest);
+      expect(new Set(routeDigests)).toEqual(
+        new Set([String(implementation.implementation_digest)]),
+      );
     },
     { timeout: 30_000 },
   );
+
+  test(
+    "starts the durable daemon and a Native session from a clean packed install",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "loopship-packed-daemon-"));
+      const consumer = join(root, "consumer");
+      let fixture: ReturnType<typeof createGitFixture> | null = null;
+      let daemon: ReturnType<typeof Bun.spawn> | null = null;
+      try {
+        mkdirSync(consumer, { recursive: true });
+        writeFileSync(
+          join(consumer, "package.json"),
+          `${JSON.stringify({ private: true })}\n`,
+          "utf8",
+        );
+        const packed = runCommand(
+          "npm",
+          ["pack", "--json", "--ignore-scripts", "--pack-destination", root],
+          { cwd: process.cwd(), timeoutMs: 60_000 },
+        );
+        expect(packed.status, packed.stderr || packed.stdout).toBe(0);
+        const artifact = JSON.parse(packed.stdout) as Array<{ filename?: string }>;
+        const tarball = resolve(root, String(artifact[0]?.filename || ""));
+        expect(existsSync(tarball)).toBe(true);
+        const installed = runCommand(
+          "npm",
+          ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball],
+          { cwd: consumer, timeoutMs: 120_000 },
+        );
+        expect(installed.status, installed.stderr || installed.stdout).toBe(0);
+        const binPath = join(
+          consumer,
+          "node_modules",
+          ".bin",
+          "loopship-fastflow-daemon",
+        );
+        expect(existsSync(binPath)).toBe(true);
+        const {
+          FASTFLOW_APP_MODULE: _ignoredAppModule,
+          LOOPSHIP_FASTFLOW_ROOT: _ignoredFastflowRoot,
+          ...baseEnv
+        } = process.env;
+        const schedulerDb = join(root, "scheduler", "native-v1.sqlite");
+        daemon = Bun.spawn({
+          cmd: [binPath],
+          cwd: consumer,
+          env: {
+            ...baseEnv,
+            HOME: join(root, "home"),
+            FASTFLOW_SCHEDULER_DB: ` ${schedulerDb} `,
+            FASTFLOW_APP_MODULE: pathToFileURL(join(root, "wrong-app-module.mjs")).href,
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const ready = JSON.parse(
+          await readFirstLine(daemon.stdout as ReadableStream<Uint8Array>, 15_000),
+        ) as Record<string, unknown>;
+        expect(ready).toMatchObject({
+          ok: true,
+          scheduler: "fastflow.scheduler.native/v1",
+          profile: "local-durable",
+        });
+        fixture = createGitFixture("loopship-packed-native-session-");
+        const loopshipBin = join(consumer, "node_modules", ".bin", "loopship");
+        const session = runCommand(
+          loopshipBin,
+          [
+            "stepper",
+            "init",
+            "loopship: prove the packed Native session boundary",
+            "--repo",
+            fixture.repo,
+            "--runtime",
+            "codex",
+            "--flow",
+            "swe",
+            "--wtree",
+            "packed-native-session",
+          ],
+          {
+            cwd: fixture.repo,
+            env: {
+              ...baseEnv,
+              HOME: join(root, "home"),
+              CODEX_THREAD_ID: "packed-native-session-test",
+              FASTFLOW_SCHEDULER_MODE: "local-durable",
+              FASTFLOW_SCHEDULER_DB: schedulerDb,
+              INFERENCE_CLIENT: "handoff",
+              INFERENCE_PROVIDER: "",
+              INFERENCE_MODEL: "",
+              OPENAI_API_KEY: "",
+              INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+            },
+            timeoutMs: 120_000,
+          },
+        );
+        expect(session.status, session.stderr || session.stdout).toBe(0);
+        const response = parseJsonObject(session.stdout.trim(), "packed Native session");
+        expect(response.schemaVersion).toBe("fastflow/interaction-response/v1");
+        expect(interactionPause(response)).not.toBeNull();
+        daemon.kill("SIGINT");
+        expect(await daemon.exited).toBe(0);
+        daemon = null;
+      } finally {
+        daemon?.kill("SIGKILL");
+        if (daemon) await daemon.exited;
+        if (fixture) rmSync(fixture.root, { recursive: true, force: true });
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    { timeout: 180_000 },
+  );
+
+  test(
+    "recovers a pre-submission failure with one identical Native submit",
+    async () => {
+      const fixture = createGitFixture("loopship-native-single-submit-");
+      const fakeFastflowRoot = mkdtempSync(
+        join(process.cwd(), "tmp", "loopship-fake-fastflow-"),
+      );
+      const requestLog = join(fakeFastflowRoot, "requests.jsonl");
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+      join(fakeFastflowRoot, "src", "index.mjs"),
+      `
+        import { appendFileSync, existsSync, readFileSync } from "node:fs";
+        export function configureFastflowApp() {}
+        export async function executeFastflowWorkflowRunRequest(request) {
+          const prior = existsSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG)
+            ? readFileSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG, "utf8").trim()
+            : "";
+          appendFileSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG, JSON.stringify(request) + "\\n");
+          if (!prior) throw new Error("synthetic native submission failure");
+          return {
+            schemaVersion: "fastflow/interaction-response/v1",
+            kind: "handoff_answer",
+            nextCall: {
+              command: "loopship stepper step --json @-",
+              args: {
+                sessionId: request.executionId,
+                nonce: "nonce-test",
+                workspaceRoot: process.cwd(),
+                response: { answer: "{{answer}}" },
+              },
+            },
+          };
+        }
+        export async function executeFastflowWorkflowRecoverRequest() {
+          const error = new Error("synthetic execution not submitted");
+          error.code = "FASTFLOW_EXECUTION_NOT_FOUND";
+          throw error;
+        }
+        export async function executeFastflowWorkflowResumeRequest() {
+          throw new Error("unexpected resume");
+        }
+        `,
+      );
+      const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+      const previousLog = process.env.LOOPSHIP_NATIVE_REQUEST_LOG;
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      process.env.LOOPSHIP_NATIVE_REQUEST_LOG = requestLog;
+      const input = {
+        repoRoot: fixture.repo,
+        flowId: "swe",
+        inputs: {
+          request: "loopship: recover one ambiguous native submit",
+          repoRoot: fixture.repo,
+          runtime: "codex",
+          wtree: "single-submit",
+        },
+      };
+      try {
+        await expect(runLoopshipFastflowWorkflow(input)).rejects.toThrow(
+          "synthetic native submission failure",
+        );
+        const requests = readFileSync(requestLog, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        expect(requests).toHaveLength(1);
+        expect(requests[0].executionId).toMatch(/^loopship-[0-9a-f]{64}$/);
+        expect(requests[0].idempotencyKey).toBe(requests[0].executionId);
+        const requestEnvelope = JSON.parse(
+          readFileSync(
+            join(
+              fixture.repo,
+              "worktrees",
+              "single-submit",
+              ".loopship",
+              "runtime",
+              "native-execution.json",
+            ),
+            "utf8",
+          ),
+        );
+        expect(requestEnvelope.request).toEqual(requests[0]);
+        await expect(
+          runLoopshipFastflowWorkflow({
+            ...input,
+            inputs: {
+              ...input.inputs,
+              request: "loopship: conflicting request while Native execution is pending",
+            },
+          }),
+        ).rejects.toThrow("conflicts with pending");
+        expect(readFileSync(requestLog, "utf8").trim().split("\n")).toHaveLength(1);
+
+        const tasksPath = join(
+          fixture.repo,
+          "worktrees",
+          "single-submit",
+          ".loopship",
+          "runtime",
+          "tasks.yaml",
+        );
+        const recovered = await recoverLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          wtree: "single-submit",
+        });
+        const pause = interactionPause(recovered);
+        expect(pause, JSON.stringify(recovered)).not.toBeNull();
+        expect(pause?.sessionId).toBe(requests[0].executionId);
+        const recoveredRequests = readFileSync(requestLog, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        expect(recoveredRequests).toHaveLength(2);
+        expect(recoveredRequests[1]).toEqual(recoveredRequests[0]);
+        expect(existsSync(tasksPath)).toBe(true);
+      } finally {
+        if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+        else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+        if (previousLog === undefined) delete process.env.LOOPSHIP_NATIVE_REQUEST_LOG;
+        else process.env.LOOPSHIP_NATIVE_REQUEST_LOG = previousLog;
+        rmSync(fakeFastflowRoot, { recursive: true, force: true });
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    },
+    { timeout: 60_000 },
+  );
+
+  test("assigns a fresh durable execution when canonical resume follows a terminal stage", async () => {
+    const fixture = createGitFixture("loopship-native-stage-ledger-");
+    const fakeFastflowRoot = mkdtempSync(
+      join(process.cwd(), "tmp", "loopship-stage-ledger-fastflow-"),
+    );
+    const requestLog = join(fakeFastflowRoot, "requests.jsonl");
+    mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+    writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+    writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+    writeFileSync(
+      join(fakeFastflowRoot, "src", "index.mjs"),
+      `
+        import { appendFileSync } from "node:fs";
+        export function configureFastflowApp() {}
+        export async function executeFastflowWorkflowRunRequest(request) {
+          appendFileSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG, JSON.stringify(request) + "\\n");
+          return {
+            schemaVersion: "fastflow/workflow-run-artifact/v1",
+            kind: "workflow_result",
+            ok: true,
+            status: "completed",
+            output: { stage_after: "next" },
+          };
+        }
+        export async function executeFastflowWorkflowResumeRequest() {
+          throw new Error("unexpected resume");
+        }
+      `,
+    );
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const previousLog = process.env.LOOPSHIP_NATIVE_REQUEST_LOG;
+    process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+    process.env.LOOPSHIP_NATIVE_REQUEST_LOG = requestLog;
+    const input = {
+      repoRoot: fixture.repo,
+      flowId: "swe",
+      inputs: {
+        request: "loopship: execute two terminal stages",
+        repoRoot: fixture.repo,
+        runtime: "codex",
+        wtree: "stage-ledger",
+      },
+    };
+    try {
+      await runLoopshipFastflowWorkflow(input);
+      const workspaceRoot = join(fixture.repo, "worktrees", "stage-ledger");
+      const route = recordHookRoute({
+        repoRoot: fixture.repo,
+        runtime: "codex",
+        threadId: "terminal-recovery-thread",
+        workspaceRoot,
+        result: {
+          kind: "supervisor_review",
+          nextCall: {
+            args: {
+              sessionId: "stale-terminal-session",
+              nonce: "stale-terminal-nonce",
+              workspaceRoot,
+            },
+          },
+        },
+      });
+      expect(route).not.toBeNull();
+      await recoverLoopshipFastflowWorkflow({
+        repoRoot: fixture.repo,
+        wtree: "stage-ledger",
+      });
+      const requests = readFileSync(requestLog, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(requests).toHaveLength(2);
+      expect(requests[0].executionId).toMatch(/^loopship-[0-9a-f]{64}$/);
+      expect(requests[1].executionId).toMatch(/^loopship-[0-9a-f]{64}$/);
+      expect(requests[1].executionId).not.toBe(requests[0].executionId);
+
+      const runtimeRoot = join(
+        fixture.repo,
+        "worktrees",
+        "stage-ledger",
+        ".loopship",
+        "runtime",
+      );
+      const current = JSON.parse(
+        readFileSync(join(runtimeRoot, "native-execution.json"), "utf8"),
+      );
+      expect(current).toMatchObject({
+        status: "completed",
+        ordinal: 2,
+        executionId: requests[1].executionId,
+      });
+      const hookState = JSON.parse(
+        readFileSync(join(runtimeRoot, "hook-state.json"), "utf8"),
+      );
+      expect(hookState.fastflow).toBeUndefined();
+      expect(readdirSync(join(runtimeRoot, "native-executions"))).toHaveLength(2);
+    } finally {
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      if (previousLog === undefined) delete process.env.LOOPSHIP_NATIVE_REQUEST_LOG;
+      else process.env.LOOPSHIP_NATIVE_REQUEST_LOG = previousLog;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects legacy quest state instead of interpreting or migrating it", async () => {
+    const fixture = createGitFixture("loopship-native-legacy-state-");
+    try {
+      createNativeQuest(fixture.repo, "legacy-state");
+      await expect(
+        recoverLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          wtree: "legacy-state",
+        }),
+      ).rejects.toThrow("legacy_execution_unsupported");
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: do not migrate legacy state",
+            repoRoot: fixture.repo,
+            wtree: "legacy-state",
+          },
+        }),
+      ).rejects.toThrow("legacy_execution_unsupported");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects forged Native execution identities before history path construction", () => {
+    const fixture = createGitFixture("loopship-native-forged-execution-id-");
+    const wtree = "forged-execution-id";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    try {
+      const request = {
+        workflowRef: loopshipFlowWorkflowRef("swe"),
+        inputs: {
+          request: "loopship: reject forged execution identities",
+          repoRoot: fixture.repo,
+          wtree,
+        },
+      };
+      resolveLoopshipNativeExecutionRequest(workspaceRoot, request);
+      const executionPath = join(
+        workspaceRoot,
+        ".loopship",
+        "runtime",
+        "native-execution.json",
+      );
+      const forged = JSON.parse(readFileSync(executionPath, "utf8"));
+      forged.status = "completed";
+      forged.executionId = "../../escaped-ledger";
+      forged.idempotencyKey = forged.executionId;
+      forged.request.executionId = forged.executionId;
+      forged.request.idempotencyKey = forged.executionId;
+      forged.requestDigest = digestNativeContract(forged.request as JsonValue);
+      writeFileSync(executionPath, `${JSON.stringify(forged)}\n`, "utf8");
+
+      expect(() => readLoopshipNativeExecutionRequest(workspaceRoot)).toThrow(
+        "integrity check failed",
+      );
+      expect(() =>
+        resolveLoopshipNativeExecutionRequest(workspaceRoot, request),
+      ).toThrow("integrity check failed");
+      expect(
+        existsSync(join(workspaceRoot, ".loopship", "escaped-ledger.json")),
+      ).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a status-only tamper of a live Native execution ledger", () => {
+    const fixture = createGitFixture("loopship-native-forged-completion-");
+    const wtree = "forged-completion";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const request = {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: reject a forged Native completion",
+        repoRoot: fixture.repo,
+        wtree,
+      },
+    };
+    try {
+      resolveLoopshipNativeExecutionRequest(workspaceRoot, request);
+      const executionPath = join(
+        workspaceRoot,
+        ".loopship",
+        "runtime",
+        "native-execution.json",
+      );
+      const forged = JSON.parse(readFileSync(executionPath, "utf8"));
+      forged.status = "completed";
+      writeFileSync(executionPath, `${JSON.stringify(forged)}\n`, "utf8");
+
+      expect(() => readLoopshipNativeExecutionRequest(workspaceRoot)).toThrow(
+        "completed ledger has no immutable history receipt",
+      );
+      expect(() =>
+        resolveLoopshipNativeExecutionRequest(workspaceRoot, request),
+      ).toThrow("completed ledger has no immutable history receipt");
+      expect(
+        existsSync(join(workspaceRoot, ".loopship", "runtime", "native-executions")),
+      ).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("treats immutable completion history as authoritative across the current-ledger crash gap", () => {
+    const fixture = createGitFixture("loopship-native-completion-crash-gap-");
+    const wtree = "completion-crash-gap";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const request = {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: recover an archived Native completion",
+        repoRoot: fixture.repo,
+        wtree,
+      },
+    };
+    try {
+      const first = resolveLoopshipNativeExecutionRequest(workspaceRoot, request);
+      const executionPath = join(
+        workspaceRoot,
+        ".loopship",
+        "runtime",
+        "native-execution.json",
+      );
+      expect(statSync(executionPath).mode & 0o777).toBe(0o600);
+      chmodSync(executionPath, 0o600);
+      markLoopshipNativeExecutionCompleted(workspaceRoot, first.executionId);
+      expect(statSync(executionPath).mode & 0o777).toBe(0o600);
+      expect(
+        statSync(
+          join(
+            workspaceRoot,
+            ".loopship",
+            "runtime",
+            "native-executions",
+            `${first.executionId}.json`,
+          ),
+        ).mode & 0o777,
+      ).toBe(0o600);
+      const crashGap = JSON.parse(readFileSync(executionPath, "utf8"));
+      crashGap.status = "pending";
+      writeFileSync(executionPath, `${JSON.stringify(crashGap)}\n`, "utf8");
+
+      expect(readLoopshipNativeExecutionRequest(workspaceRoot)).toMatchObject({
+        executionId: first.executionId,
+        ordinal: 1,
+        status: "completed",
+      });
+      const second = resolveLoopshipNativeExecutionRequest(workspaceRoot, request);
+      expect(second).toMatchObject({ ordinal: 2, status: "pending" });
+      expect(second.executionId).not.toBe(first.executionId);
+      expect(statSync(executionPath).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("Native ledger replacement rejects a symbolic-link target", () => {
+    const fixture = createGitFixture("loopship-native-ledger-symlink-");
+    const wtree = "ledger-symlink";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const request = {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: reject a linked Native ledger",
+        repoRoot: fixture.repo,
+        wtree,
+      },
+    };
+    try {
+      const native = resolveLoopshipNativeExecutionRequest(workspaceRoot, request);
+      const executionPath = join(
+        workspaceRoot,
+        ".loopship",
+        "runtime",
+        "native-execution.json",
+      );
+      const linkedTarget = join(fixture.root, "external-native-execution.json");
+      const original = readFileSync(executionPath, "utf8");
+      writeFileSync(linkedTarget, original, "utf8");
+      rmSync(executionPath);
+      symlinkSync(linkedTarget, executionPath);
+
+      expect(() =>
+        markLoopshipNativeExecutionCompleted(workspaceRoot, native.executionId),
+      ).toThrow("refusing to replace symbolic-link target");
+      expect(lstatSync(executionPath).isSymbolicLink()).toBe(true);
+      expect(readFileSync(linkedTarget, "utf8")).toBe(original);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("a stale recovery snapshot cannot allocate an unsubmitted next Native execution", () => {
+    const fixture = createGitFixture("loopship-native-stale-recovery-ledger-");
+    const wtree = "stale-recovery-ledger";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const request = {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: reject a stale Native recovery snapshot",
+        repoRoot: fixture.repo,
+        wtree,
+      },
+    };
+    try {
+      const stale = resolveLoopshipNativeExecutionRequest(workspaceRoot, request);
+      markLoopshipNativeExecutionCompleted(workspaceRoot, stale.executionId);
+
+      expect(() =>
+        resolveLoopshipNativeExecutionRequest(workspaceRoot, request, {
+          expectedExecutionId: stale.executionId,
+          expectedStatus: "pending",
+        }),
+      ).toThrow("is no longer the current ledger");
+      expect(readLoopshipNativeExecutionRequest(workspaceRoot)).toMatchObject({
+        executionId: stale.executionId,
+        ordinal: 1,
+        status: "completed",
+      });
+      expect(
+        readdirSync(
+          join(workspaceRoot, ".loopship", "runtime", "native-executions"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("a stale completed recovery snapshot cannot skip to a third Native execution", () => {
+    const fixture = createGitFixture("loopship-native-stale-completed-ledger-");
+    const wtree = "stale-completed-ledger";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const request = {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: rotate one completed Native execution exactly once",
+        repoRoot: fixture.repo,
+        wtree,
+      },
+    };
+    try {
+      const first = resolveLoopshipNativeExecutionRequest(workspaceRoot, request);
+      markLoopshipNativeExecutionCompleted(workspaceRoot, first.executionId);
+      const second = resolveLoopshipNativeExecutionRequest(workspaceRoot, request, {
+        expectedExecutionId: first.executionId,
+        expectedStatus: "completed",
+      });
+      expect(second).toMatchObject({ ordinal: 2, status: "pending" });
+      markLoopshipNativeExecutionCompleted(workspaceRoot, second.executionId);
+
+      expect(() =>
+        resolveLoopshipNativeExecutionRequest(workspaceRoot, request, {
+          expectedExecutionId: first.executionId,
+          expectedStatus: "completed",
+        }),
+      ).toThrow("is no longer the current ledger");
+      expect(readLoopshipNativeExecutionRequest(workspaceRoot)).toMatchObject({
+        executionId: second.executionId,
+        ordinal: 2,
+        status: "completed",
+      });
+      expect(
+        readdirSync(
+          join(workspaceRoot, ".loopship", "runtime", "native-executions"),
+        ),
+      ).toHaveLength(2);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("binds Native recovery and resume to the registered canonical worktree ledger", async () => {
+    const fixture = createGitFixture("loopship-native-canonical-recovery-");
+    const wtree = "canonical-recovery";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const native = resolveLoopshipNativeExecutionRequest(workspaceRoot, {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: recover only the canonical Native execution",
+        repoRoot: fixture.repo,
+        runtime: "codex",
+        wtree,
+      },
+    });
+    createQuest({
+      repoRoot: fixture.repo,
+      wtree,
+      prompt: "loopship: recover only the canonical Native execution",
+      resolutionSource: "test",
+      workspace,
+      flowId: "swe",
+      initialStage: "initial",
+    });
+    try {
+      await expect(
+        resumeLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          workspaceRoot,
+          request: {
+            sessionId: "loopship-wrong-ledger",
+            workspaceRoot,
+            response: { answer: { status: "ok" } },
+          },
+        }),
+      ).rejects.toThrow("does not match current ledger");
+
+      const linkedWorkspace = join(fixture.repo, "worktrees", "linked-recovery");
+      symlinkSync(workspaceRoot, linkedWorkspace, "dir");
+      await expect(
+        resumeLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          workspaceRoot: linkedWorkspace,
+          request: {
+            sessionId: native.executionId,
+            workspaceRoot: linkedWorkspace,
+            response: { answer: { status: "ok" } },
+          },
+        }),
+      ).rejects.toThrow("requires canonical worktree");
+      rmSync(linkedWorkspace);
+
+      const wrongBranch = "codex/wrong-native-recovery";
+      runGit(workspaceRoot, ["checkout", "-b", wrongBranch]);
+      await expect(
+        resumeLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          workspaceRoot,
+          request: {
+            sessionId: native.executionId,
+            workspaceRoot,
+            response: { answer: { status: "ok" } },
+          },
+        }),
+      ).rejects.toThrow("does not match canonical quest branch");
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toThrow("does not match canonical quest branch");
+      runGit(workspaceRoot, ["checkout", workspace.branch_ref]);
+      runGit(fixture.repo, ["branch", "-D", "--", wrongBranch]);
+
+      const tasksPath = join(workspaceRoot, ".loopship", "runtime", "tasks.yaml");
+      const executionPath = join(
+        workspaceRoot,
+        ".loopship",
+        "runtime",
+        "native-execution.json",
+      );
+      const tasks = readFileSync(tasksPath, "utf8");
+      const execution = readFileSync(executionPath, "utf8");
+      runGit(fixture.repo, ["worktree", "remove", "--force", workspaceRoot]);
+      mkdirSync(join(workspaceRoot, ".loopship", "runtime"), { recursive: true });
+      writeFileSync(tasksPath, tasks, "utf8");
+      writeFileSync(executionPath, execution, "utf8");
+
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toThrow("requires a registered Git worktree");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects Native recovery ledgers bound to another repository root", async () => {
+    const fixture = createGitFixture("loopship-native-repo-authority-");
+    const foreign = createGitFixture("loopship-native-foreign-repo-");
+    const wtree = "repo-authority";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    resolveLoopshipNativeExecutionRequest(workspaceRoot, {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: reject a foreign repository authority",
+        repoRoot: foreign.repo,
+        wtree,
+      },
+    });
+    createQuest({
+      repoRoot: fixture.repo,
+      wtree,
+      prompt: "loopship: reject a foreign repository authority",
+      resolutionSource: "test",
+      workspace,
+      flowId: "swe",
+      initialStage: "initial",
+    });
+    try {
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toThrow("does not match canonical repository");
+
+      const aliasWtree = "repo-alias-authority";
+      const aliasWorkspace = ensureCoordinatorWorkspace(fixture.repo, aliasWtree);
+      resolveLoopshipNativeExecutionRequest(aliasWorkspace.worktree_path, {
+        workflowRef: loopshipFlowWorkflowRef("swe"),
+        inputs: {
+          request: "loopship: reject a foreign repository alias",
+          repo: foreign.repo,
+          repoRoot: fixture.repo,
+          wtree: aliasWtree,
+        },
+      });
+      createQuest({
+        repoRoot: fixture.repo,
+        wtree: aliasWtree,
+        prompt: "loopship: reject a foreign repository alias",
+        resolutionSource: "test",
+        workspace: aliasWorkspace,
+        flowId: "swe",
+        initialStage: "initial",
+      });
+      await expect(
+        recoverLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          wtree: aliasWtree,
+        }),
+      ).rejects.toThrow("does not match canonical repository");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+      rmSync(foreign.root, { recursive: true, force: true });
+    }
+  });
+
+  test("binds initial Native execution inputs to the authoritative repository", async () => {
+    const fixture = createGitFixture("loopship-native-initial-repo-authority-");
+    const foreign = createGitFixture("loopship-native-initial-foreign-repo-");
+    try {
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject a foreign initial repoRoot",
+            repoRoot: foreign.repo,
+            wtree: "foreign-repo-root",
+          },
+        }),
+      ).rejects.toThrow("inputs.repoRoot");
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject a foreign initial repo alias",
+            repoRoot: fixture.repo,
+            repo: foreign.repo,
+            wtree: "foreign-repo-alias",
+          },
+        }),
+      ).rejects.toThrow("inputs.repo");
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject conflicting execution aliases",
+            repoRoot: fixture.repo,
+            targetBranch: "main",
+            target_branch: "release",
+            wtree: "conflicting-target-aliases",
+          },
+        }),
+      ).rejects.toThrow("inputs.targetBranch conflicts with inputs.target_branch");
+      expect(existsSync(join(fixture.repo, "worktrees", "foreign-repo-root"))).toBe(false);
+      expect(existsSync(join(fixture.repo, "worktrees", "foreign-repo-alias"))).toBe(false);
+      expect(existsSync(join(fixture.repo, "worktrees", "conflicting-target-aliases"))).toBe(false);
+      expect(existsSync(join(foreign.repo, ".loopship", "runtime"))).toBe(false);
+    } finally {
+      rmSync(foreign.root, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects initial Native execution without a canonical worktree identity", async () => {
+    const fixture = createGitFixture("loopship-native-missing-worktree-");
+    try {
+      await expect(
+        runLoopshipFastflowWorkflowRequest({
+          repoRoot: fixture.repo,
+          request: {
+            workflowRef: loopshipFlowWorkflowRef("swe"),
+            inputs: { repoRoot: fixture.repo },
+          },
+        }),
+      ).rejects.toThrow("requires inputs.wtree or inputs.request");
+      expect(existsSync(join(fixture.repo, ".loopship", "runtime"))).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an explicit initial workspace outside the canonical registered worktree before writing a ledger", async () => {
+    const fixture = createGitFixture("loopship-native-initial-workspace-authority-");
+    const outsideWorkspace = join(fixture.root, "outside-workspace");
+    mkdirSync(outsideWorkspace, { recursive: true });
+    try {
+      await expect(
+        runLoopshipFastflowWorkflowRequest({
+          repoRoot: fixture.repo,
+          workspaceRoot: outsideWorkspace,
+          request: {
+            workflowRef: loopshipFlowWorkflowRef("swe"),
+            inputs: {
+              repoRoot: fixture.repo,
+              wtree: "outside-workspace",
+            },
+          },
+        }),
+      ).rejects.toThrow("requires canonical worktree");
+      expect(existsSync(join(outsideWorkspace, ".loopship"))).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a relative durable scheduler database before claiming quest state", async () => {
+    const fixture = createGitFixture("loopship-native-relative-scheduler-db-");
+    const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
+    const wtree = "relative-scheduler-db";
+    try {
+      process.env.FASTFLOW_SCHEDULER_DB = "./native-v1.sqlite";
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject cwd-relative scheduler authority",
+            repoRoot: fixture.repo,
+            wtree,
+          },
+        }),
+      ).rejects.toThrow("FASTFLOW_SCHEDULER_DB must be an absolute path");
+      expect(existsSync(join(fixture.repo, "worktrees", wtree))).toBe(false);
+
+      const daemon = Bun.spawn(
+        [process.execPath, "--no-install", resolve(process.cwd(), "bin", "loopship-fastflow-daemon")],
+        {
+          cwd: fixture.repo,
+          env: { ...process.env, FASTFLOW_SCHEDULER_DB: "./native-v1.sqlite" },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      expect(await daemon.exited).not.toBe(0);
+      expect(await new Response(daemon.stderr).text()).toContain(
+        "FASTFLOW_SCHEDULER_DB must be an absolute path",
+      );
+
+      const canonicalDb = join(fixture.root, "scheduler", "native-v1.sqlite");
+      process.env.FASTFLOW_SCHEDULER_DB = ` ${canonicalDb} `;
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "missing-flow",
+          inputs: { request: "loopship: canonicalize scheduler authority" },
+        }),
+      ).rejects.toThrow("Unknown Loopship flow");
+      expect(process.env.FASTFLOW_SCHEDULER_DB).toBe(canonicalDb);
+
+      process.env.FASTFLOW_SCHEDULER_DB = "   ";
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "missing-flow",
+          inputs: { request: "loopship: clear empty scheduler authority" },
+        }),
+      ).rejects.toThrow("Unknown Loopship flow");
+      expect(process.env.FASTFLOW_SCHEDULER_DB).toBeUndefined();
+    } finally {
+      if (previousDb === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
+      else process.env.FASTFLOW_SCHEDULER_DB = previousDb;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a coordinator branch collision before writing Native state outside the canonical worktree", async () => {
+    const fixture = createGitFixture("loopship-native-coordinator-branch-collision-");
+    try {
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject the repository root as a coordinator workspace",
+            repoRoot: fixture.repo,
+            wtree: "main",
+          },
+        }),
+      ).rejects.toThrow("already checked out outside its requested worktree");
+      expect(
+        existsSync(join(fixture.repo, ".loopship", "runtime", "native-execution.json")),
+      ).toBe(false);
+      expect(existsSync(join(fixture.repo, "worktrees", "main"))).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a detached canonical coordinator worktree before writing Native state", async () => {
+    const fixture = createGitFixture("loopship-native-detached-coordinator-");
+    const wtree = "detached-coordinator";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    try {
+      runGit(workspace.worktree_path, ["checkout", "--detach"]);
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject a detached coordinator",
+            repoRoot: fixture.repo,
+            wtree,
+          },
+        }),
+      ).rejects.toThrow("requires an attached Git branch");
+      expect(
+        existsSync(
+          join(workspace.worktree_path, ".loopship", "runtime", "native-execution.json"),
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("repairs a deterministic partial quest initialization after claiming the Native request", async () => {
+    const fixture = createGitFixture("loopship-native-partial-init-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-fake-fastflow-"));
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const wtree = "partial-init";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const request = {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: "loopship: recover deterministic partial initialization",
+        prompt: "loopship: recover deterministic partial initialization",
+        repo: fixture.repo,
+        repoRoot: fixture.repo,
+        sourceBranch: wtree,
+        source_branch: wtree,
+        targetBranch: "main",
+        target_branch: "main",
+        targetWorktree: landingTargetWorktreePath(fixture.repo, "main"),
+        target_worktree: landingTargetWorktreePath(fixture.repo, "main"),
+        wtree,
+      },
+    };
+    try {
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          export function configureFastflowApp() {}
+          export async function executeFastflowWorkflowRunRequest() {
+            return {
+              schemaVersion: "fastflow/workflow-run-artifact/v1",
+              kind: "workflow_result",
+              ok: true,
+              status: "completed",
+              output: { stage_after: "initial" },
+            };
+          }
+          export async function executeFastflowWorkflowResumeRequest() {
+            throw new Error("unexpected resume");
+          }
+        `,
+      );
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      resolveLoopshipNativeExecutionRequest(workspace.worktree_path, request);
+      const { files } = createFastflowQuest(
+        fixture.repo,
+        wtree,
+        String(request.inputs.request),
+      );
+      rmSync(files.events, { force: true });
+      rmSync(files.hook_state, { force: true });
+      rmSync(files.manifest, { force: true });
+
+      await runLoopshipFastflowWorkflowRequest({
+        repoRoot: fixture.repo,
+        workspaceRoot: workspace.worktree_path,
+        request,
+      });
+
+      expect(JSON.parse(readFileSync(files.events, "utf8").trim())).toMatchObject({
+        event: "quest_started",
+        quest_id: wtree,
+      });
+      expect(JSON.parse(readFileSync(files.hook_state, "utf8"))).toEqual({});
+      expect(verifyQuestManifest(files)).toEqual({ ok: true, errors: [] });
+      expect(
+        readLoopshipNativeExecutionRequest(workspace.worktree_path).executionId,
+      ).toMatch(/^loopship-[0-9a-f]{64}$/);
+    } finally {
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("serializes concurrent same-request quest initialization across processes", async () => {
+    const fixture = createGitFixture("loopship-native-concurrent-init-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-concurrent-init-fastflow-"));
+    const scriptRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-concurrent-init-script-"));
+    const startPath = join(scriptRoot, "start");
+    const script = join(scriptRoot, "run.ts");
+    const wtree = "concurrent-init";
+    const prompt = "loopship: serialize concurrent Native initialization";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    try {
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          export function configureFastflowApp() {}
+          export async function executeFastflowWorkflowRunRequest(request) {
+            return {
+              schemaVersion: "fastflow/interaction-response/v1",
+              kind: "handoff_answer",
+              ok: true,
+              status: "paused",
+              executionId: request.executionId,
+              nextCall: {
+                args: {
+                  sessionId: request.executionId,
+                  nonce: "concurrent-init-nonce",
+                  workspaceRoot: process.cwd(),
+                },
+              },
+            };
+          }
+          export async function executeFastflowWorkflowResumeRequest() {
+            throw new Error("unexpected resume");
+          }
+        `,
+      );
+      writeFileSync(
+        script,
+        `
+          import { existsSync, writeFileSync } from "node:fs";
+          import { runLoopshipFastflowWorkflow } from ${JSON.stringify(
+            pathToFileURL(resolve(process.cwd(), "scripts", "loopship_fastflow.ts")).href,
+          )};
+          const [repoRoot, workspaceRoot, readyPath, startPath, wtree, prompt] = process.argv.slice(2);
+          writeFileSync(readyPath, "ready");
+          while (!existsSync(startPath)) await Bun.sleep(5);
+          const result = await runLoopshipFastflowWorkflow({
+            repoRoot,
+            workspaceRoot,
+            flowId: "swe",
+            inputs: { request: prompt, repoRoot, runtime: "codex", wtree },
+          });
+          console.log(JSON.stringify(result));
+        `,
+        "utf8",
+      );
+      const spawnInit = (id: string) => {
+        const readyPath = join(scriptRoot, `ready-${id}`);
+        const proc = Bun.spawn(
+          [
+            process.execPath,
+            "--no-install",
+            script,
+            fixture.repo,
+            workspace.worktree_path,
+            readyPath,
+            startPath,
+            wtree,
+            prompt,
+          ],
+          {
+            cwd: process.cwd(),
+            env: {
+              ...process.env,
+              LOOPSHIP_FASTFLOW_ROOT: fakeFastflowRoot,
+              CODEX_THREAD_ID: "",
+            },
+            stdout: "pipe",
+            stderr: "pipe",
+          },
+        );
+        return { proc, readyPath };
+      };
+      const contenders = [spawnInit("a"), spawnInit("b")];
+      const readyDeadline = Date.now() + 10_000;
+      while (
+        contenders.some(({ readyPath }) => !existsSync(readyPath)) &&
+        Date.now() < readyDeadline
+      ) {
+        await Bun.sleep(10);
+      }
+      expect(contenders.every(({ readyPath }) => existsSync(readyPath))).toBe(true);
+      writeFileSync(startPath, "start", "utf8");
+      const results = await Promise.all(
+        contenders.map(async ({ proc }) => ({
+          status: await proc.exited,
+          stdout: await new Response(proc.stdout).text(),
+          stderr: await new Response(proc.stderr).text(),
+        })),
+      );
+      for (const result of results) {
+        expect(result.status, result.stderr || result.stdout).toBe(0);
+      }
+
+      const files = questFiles(fixture.repo, wtree);
+      const events = readFileSync(files.events, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(events.filter((event) => event.event === "quest_started")).toHaveLength(1);
+      expect(verifyQuestManifest(files)).toEqual({ ok: true, errors: [] });
+      expect(readLoopshipNativeExecutionRequest(files.workspace_root)).toMatchObject({
+        status: "pending",
+        ordinal: 1,
+      });
+    } finally {
+      rmSync(scriptRoot, { recursive: true, force: true });
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("rejects missing tasks with progressed siblings instead of blessing a reset", async () => {
+    const fixture = createGitFixture("loopship-native-missing-progressed-tasks-");
+    const wtree = "missing-progressed-tasks";
+    const prompt = "loopship: preserve progressed quest evidence";
+    try {
+      const { files } = createFastflowQuest(fixture.repo, wtree, prompt);
+      updateQuestStage(files, "planning", "progress-before-loss", "test");
+      const eventsBefore = readFileSync(files.events, "utf8");
+      const manifestBefore = readFileSync(files.manifest, "utf8");
+      rmSync(files.tasks);
+
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: { request: prompt, repoRoot: fixture.repo, wtree },
+        }),
+      ).rejects.toThrow("stale initialization siblings without tasks");
+      expect(readFileSync(files.events, "utf8")).toBe(eventsBefore);
+      expect(readFileSync(files.manifest, "utf8")).toBe(manifestBefore);
+      expect(
+        existsSync(join(files.dir, "native-execution.json")),
+      ).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a tampered initial document instead of signing a repaired manifest", async () => {
+    const fixture = createGitFixture("loopship-native-tampered-initial-prefix-");
+    const wtree = "tampered-initial-prefix";
+    const prompt = "loopship: reject a tampered initialization prefix";
+    try {
+      const { files } = createFastflowQuest(fixture.repo, wtree, prompt);
+      const state = parseTasksYaml(readFileSync(files.tasks, "utf8"));
+      state.prompt = "hostile replacement prompt";
+      writeFileSync(files.tasks, renderTasksYaml(state as QuestState), "utf8");
+      const tasksBefore = readFileSync(files.tasks, "utf8");
+      rmSync(files.manifest);
+
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: { request: prompt, repoRoot: fixture.repo, wtree },
+        }),
+      ).rejects.toThrow("not a pristine initialization prefix");
+      expect(readFileSync(files.tasks, "utf8")).toBe(tasksBefore);
+      expect(existsSync(files.manifest)).toBe(false);
+      expect(existsSync(join(files.dir, "native-execution.json"))).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("verifies canonical quest bytes before delivering a Native resume signal", async () => {
+    const fixture = createGitFixture("loopship-native-resume-manifest-guard-");
+    const wtree = "resume-manifest-guard";
+    const prompt = "loopship: reject drift before resume";
+    try {
+      const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+      const native = resolveLoopshipNativeExecutionRequest(workspace.worktree_path, {
+        workflowRef: loopshipFlowWorkflowRef("swe"),
+        inputs: { request: prompt, repoRoot: fixture.repo, wtree },
+      });
+      const { files } = createFastflowQuest(fixture.repo, wtree, prompt);
+      const manifestBefore = readFileSync(files.manifest, "utf8");
+      writeFileSync(
+        files.events,
+        `${readFileSync(files.events, "utf8")}${JSON.stringify({
+          event: "tampered_while_paused",
+          quest_id: wtree,
+        })}\n`,
+        "utf8",
+      );
+
+      await expect(
+        resumeLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          workspaceRoot: files.workspace_root,
+          request: {
+            sessionId: native.executionId,
+            nonce: "valid-looking-nonce",
+            workspaceRoot: files.workspace_root,
+            response: { answer: { status: "ok" } },
+          },
+        }),
+      ).rejects.toThrow("manifest is corrupt before resume");
+      expect(readFileSync(files.manifest, "utf8")).toBe(manifestBefore);
+      expect(verifyQuestManifest(files).ok).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects missing request and unknown flow before claiming a Native ledger", async () => {
+    const fixture = createGitFixture("loopship-native-preflight-inputs-");
+    try {
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: { repoRoot: fixture.repo, wtree: "request-required" },
+        }),
+      ).rejects.toThrow("requires inputs.request");
+      expect(
+        existsSync(
+          join(
+            fixture.repo,
+            "worktrees",
+            "request-required",
+            ".loopship",
+            "runtime",
+            "native-execution.json",
+          ),
+        ),
+      ).toBe(false);
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "missing-flow",
+          inputs: {
+            request: "loopship: reject an unknown flow",
+            repoRoot: fixture.repo,
+            wtree: "unknown-flow",
+          },
+        }),
+      ).rejects.toThrow("Unknown Loopship flow 'missing-flow'");
+      expect(existsSync(join(fixture.repo, "worktrees", "unknown-flow"))).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes subdirectory repository authority and permits a corrected preflight retry", async () => {
+    const fixture = createGitFixture("loopship-native-corrected-preflight-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-preflight-fastflow-"));
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const subdirectory = join(fixture.repo, "src");
+    const wtree = "corrected-preflight";
+    const prompt = "loopship: retry corrected deterministic inputs";
+    try {
+      mkdirSync(subdirectory, { recursive: true });
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          export function configureFastflowApp() {}
+          export async function executeFastflowWorkflowRunRequest(request) {
+            return {
+              schemaVersion: "fastflow/workflow-run-artifact/v1",
+              kind: "workflow_result",
+              ok: true,
+              status: "completed",
+              executionId: request.executionId,
+              output: { stage_after: "initial" },
+            };
+          }
+          export async function executeFastflowWorkflowResumeRequest() {
+            throw new Error("unexpected resume");
+          }
+        `,
+      );
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: subdirectory,
+          flowId: "swe",
+          inputs: {
+            request: prompt,
+            repoRoot: subdirectory,
+            wtree,
+            targetBranch: "invalid branch name",
+          },
+        }),
+      ).rejects.toThrow("landing target branch");
+      const workspaceRoot = join(fixture.repo, "worktrees", wtree);
+      expect(
+        existsSync(join(workspaceRoot, ".loopship", "runtime", "native-execution.json")),
+      ).toBe(false);
+
+      await runLoopshipFastflowWorkflow({
+        repoRoot: subdirectory,
+        flowId: "swe",
+        inputs: {
+          request: prompt,
+          repoRoot: subdirectory,
+          wtree,
+          targetBranch: "main",
+        },
+      });
+      const state = parseTasksYaml(
+        readFileSync(join(workspaceRoot, ".loopship", "runtime", "tasks.yaml"), "utf8"),
+      );
+      expect(state.context_root).toBe(fixture.repo);
+      expect(state.coordinator_worktree).toBe(workspaceRoot);
+      expect(existsSync(join(subdirectory, "worktrees"))).toBe(false);
+    } finally {
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("canonical recovery preserves its hook route while the Native execution is still running", async () => {
+    const fixture = createGitFixture("loopship-native-running-recovery-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-running-fastflow-"));
+    const recoveryLog = join(fakeFastflowRoot, "operations.log");
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const previousLog = process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+    const previousThread = process.env.CODEX_THREAD_ID;
+    const wtree = "running-recovery";
+    const prompt = "loopship: preserve a running Native recovery route";
+    try {
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          import { appendFileSync, existsSync } from "node:fs";
+          export function configureFastflowApp() {}
+          export async function executeFastflowWorkflowRecoverRequest({ executionId }) {
+            const alreadyRunning = existsSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG);
+            appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover\\n");
+            if (!alreadyRunning) {
+              return {
+                schemaVersion: "fastflow/workflow-run-artifact/v1",
+                kind: "workflow_result",
+                ok: true,
+                status: "running",
+              };
+            }
+            return {
+              schemaVersion: "fastflow/interaction-response/v1",
+              kind: "handoff_answer",
+              ok: true,
+              status: "paused",
+              executionId,
+              nextCall: {
+                args: {
+                  sessionId: executionId,
+                  nonce: "settled-running-nonce",
+                  workspaceRoot: process.cwd(),
+                },
+              },
+            };
+          }
+          export async function executeFastflowWorkflowRunRequest() {
+            throw new Error("unexpected resubmission");
+          }
+          export async function executeFastflowWorkflowResumeRequest() {
+            throw new Error("unexpected resume");
+          }
+        `,
+      );
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = recoveryLog;
+      delete process.env.CODEX_THREAD_ID;
+      const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+      const native = resolveLoopshipNativeExecutionRequest(workspace.worktree_path, {
+        workflowRef: loopshipFlowWorkflowRef("swe"),
+        inputs: {
+          request: prompt,
+          repo: fixture.repo,
+          repoRoot: fixture.repo,
+          runtime: "codex",
+          wtree,
+        },
+      });
+      const { files } = createFastflowQuest(fixture.repo, wtree, prompt);
+      const route = recordHookRoute({
+        repoRoot: fixture.repo,
+        runtime: "codex",
+        threadId: "running-recovery-thread",
+        workspaceRoot: files.workspace_root,
+        result: {
+          kind: "supervisor_review",
+          nextCall: {
+            args: {
+              sessionId: native.executionId,
+              nonce: "prior-running-nonce",
+              workspaceRoot: files.workspace_root,
+            },
+          },
+        },
+      });
+      expect(route).not.toBeNull();
+      const priorRoute = readFileSync(files.hook_state, "utf8");
+
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_NATIVE_EXECUTION_RUNNING",
+        retryable: true,
+      });
+      expect(readFileSync(files.hook_state, "utf8")).toBe(priorRoute);
+      expect(readLoopshipNativeExecutionRequest(files.workspace_root)).toMatchObject({
+        executionId: native.executionId,
+        status: "pending",
+      });
+
+      const settled = await recoverLoopshipFastflowWorkflow({
+        repoRoot: fixture.repo,
+        wtree,
+      });
+      expect(interactionPause(settled)?.nonce).toBe("settled-running-nonce");
+      expect(JSON.parse(readFileSync(files.hook_state, "utf8"))).toMatchObject({
+        runtime: "codex",
+        thread_id: "running-recovery-thread",
+        fastflow: { nonce: "settled-running-nonce" },
+      });
+      expect(readFileSync(recoveryLog, "utf8").trim().split("\n")).toEqual([
+        "recover",
+        "recover",
+      ]);
+    } finally {
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      if (previousLog === undefined) delete process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+      else process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = previousLog;
+      if (previousThread === undefined) delete process.env.CODEX_THREAD_ID;
+      else process.env.CODEX_THREAD_ID = previousThread;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("canonical recovery addresses the persisted Native execution before considering resubmission", async () => {
+    const fixture = createGitFixture("loopship-native-direct-recovery-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-recovery-fastflow-"));
+    const recoveryLog = join(fakeFastflowRoot, "operations.jsonl");
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const previousLog = process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+    const previousThread = process.env.CODEX_THREAD_ID;
+    const wtree = "direct-recovery";
+    const prompt = "loopship: recover the persisted pinned plan";
+    try {
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export const changed = true;\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          import { appendFileSync } from "node:fs";
+          export function configureFastflowApp() {}
+          export async function executeFastflowWorkflowRunRequest() {
+            appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "run\\n");
+            const error = new Error("current-source submit must not run");
+            error.code = "FASTFLOW_SUBMIT_CONFLICT";
+            throw error;
+          }
+          export async function executeFastflowWorkflowRecoverRequest({ executionId }) {
+            appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover\\n");
+            return {
+              schemaVersion: "fastflow/interaction-response/v1",
+              kind: "handoff_answer",
+              ok: true,
+              status: "paused",
+              executionId,
+              nextCall: {
+                args: {
+                  sessionId: executionId,
+                  nonce: "persisted-plan-nonce",
+                  workspaceRoot: process.cwd(),
+                },
+              },
+            };
+          }
+          export async function executeFastflowWorkflowResumeRequest() {
+            throw new Error("unexpected resume");
+          }
+        `,
+      );
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = recoveryLog;
+      process.env.CODEX_THREAD_ID = "direct-recovery-thread";
+      const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+      const native = resolveLoopshipNativeExecutionRequest(workspace.worktree_path, {
+        workflowRef: loopshipFlowWorkflowRef("swe"),
+        inputs: {
+          request: prompt,
+          repo: fixture.repo,
+          repoRoot: fixture.repo,
+          runtime: "codex",
+          wtree,
+        },
+      });
+      const { files } = createFastflowQuest(fixture.repo, wtree, prompt);
+
+      const result = await recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree });
+      expect(interactionPause(result)?.sessionId).toBe(native.executionId);
+      expect(readFileSync(recoveryLog, "utf8").trim().split("\n")).toEqual(["recover"]);
+      expect(JSON.parse(readFileSync(files.hook_state, "utf8"))).toMatchObject({
+        schema_version: 2,
+        runtime: "codex",
+        thread_id: "direct-recovery-thread",
+        fastflow: {
+          sessionId: native.executionId,
+          nonce: "persisted-plan-nonce",
+          workspaceRoot: files.workspace_root,
+        },
+      });
+    } finally {
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      if (previousLog === undefined) delete process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+      else process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = previousLog;
+      if (previousThread === undefined) delete process.env.CODEX_THREAD_ID;
+      else process.env.CODEX_THREAD_ID = previousThread;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("retires and reports a recovered terminal failure before allocating a new execution", async () => {
+    const fixture = createGitFixture("loopship-native-failed-recovery-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-failed-fastflow-"));
+    const operationLog = join(fakeFastflowRoot, "operations.jsonl");
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const previousLog = process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+    const wtree = "failed-recovery";
+    const prompt = "loopship: retire a failed durable execution";
+    try {
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          import { appendFileSync } from "node:fs";
+          export function configureFastflowApp() {}
+          export async function executeFastflowWorkflowRecoverRequest({ executionId }) {
+            appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover:" + executionId + "\\n");
+            return {
+              schemaVersion: "fastflow/workflow-run-artifact/v1",
+              kind: "workflow_result",
+              ok: false,
+              status: "failed",
+              error: { code: "SYNTHETIC_DURABLE_FAILURE", message: "synthetic durable failure" },
+            };
+          }
+          export async function executeFastflowWorkflowRunRequest(request) {
+            appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "run:" + request.executionId + "\\n");
+            return {
+              schemaVersion: "fastflow/workflow-run-artifact/v1",
+              kind: "workflow_result",
+              ok: true,
+              status: "completed",
+              executionId: request.executionId,
+              output: { stage_after: "initial" },
+            };
+          }
+          export async function executeFastflowWorkflowResumeRequest() {
+            throw new Error("unexpected resume");
+          }
+        `,
+      );
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = operationLog;
+      const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+      const first = resolveLoopshipNativeExecutionRequest(workspace.worktree_path, {
+        workflowRef: loopshipFlowWorkflowRef("swe"),
+        inputs: { request: prompt, repo: fixture.repo, repoRoot: fixture.repo, wtree },
+      });
+      const { files } = createFastflowQuest(fixture.repo, wtree, prompt);
+
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toThrow("synthetic durable failure");
+      expect(readLoopshipNativeExecutionRequest(files.workspace_root)).toMatchObject({
+        executionId: first.executionId,
+        status: "completed",
+        ordinal: 1,
+      });
+
+      await recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree });
+      const second = readLoopshipNativeExecutionRequest(files.workspace_root);
+      expect(second).toMatchObject({ status: "completed", ordinal: 2 });
+      expect(second.executionId).not.toBe(first.executionId);
+      expect(readFileSync(operationLog, "utf8").trim().split("\n")).toEqual([
+        `recover:${first.executionId}`,
+        `run:${second.executionId}`,
+      ]);
+    } finally {
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      if (previousLog === undefined) delete process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+      else process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = previousLog;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("distinguishes cleaned Native workspace residue from live legacy quest state", () => {
+    const root = mkdtempSync(join(tmpdir(), "loopship-native-cleanup-ledger-"));
+    const workspaceRoot = join(root, "worktree");
+    const runtimeRoot = join(workspaceRoot, ".loopship", "runtime");
+    try {
+      mkdirSync(join(runtimeRoot, "afn-effects"), { recursive: true });
+      writeFileSync(join(runtimeRoot, "afn-effects", "residue.json"), "{}\n", "utf8");
+      expect(() =>
+        markLoopshipNativeExecutionCompleted(workspaceRoot, "loopship-cleaned"),
+      ).not.toThrow();
+
+      writeFileSync(join(runtimeRoot, "tasks.yaml"), "schema_version: 4\n", "utf8");
+      expect(() =>
+        markLoopshipNativeExecutionCompleted(workspaceRoot, "loopship-legacy"),
+      ).toThrow("legacy_execution_unsupported");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("removes only receipt-authorized residue after Native cleanup finalizes", () => {
+    const fixture = createGitFixture("loopship-native-cleanup-residue-");
+    const workspaceRoot = join(fixture.repo, "worktrees", "residue");
+    try {
+      ensureTaskWorkspace(fixture.repo, "codex/residue", workspaceRoot, "main");
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(false);
+      expect(existsSync(workspaceRoot)).toBe(true);
+
+      const receiptRoot = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+      mkdirSync(receiptRoot, { recursive: true });
+      writeFileSync(
+        join(receiptRoot, "cleanup.json"),
+        `${JSON.stringify({
+          schemaVersion: "loopship.afn-effect-receipt/v1",
+          status: "completed",
+          callId: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+          effectKey: "effect:cleanup",
+          inputDigest: "sha256:cleanup",
+          requestId: null,
+          output: { removed_worktrees: [workspaceRoot] },
+        })}\n`,
+        "utf8",
+      );
+
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(false);
+      runGit(fixture.repo, ["worktree", "remove", "--force", workspaceRoot]);
+      mkdirSync(resolve(workspaceRoot, ".loopship", "runtime"), { recursive: true });
+      writeFileSync(
+        join(workspaceRoot, ".loopship", "runtime", "tasks.yaml"),
+        "schema_version: 4\n",
+        "utf8",
+      );
+
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(false);
+      rmSync(join(workspaceRoot, ".loopship", "runtime", "tasks.yaml"));
+      const unrelatedPath = join(workspaceRoot, "unrelated.txt");
+      writeFileSync(unrelatedPath, "must survive\n", "utf8");
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(false);
+      expect(readFileSync(unrelatedPath, "utf8")).toBe("must survive\n");
+      rmSync(unrelatedPath);
+
+      const unexpectedDataPath = join(workspaceRoot, ".loopship", "data", "json", "user.json");
+      mkdirSync(resolve(unexpectedDataPath, ".."), { recursive: true });
+      writeFileSync(unexpectedDataPath, '{"owner":"user"}\n', "utf8");
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(false);
+      expect(readFileSync(unexpectedDataPath, "utf8")).toContain('"owner":"user"');
+      rmSync(unexpectedDataPath);
+
+      const fastflowRoot = join(workspaceRoot, ".loopship");
+      mkdirSync(join(fastflowRoot, "workflows"), { recursive: true });
+      mkdirSync(join(fastflowRoot, "data", "projections"), { recursive: true });
+      writeFileSync(join(fastflowRoot, ".gitignore"), FASTFLOW_RUNTIME_GITIGNORE, "utf8");
+      const cacheTarget = join(fixture.root, "fastflow-cache");
+      mkdirSync(cacheTarget, { recursive: true });
+      writeFileSync(join(cacheTarget, "survives.txt"), "external cache\n", "utf8");
+      symlinkSync(cacheTarget, join(fastflowRoot, "cache"), "dir");
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(true);
+      expect(existsSync(workspaceRoot)).toBe(false);
+      expect(readFileSync(join(cacheTarget, "survives.txt"), "utf8")).toBe("external cache\n");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("terminal residue cleanup ignores malformed sibling effect receipts", () => {
+    const fixture = createGitFixture("loopship-native-cleanup-malformed-receipt-");
+    const workspaceRoot = join(fixture.repo, "worktrees", "terminal-residue");
+    const receiptRoot = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+    try {
+      mkdirSync(join(workspaceRoot, ".loopship", "runtime"), { recursive: true });
+      mkdirSync(receiptRoot, { recursive: true });
+      writeFileSync(join(receiptRoot, "malformed.json"), "{not-json\n", "utf8");
+      expect(() =>
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).not.toThrow();
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(false);
+      writeFileSync(
+        join(receiptRoot, "valid-cleanup.json"),
+        `${JSON.stringify({
+          schemaVersion: "loopship.afn-effect-receipt/v1",
+          status: "completed",
+          callId: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+          effectKey: "effect:terminal-cleanup",
+          inputDigest: "sha256:terminal-cleanup",
+          requestId: null,
+          output: { removed_worktrees: [workspaceRoot] },
+        })}\n`,
+        "utf8",
+      );
+      expect(
+        cleanupCompletedNativeWorkspaceResidue({ repo: fixture.repo, workspaceRoot }),
+      ).toBe(true);
+      expect(existsSync(workspaceRoot)).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("concurrent Native residue finalizers are idempotent", async () => {
+    const fixture = createGitFixture("loopship-native-cleanup-race-");
+    const workspaceRoot = join(fixture.repo, "worktrees", "cleanup-race");
+    const receiptRoot = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+    const scriptRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-cleanup-race-"));
+    const script = join(scriptRoot, "finalize.ts");
+    try {
+      mkdirSync(join(workspaceRoot, ".loopship", "data", "projections"), {
+        recursive: true,
+      });
+      mkdirSync(join(workspaceRoot, ".loopship", "runtime"), { recursive: true });
+      writeFileSync(
+        join(workspaceRoot, ".loopship", ".gitignore"),
+        FASTFLOW_RUNTIME_GITIGNORE,
+        "utf8",
+      );
+      writeFileSync(
+        join(workspaceRoot, ".loopship", "runtime", "native-execution.lock.sqlite"),
+        "",
+        "utf8",
+      );
+      mkdirSync(receiptRoot, { recursive: true });
+      writeFileSync(
+        join(receiptRoot, "cleanup-race.json"),
+        `${JSON.stringify({
+          schemaVersion: "loopship.afn-effect-receipt/v1",
+          status: "completed",
+          callId: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+          effectKey: "effect:cleanup-race",
+          inputDigest: "sha256:cleanup-race",
+          requestId: null,
+          output: { removed_worktrees: [workspaceRoot] },
+        })}\n`,
+        "utf8",
+      );
+      writeFileSync(
+        script,
+        `
+          import { cleanupCompletedNativeWorkspaceResidue } from ${JSON.stringify(
+            pathToFileURL(resolve(process.cwd(), "scripts", "loopship_fastflow.ts")).href,
+          )};
+          const [repo, workspaceRoot] = process.argv.slice(2);
+          console.log(JSON.stringify({
+            removed: cleanupCompletedNativeWorkspaceResidue({ repo, workspaceRoot }),
+          }));
+        `,
+        "utf8",
+      );
+
+      const runFinalizer = () =>
+        Bun.spawn([process.execPath, "--no-install", script, fixture.repo, workspaceRoot], {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+      const finalizers = [runFinalizer(), runFinalizer()];
+      const results = await Promise.all(
+        finalizers.map(async (proc) => ({
+          status: await proc.exited,
+          stdout: await new Response(proc.stdout).text(),
+          stderr: await new Response(proc.stderr).text(),
+        })),
+      );
+      for (const result of results) {
+        expect(result.status, result.stderr || result.stdout).toBe(0);
+      }
+      expect(existsSync(workspaceRoot)).toBe(false);
+    } finally {
+      rmSync(scriptRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
 
   test("keeps cmdproto response schemas aligned with native Fastflow results", () => {
     expect(
@@ -621,16 +2808,80 @@ describe("Loopship Fastflow-native bridge", () => {
             answerSchema: {},
           },
           nextCall: {
-            command: "loopship stepper step",
+            command: "loopship stepper step --json @-",
             args: {
               sessionId: "session-1",
-              response: {},
+              nonce: "nonce-1",
+              workspaceRoot: "/tmp/loopship-worktree",
+              response: { answer: {} },
             },
           },
         },
         "schemas/steps/fastflow-response.yaml",
       ),
     ).toEqual([]);
+    expect(
+      validateSchemaPath(
+        {
+          schemaVersion: "fastflow/interaction-response/v1",
+          kind: "handoff_answer",
+          systemInstructions: "Continue the workflow.",
+          instructions: "",
+          context: { request: {}, answerSchema: {} },
+          nextCall: {
+            command: "fastflow cmdproto execjson workflows resume @-",
+            args: {
+              sessionId: "session-1",
+              nonce: "nonce-1",
+              workspaceRoot: "/tmp/loopship-worktree",
+              response: { answer: {} },
+            },
+          },
+        },
+        "schemas/steps/fastflow-response.yaml",
+      ),
+    ).not.toEqual([]);
+    expect(
+      validateSchemaPath(
+        {
+          schemaVersion: "fastflow/interaction-response/v1",
+          kind: "handoff_answer",
+          systemInstructions: "Continue the workflow.",
+          instructions: "",
+          context: { request: {}, answerSchema: {} },
+          nextCall: {
+            command: "loopship stepper step --json @-",
+            args: {
+              sessionId: "session-1",
+              nonce: "nonce-1",
+              response: { answer: {} },
+            },
+          },
+        },
+        "schemas/steps/fastflow-response.yaml",
+      ),
+    ).not.toEqual([]);
+    expect(
+      validateSchemaPath(
+        {
+          schemaVersion: "fastflow/interaction-response/v1",
+          kind: "handoff_answer",
+          systemInstructions: "Continue the workflow.",
+          instructions: "",
+          context: { request: {}, answerSchema: {} },
+          nextCall: {
+            command: "loopship stepper step --json @-",
+            args: {
+              sessionId: "session-1",
+              nonce: "nonce-1",
+              workspaceRoot: "/tmp/loopship-worktree",
+              response: { answer: {}, decision: "ok" },
+            },
+          },
+        },
+        "schemas/steps/fastflow-response.yaml",
+      ),
+    ).not.toEqual([]);
     expect(
       validateSchemaPath(
         {
@@ -672,6 +2923,7 @@ describe("Loopship Fastflow-native bridge", () => {
       LOOPSHIP_AFN_CALLS.gitResolveCommit,
       LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
       LOOPSHIP_AFN_CALLS.landingApplyOutcome,
+      LOOPSHIP_AFN_CALLS.runtimeCommitQuestState,
       LOOPSHIP_AFN_CALLS.systemApplyUpdate,
     ].sort());
     for (const call of calls) {
@@ -683,9 +2935,330 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test("exposes exact Native Loopship routes without a runtime-rich dispatch hook", () => {
+    const adapters = createLoopshipFastflowAdapters();
+    const dispatch = adapters.afnDispatch as {
+      listRoutes(): Array<{ callId: string }>;
+    };
+    const offer = adapters.runtimeOffer as {
+      exactCalls: Array<{ callId: string }>;
+    };
+    const routes = dispatch.listRoutes();
+    expect(adapters.executeAfn).toBeUndefined();
+    expect(routes.map((route) => route.callId).sort()).toEqual(
+      LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort(),
+    );
+    expect(offer.exactCalls).toEqual(routes);
+  });
+
+  test("deduplicates redelivered side effects by stable effect identity", async () => {
+    const fixture = createGitFixture("loopship-native-effect-redelivery-");
+    try {
+      ensureSystemScaffold(fixture.repo);
+      const root = parseYaml(
+        readFileSync(join(fixture.repo, ".loopship", "system.yaml"), "utf8"),
+      ) as Record<string, unknown>;
+      const adapters = createLoopshipFastflowAdapters();
+      const action = {
+        call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
+        with: {
+          body: {
+            repo: fixture.repo,
+            update: {
+              schema_version: 1,
+              mode: "replace",
+              summary: "Verify Native effect redelivery.",
+              root,
+              external_docs: [],
+            },
+          },
+        },
+      };
+      const identity = {
+        executionId: "loopship-effect-redelivery",
+        effectKey: "loopship-effect-redelivery-system-update",
+      };
+      const first = await executeLoopshipAfn(adapters, { action }, identity);
+      const signaturePath = join(fixture.repo, ".loopship", "signature.yaml");
+      const firstSignature = readFileSync(signaturePath, "utf8");
+      const second = await executeLoopshipAfn(adapters, { action }, identity);
+
+      expect(second).toEqual(first);
+      expect(readFileSync(signaturePath, "utf8")).toBe(firstSignature);
+      const receiptDir = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+      const receiptFiles = readdirSync(receiptDir).filter((name) => name.endsWith(".json"));
+      expect(receiptFiles).toHaveLength(1);
+      const receiptPath = join(receiptDir, receiptFiles[0]!);
+      expect(statSync(receiptPath).mode & 0o777).toBe(0o600);
+      const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+      expect(receipt).toMatchObject({
+        schemaVersion: "loopship.afn-effect-receipt/v1",
+        status: "completed",
+        callId: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
+        effectKey: identity.effectKey,
+      });
+      expect(receipt.requestId).toMatch(/^native-effect-[0-9a-f]{64}$/);
+
+      // Model a process death after the update and signature were durable but
+      // before the completed receipt rename reached disk.
+      receipt.status = "started";
+      delete receipt.output;
+      writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`, "utf8");
+      chmodSync(receiptPath, 0o600);
+      const recovered = await executeLoopshipAfn(adapters, { action }, identity);
+      expect(recovered).toEqual(first);
+      expect(readFileSync(signaturePath, "utf8")).toBe(firstSignature);
+      expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({
+        status: "completed",
+        output: first,
+      });
+      expect(statSync(receiptPath).mode & 0o777).toBe(0o600);
+
+      await expect(
+        executeLoopshipAfn(
+          adapters,
+          {
+            action: {
+              ...action,
+              with: {
+                body: {
+                  ...action.with.body,
+                  reason: "conflicting equivalent-effect payload",
+                },
+              },
+            },
+          },
+          identity,
+        ),
+      ).rejects.toThrow("effect receipt conflicts");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("commits workflow-data quest mutations before lifecycle continuation", async () => {
+    const fixture = createGitFixture("loopship-native-quest-manifest-commit-");
+    try {
+      const quest = createNativeQuest(fixture.repo, "manifest-commit");
+      const state = parseTasksYaml(readFileSync(quest.files.tasks, "utf8"));
+      state.stage = "planning";
+      writeFileSync(quest.files.tasks, stringifyYaml(state), "utf8");
+      writeFileSync(
+        quest.files.events,
+        `${readFileSync(quest.files.events, "utf8")}${JSON.stringify({
+          event: "stage_changed",
+          quest_id: "manifest-commit",
+          stage: "planning",
+        })}\n`,
+        "utf8",
+      );
+      expect(verifyQuestManifest(quest.files).ok).toBe(false);
+
+      const adapters = createLoopshipFastflowAdapters();
+      const action = {
+        call: LOOPSHIP_AFN_CALLS.runtimeCommitQuestState,
+        with: {
+          body: {
+            repo: fixture.repo,
+            wtree: "manifest-commit",
+          },
+        },
+      };
+      const identity = {
+        executionId: "loopship-quest-manifest-commit",
+        effectKey: "loopship-quest-manifest-commit-effect",
+      };
+      const first = await executeLoopshipAfn(adapters, { action }, identity);
+      expect(first).toMatchObject({
+        schema_version: "loopship.runtime.commit-quest-state/v1",
+        wtree: "manifest-commit",
+        committed: true,
+      });
+      expect(verifyQuestManifest(quest.files)).toEqual({ ok: true, errors: [] });
+      const committedManifest = readFileSync(quest.files.manifest, "utf8");
+
+      expect(await executeLoopshipAfn(adapters, { action }, identity)).toEqual(first);
+      expect(readFileSync(quest.files.manifest, "utf8")).toBe(committedManifest);
+
+      const checkIdentity = {
+        executionId: "loopship-quest-manifest-check",
+        effectKey: "loopship-quest-manifest-check-effect",
+      };
+      const checkReceiptPath = join(
+        fixture.repo,
+        ".loopship",
+        "runtime",
+        "afn-effects",
+        `${createHash("sha256").update(checkIdentity.effectKey).digest("hex")}.json`,
+      );
+      expect(
+        await executeLoopshipAfn(
+          adapters,
+          {
+            action: {
+              ...action,
+              with: { body: { ...action.with.body, as_check: true } },
+            },
+          },
+          checkIdentity,
+        ),
+      ).toMatchObject({
+        ok: true,
+        evidence: { committed: false },
+      });
+      expect(existsSync(checkReceiptPath)).toBe(false);
+      const tamperedState = parseTasksYaml(readFileSync(quest.files.tasks, "utf8"));
+      tamperedState.stage = "hostile-concurrent-edit";
+      writeFileSync(quest.files.tasks, stringifyYaml(tamperedState), "utf8");
+      await expect(
+        executeLoopshipAfn(
+          adapters,
+          {
+            action: {
+              ...action,
+              with: { body: { ...action.with.body, as_check: true } },
+            },
+          },
+          checkIdentity,
+        ),
+      ).rejects.toThrow("runtime quest manifest verification failed");
+      expect(existsSync(checkReceiptPath)).toBe(false);
+      expect(readFileSync(quest.files.manifest, "utf8")).toBe(committedManifest);
+      expect(verifyQuestManifest(quest.files).ok).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("serializes live cross-process effect claims and recovers a crashed owner with concurrent contenders", async () => {
+    const fixture = createGitFixture("loopship-native-effect-lock-");
+    let holder: ReturnType<typeof Bun.spawn> | null = null;
+    try {
+      ensureSystemScaffold(fixture.repo);
+      const root = parseYaml(
+        readFileSync(join(fixture.repo, ".loopship", "system.yaml"), "utf8"),
+      ) as Record<string, unknown>;
+      const adapters = createLoopshipFastflowAdapters();
+      const action = {
+        call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
+        with: {
+          body: {
+            repo: fixture.repo,
+            update: {
+              schema_version: 1,
+              mode: "replace",
+              summary: "Serialize Native effect claims.",
+              root,
+              external_docs: [],
+            },
+          },
+        },
+      };
+      const identity = {
+        executionId: "loopship-effect-lock",
+        effectKey: "loopship-effect-lock-system-update",
+      };
+      const receiptRoot = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+      mkdirSync(receiptRoot, { recursive: true });
+      const digest = createHash("sha256").update(identity.effectKey).digest("hex");
+      const lockPath = join(receiptRoot, `${digest}.json.lock.sqlite`);
+      const readyPath = join(fixture.root, "effect-lock-ready");
+      const holderScript = `
+        import { writeFileSync } from "node:fs";
+        import { acquireCrashSafeFileLock } from ${JSON.stringify(pathToFileURL(resolve(process.cwd(), "scripts", "loopship_utils.ts")).href)};
+        const lockPath = ${JSON.stringify(lockPath)};
+        const readyPath = ${JSON.stringify(readyPath)};
+        const release = acquireCrashSafeFileLock(lockPath, 5_000);
+        writeFileSync(readyPath, "ready\\n");
+        await Bun.sleep(150);
+        release();
+      `;
+      holder = Bun.spawn({
+        cmd: [process.execPath, "--no-install", "-e", holderScript],
+        cwd: process.cwd(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const readyDeadline = Date.now() + 5_000;
+      while (!existsSync(readyPath)) {
+        if (Date.now() >= readyDeadline) throw new Error("effect lock holder did not start");
+        await Bun.sleep(5);
+      }
+      const startedAt = Date.now();
+      const first = await executeLoopshipAfn(adapters, { action }, identity);
+      const elapsed = Date.now() - startedAt;
+      expect(await holder.exited).toBe(0);
+      holder = null;
+      expect(elapsed).toBeGreaterThanOrEqual(80);
+      expect(existsSync(lockPath)).toBe(true);
+
+      const crashedReadyPath = join(fixture.root, "effect-lock-crashed-ready");
+      const crashedHolder = Bun.spawn({
+        cmd: [
+          process.execPath,
+          "--no-install",
+          "-e",
+          `
+            import { writeFileSync } from "node:fs";
+            import { acquireCrashSafeFileLock } from ${JSON.stringify(pathToFileURL(resolve(process.cwd(), "scripts", "loopship_utils.ts")).href)};
+            const release = acquireCrashSafeFileLock(${JSON.stringify(lockPath)}, 5_000);
+            writeFileSync(${JSON.stringify(crashedReadyPath)}, "ready\\n");
+            await Bun.sleep(30_000);
+            release();
+          `,
+        ],
+        cwd: process.cwd(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const crashedReadyDeadline = Date.now() + 5_000;
+      while (!existsSync(crashedReadyPath)) {
+        if (Date.now() >= crashedReadyDeadline) throw new Error("crashed effect lock holder did not start");
+        await Bun.sleep(5);
+      }
+      crashedHolder.kill("SIGKILL");
+      expect(await crashedHolder.exited).not.toBe(0);
+
+      const criticalSectionLog = join(fixture.root, "effect-lock-critical-sections.log");
+      const spawnContender = (id: string) => Bun.spawn({
+        cmd: [
+          process.execPath,
+          "--no-install",
+          "-e",
+          `
+            import { appendFileSync } from "node:fs";
+            import { acquireCrashSafeFileLock } from ${JSON.stringify(pathToFileURL(resolve(process.cwd(), "scripts", "loopship_utils.ts")).href)};
+            const release = acquireCrashSafeFileLock(${JSON.stringify(lockPath)}, 5_000);
+            appendFileSync(${JSON.stringify(criticalSectionLog)}, ${JSON.stringify(id)} + ":start\\n");
+            await Bun.sleep(75);
+            appendFileSync(${JSON.stringify(criticalSectionLog)}, ${JSON.stringify(id)} + ":end\\n");
+            release();
+          `,
+        ],
+        cwd: process.cwd(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const contenders = [spawnContender("a"), spawnContender("b")];
+      expect(await Promise.all(contenders.map((child) => child.exited))).toEqual([0, 0]);
+      expect(readFileSync(criticalSectionLog, "utf8").trim().split("\n")).toSatisfy(
+        (lines: string[]) =>
+          JSON.stringify(lines) === JSON.stringify(["a:start", "a:end", "b:start", "b:end"]) ||
+          JSON.stringify(lines) === JSON.stringify(["b:start", "b:end", "a:start", "a:end"]),
+      );
+
+      expect(await executeLoopshipAfn(adapters, { action }, identity)).toEqual(first);
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      holder?.kill();
+      if (holder) await holder.exited;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   test("composes generic Loopship transition result envelopes", async () => {
     const adapters = createLoopshipFastflowAdapters();
-    const result = await (adapters.executeAfn as Function)({
+    const result = await executeLoopshipAfn(adapters, {
       action: {
         call: LOOPSHIP_AFN_CALLS.flowComposeTransitionResult,
         with: {
@@ -755,7 +3328,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
   test("verifies generic transition result composition inputs without inline JS checks", async () => {
     const adapters = createLoopshipFastflowAdapters();
-    const result = await (adapters.executeAfn as Function)({
+    const result = await executeLoopshipAfn(adapters, {
       phase: "verification",
       action: {
         call: LOOPSHIP_AFN_CALLS.flowComposeTransitionResult,
@@ -791,48 +3364,37 @@ describe("Loopship Fastflow-native bridge", () => {
     });
   });
 
-  test("hook normalizes legacy decision payloads into response answers", () => {
-    expect(
-      nativeResumeRequest({
+  test("hook rejects legacy flattened decision payloads", () => {
+    expect(() => nativeResumeRequest({
         sessionId: "session-123",
         nonce: "nonce-123",
         workspaceRoot: "/tmp/demo",
         decision: { approved: true },
-      }),
-    ).toEqual({
-      sessionId: "session-123",
-      nonce: "nonce-123",
-      workspaceRoot: "/tmp/demo",
-      response: {
-        answer: {
-          approved: true,
-        },
-      },
-    });
+      })).toThrow(/response envelope/u);
   });
 
-  test("stepper normalizes handoff decisions into response answers", () => {
-    expect(
-      nativeStepperResumeRequest({
+  test("resume rejects removed compatibility wrappers", () => {
+    for (const wrapper of ["fastflow", "resume"]) {
+      expect(() =>
+        nativeResumeRequest({
+          [wrapper]: {
+            sessionId: "session-123",
+            nonce: "nonce-123",
+            workspaceRoot: "/tmp/demo",
+            response: { decision: "ok" },
+          },
+        }),
+      ).toThrow(/compatibility wrappers are unsupported/u);
+    }
+  });
+
+  test("stepper rejects legacy flattened handoff decisions", () => {
+    expect(() => nativeStepperResumeRequest({
         sessionId: "session-123",
         nonce: "nonce-123",
         workspaceRoot: "/tmp/demo",
         decision: { system_update: { schema_version: 1, mode: "no_change", summary: "Covered." } },
-      }),
-    ).toEqual({
-      sessionId: "session-123",
-      nonce: "nonce-123",
-      workspaceRoot: "/tmp/demo",
-      response: {
-        answer: {
-          system_update: {
-            schema_version: 1,
-            mode: "no_change",
-            summary: "Covered.",
-          },
-        },
-      },
-    });
+      })).toThrow(/response envelope/u);
   });
 
   test("stepper prefers submitted supervisor decisions over nextCall templates", () => {
@@ -845,7 +3407,7 @@ describe("Loopship Fastflow-native bridge", () => {
             sessionId: "session-123",
             nonce: "nonce-123",
             workspaceRoot: "/tmp/demo",
-            response: { decision: "{{ok|rerun_step|rerun_full}}" },
+            response: { decision: "ok" },
           },
         },
         response: { decision: "ok" },
@@ -854,8 +3416,25 @@ describe("Loopship Fastflow-native bridge", () => {
       sessionId: "session-123",
       nonce: "nonce-123",
       workspaceRoot: "/tmp/demo",
-      supervisorDecision: "ok",
+      response: { decision: "ok" },
     });
+  });
+
+  test("resume hard cut requires nonce and exact response envelopes", () => {
+    expect(() => nativeResumeRequest({
+      sessionId: "session-123",
+      response: { answer: { approved: true } },
+    })).toThrow(/nonce/u);
+    expect(() => nativeResumeRequest({
+      sessionId: "session-123",
+      nonce: "nonce-123",
+      response: { answer: {}, decision: "ok" },
+    })).toThrow(/exactly one/u);
+    expect(() => nativeResumeRequest({
+      sessionId: "session-123",
+      nonce: "nonce-123",
+      response: { decision: "rerun_full" },
+    })).toThrow(/must be 'ok'/u);
   });
 
   test("hook prefers submitted handoff answers over nextCall templates", () => {
@@ -1076,12 +3655,12 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(proc.stderr).toContain(
         `loopship resume --repo ${fixture.repo} --wtree resume-guard`,
       );
-      expect(proc.stderr).toContain("nextCall.args");
-      expect(proc.stderr).toContain("sessionId, nonce, and workspaceRoot");
-      expect(proc.stderr).toContain("fastflow workflows resume <sessionId>");
-      expect(proc.stderr).toContain("--response-json @-");
+      expect(proc.stderr).toContain("response.answer");
+      expect(proc.stderr).toContain("sessionId, nonce, workspaceRoot");
+      expect(proc.stderr).toContain("loopship stepper step --json @-");
+      expect(proc.stderr).toContain("--json @-");
       expect(proc.stderr).toContain("loopship hook --repo");
-      expect(proc.stderr).toContain("loopship stepper step --repo");
+      expect(proc.stderr).not.toContain("loopship stepper step --repo");
       expect(proc.stderr).toContain("pause-response-with-answer.json");
       expect(proc.stderr).toContain("pause-response-with-decision.json");
     } finally {
@@ -1089,49 +3668,49 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("resume re-enters an interrupted quest from canonical worktree state", () => {
+  test("resume recovers the canonical Native execution after a daemon restart", async () => {
     const fixture = createGitFixture("loopship-native-resume-canonical-");
+    const schedulerDb = join(fixture.root, "scheduler", "native-v1.sqlite");
+    let scheduler: LoopshipTestScheduler | null = null;
     try {
-      createNativeQuest(fixture.repo, "resume-canonical");
-      const shimDir = join(fixture.root, "bin");
-      const failedOnce = join(fixture.root, "failed-once");
-      const observedCwd = join(fixture.root, "observed-cwd");
-      const nodePath = runCommand("node", ["-p", "process.execPath"], {
-        timeoutMs: 15_000,
-      }).stdout.trim();
-      expect(nodePath).toBeTruthy();
-      mkdirSync(shimDir, { recursive: true });
-      writeFileSync(
-        join(shimDir, "node"),
-        [
-          "#!/bin/sh",
-          `if [ ! -e ${JSON.stringify(failedOnce)} ]; then`,
-          `  : > ${JSON.stringify(failedOnce)}`,
-          "  exit 73",
-          "fi",
-          `pwd > ${JSON.stringify(observedCwd)}`,
-          `exec ${JSON.stringify(nodePath)} \"$@\"`,
-          "",
-        ].join("\n"),
-        "utf8",
-      );
-      chmodSync(join(shimDir, "node"), 0o755);
-      const proc = runLoopshipCli(fixture.repo, [
-        "resume",
-        "--repo",
-        fixture.repo,
-        "--wtree",
-        "resume-canonical",
-      ], undefined, {
-        PATH: `${shimDir}:${process.env.PATH ?? ""}`,
+      scheduler = await startLoopshipTestScheduler({
+        dbPath: schedulerDb,
+        home: resolve(fixture.repo, "..", "home"),
       });
-      expect(proc.status, proc.stderr || proc.stdout).toBe(0);
-      expect(existsSync(failedOnce)).toBe(true);
-      expect(readFileSync(observedCwd, "utf8").trim()).toBe(
-        join(fixture.repo, "worktrees", "resume-canonical"),
+      const started = await startQuestStage(
+        fixture.repo,
+        "loopship: resume canonical native execution",
+        "resume-canonical",
+        [],
+        scheduler.env,
       );
+      const startedPause = interactionPause(started);
+      expect(startedPause).not.toBeNull();
+      expect(startedPause?.sessionId).toMatch(/^loopship-[0-9a-f]{64}$/);
+
+      await scheduler.stop();
+      scheduler = await startLoopshipTestScheduler({
+        dbPath: schedulerDb,
+        home: resolve(fixture.repo, "..", "home"),
+      });
+
+      const proc = runLoopshipCli(
+        fixture.repo,
+        [
+          "resume",
+          "--repo",
+          fixture.repo,
+          "--wtree",
+          "resume-canonical",
+        ],
+        undefined,
+        scheduler.env,
+      );
+      expect(proc.status, proc.stderr || proc.stdout).toBe(0);
       const result = parseJsonObject(proc.stdout, "resume result");
-      expect(interactionPause(result), JSON.stringify(result)).not.toBeNull();
+      const recoveredPause = interactionPause(result);
+      expect(recoveredPause, JSON.stringify(result)).not.toBeNull();
+      expect(recoveredPause?.sessionId).toBe(startedPause?.sessionId);
       const tasks = parseTasksYaml(
         readFileSync(
           join(
@@ -1146,10 +3725,12 @@ describe("Loopship Fastflow-native bridge", () => {
         ),
       );
       expect(tasks.stage).toBe("initial");
+      expect(existsSync(schedulerDb)).toBe(true);
     } finally {
+      await scheduler?.stop();
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, 120_000);
   test(
     "records the actual coordinator branch when source branch differs",
     async () => {
@@ -1175,7 +3756,7 @@ describe("Loopship Fastflow-native bridge", () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
-    { timeout: 60_000 },
+    { timeout: 120_000 },
   );
 
   test("native runtime facade does not hardcode workflow step identifiers", () => {
@@ -1547,14 +4128,14 @@ describe("Loopship Fastflow-native bridge", () => {
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
-        if (!result.ok || result.calls !== 17) {
+        if (!result.ok || result.calls !== 18) {
           throw new Error(JSON.stringify(result));
         }
         console.log(JSON.stringify(result));
       `,
       [LOOPSHIP_CALL_CATALOG_ROOT],
     );
-    expect(JSON.parse(output).calls).toBe(17);
+    expect(JSON.parse(output).calls).toBe(18);
   });
 
   test("keeps static AFN call catalog descriptors in parity with adapter descriptors", async () => {
@@ -1621,7 +4202,7 @@ describe("Loopship Fastflow-native bridge", () => {
       audited: true,
       call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
     });
-    const dryRunChild = await (adapters.executeAfn as Function)({
+    const dryRunChild = await executeLoopshipAfn(adapters, {
       action: {
         call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
         with: { body: { repo: "/tmp/repo", wtree: "demo", dry_run: true } },
@@ -1635,20 +4216,21 @@ describe("Loopship Fastflow-native bridge", () => {
         init: { cmd: "loopship" },
       },
     });
-    expect(dryRunChild.actions.init.args.join(" ")).toContain(
+    const dryRunActions = dryRunChild.actions!;
+    expect(dryRunActions.init.args.join(" ")).toContain(
       "/tmp/repo/worktrees/demo/.loopship/runtime/tasks.yaml",
     );
-    expect(dryRunChild.actions.init.args).toContain("--source-branch");
-    expect(dryRunChild.actions.init.args).toContain(dryRunChild.branch_ref);
-    expect(dryRunChild.actions.init.args).toContain("--repo");
-    expect(dryRunChild.actions.init.args).toContain("/tmp/repo");
-    expect(dryRunChild.actions.init.args).toContain("--parent-wtree");
-    expect(dryRunChild.actions.init.args).toContain("demo");
-    expect(dryRunChild.actions.init.args).toContain("--target-branch");
-    expect(dryRunChild.actions.init.args).toContain("--target-worktree");
-    expect(dryRunChild.actions.resume).toBeUndefined();
+    expect(dryRunActions.init.args).toContain("--source-branch");
+    expect(dryRunActions.init.args).toContain(dryRunChild.branch_ref!);
+    expect(dryRunActions.init.args).toContain("--repo");
+    expect(dryRunActions.init.args).toContain("/tmp/repo");
+    expect(dryRunActions.init.args).toContain("--parent-wtree");
+    expect(dryRunActions.init.args).toContain("demo");
+    expect(dryRunActions.init.args).toContain("--target-branch");
+    expect(dryRunActions.init.args).toContain("--target-worktree");
+    expect(dryRunActions.resume).toBeUndefined();
     await expect(
-      (adapters.executeAfn as Function)({
+      executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
           with: {
@@ -1855,7 +4437,7 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       const adapters = createLoopshipFastflowAdapters();
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
             with: {
@@ -1901,7 +4483,7 @@ describe("Loopship Fastflow-native bridge", () => {
       );
       const adapters = createLoopshipFastflowAdapters();
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
             with: {
@@ -1945,7 +4527,7 @@ describe("Loopship Fastflow-native bridge", () => {
         ),
       ).toThrow("already checked out outside its requested worktree");
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
             with: {
@@ -1963,7 +4545,7 @@ describe("Loopship Fastflow-native bridge", () => {
         }),
       ).rejects.toThrow("child branch is not a valid Git branch name");
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
             with: {
@@ -1996,7 +4578,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
   test("launches exactly one supervised child at a time and uses stepper init for child runs", async () => {
     const adapters = createLoopshipFastflowAdapters();
-    const prepared = await (adapters.executeAfn as Function)({
+    const prepared = await executeLoopshipAfn(adapters, {
       action: {
         call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
         with: {
@@ -2016,12 +4598,12 @@ describe("Loopship Fastflow-native bridge", () => {
       },
     });
     expect(prepared.count).toBe(1);
-    expect(prepared.prepared_children).toHaveLength(1);
-    expect(prepared.prepared_children[0]).toMatchObject({
+    expect(prepared.prepared_children!).toHaveLength(1);
+    expect(prepared.prepared_children![0]).toMatchObject({
       task_id: "task-a",
       supervise_step: true,
     });
-    expect(prepared.actions.init.args.slice(0, 2)).toEqual(["stepper", "init"]);
+    expect(prepared.actions!.init.args.slice(0, 2)).toEqual(["stepper", "init"]);
   });
 
   test("records prepared children as dispatched in task_graph_ready state", () => {
@@ -2831,7 +5413,12 @@ describe("Loopship Fastflow-native bridge", () => {
     "terminal child quests complete local execution without emitting child init commands",
     async () => {
       const fixture = createGitFixture("loopship-terminal-child-lifecycle-");
+      let scheduler: LoopshipTestScheduler | null = null;
       try {
+        scheduler = await startLoopshipTestScheduler({
+          dbPath: join(fixture.root, "scheduler", "native-v1.sqlite"),
+          home: resolve(fixture.repo, "..", "home"),
+        });
         ensureSystemScaffold(fixture.repo);
         runGit(fixture.repo, ["add", ".loopship"]);
         runGit(fixture.repo, ["commit", "-m", "scaffold"]);
@@ -2857,6 +5444,7 @@ describe("Loopship Fastflow-native bridge", () => {
           prompt,
           childWtree,
           extraArgs,
+          scheduler.env,
         );
         expect(workflowOutput(planReview)).toBeNull();
         expect(interactionPause(planReview), JSON.stringify(planReview)).not.toBeNull();
@@ -2888,6 +5476,7 @@ describe("Loopship Fastflow-native bridge", () => {
           fixture.repo,
           interactionPause(planReview)!,
           { approved: true },
+          scheduler.env,
         );
         expect(workflowOutput(implementationStarted)).toBeNull();
         expect(
@@ -2930,6 +5519,7 @@ describe("Loopship Fastflow-native bridge", () => {
               artifacts: [{ type: "commit", ref: implementationCommit }],
             },
           },
+          scheduler.env,
         );
         expect(workflowOutput(validationStarted)).toBeNull();
         expect(
@@ -2965,6 +5555,7 @@ describe("Loopship Fastflow-native bridge", () => {
             status: "passed",
             checks: [{ name: "terminal-child-smoke", status: "passed" }],
           },
+          scheduler.env,
         );
         expect(workflowOutput(verificationStarted)).toBeNull();
         expect(
@@ -3003,6 +5594,7 @@ describe("Loopship Fastflow-native bridge", () => {
             ],
             risks: [],
           },
+          scheduler.env,
         );
         expect(workflowOutput(systemUpdateStarted)).toBeNull();
         const systemUpdatePause = interactionPause(systemUpdateStarted);
@@ -3044,6 +5636,7 @@ describe("Loopship Fastflow-native bridge", () => {
               external_docs: [],
             },
           },
+          scheduler.env,
         );
         const landed = workflowOutput(completed);
         expect(landed, JSON.stringify(completed)).not.toBeNull();
@@ -3073,6 +5666,7 @@ describe("Loopship Fastflow-native bridge", () => {
         );
         expect(existsSync(join(fixture.repo, "worktrees", childWtree))).toBe(false);
       } finally {
+        await scheduler?.stop();
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
@@ -3103,6 +5697,33 @@ describe("Loopship Fastflow-native bridge", () => {
       });
     }
     validateNativeWorkflows(workflows);
+  });
+
+  test("request-input steps keep pause and sandbox launch budgets separate", () => {
+    const stepRoot = join(process.cwd(), "call-catalog", "loopship", "workflow", "service", "step");
+    const names = [
+      "plan",
+      "questions",
+      "task-graph",
+      "system-update",
+      "validation",
+      "verification",
+      "child-result",
+    ];
+    for (const name of names) {
+      const workflow = loadYamlWorkflow(join(stepRoot, `${name}.stable.yaml`));
+      const requestActions: Array<Record<string, any>> = [];
+      walk(workflow, (item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return;
+        const action = item as Record<string, any>;
+        if (action.call === "fastflow.afn.core.request.input") {
+          requestActions.push(action);
+        }
+      });
+      expect(requestActions, name).toHaveLength(1);
+      expect(requestActions[0]?.with?.body?.timeout_ms, name).toBe(250);
+      expect(requestActions[0]?.with?.body?.request?.build?.timeout_ms, name).toBe(5_000);
+    }
   });
 
   test("catalog flow and step workflow YAML files are Fastflow-valid", () => {
@@ -3332,7 +5953,7 @@ describe("Loopship Fastflow-native bridge", () => {
         }),
       );
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
@@ -3348,7 +5969,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
       writeFileSync(files.tasks, renderTasksYaml(state));
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
@@ -3373,7 +5994,7 @@ describe("Loopship Fastflow-native bridge", () => {
         }),
       );
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
@@ -3389,7 +6010,7 @@ describe("Loopship Fastflow-native bridge", () => {
       writeFileSync(files.tasks, renderTasksYaml(state));
 
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
@@ -3407,7 +6028,7 @@ describe("Loopship Fastflow-native bridge", () => {
         }),
       ).rejects.toThrow("landing receipt source branch main does not match demo");
 
-      const recorded = await (adapters.executeAfn as Function)({
+      const recorded = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
@@ -3429,6 +6050,43 @@ describe("Loopship Fastflow-native bridge", () => {
         landed_commit: recorded.landed_commit,
         landing_target_worktree: fixture.repo,
       });
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("landing.apply rejects repository-root legacy quest state without interpreting it", async () => {
+    const fixture = createGitFixture("loopship-native-legacy-landing-");
+    const legacyTasks = join(fixture.repo, ".loopship", "runtime", "tasks.yaml");
+    const legacyState = "stage: landing_ready\nlanding_target_branch: main\n";
+    try {
+      mkdirSync(dirname(legacyTasks), { recursive: true });
+      writeFileSync(legacyTasks, legacyState, "utf8");
+      const adapters = createLoopshipFastflowAdapters();
+      const action = {
+        action: {
+          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
+          with: {
+            body: {
+              repo: fixture.repo,
+              wtree: "legacy-root",
+              status: "blocked",
+              next_stage: "landing_ready",
+            },
+          },
+        },
+      };
+      const identity = {
+        executionId: "loopship-legacy-root-landing",
+        effectKey: "loopship-legacy-root-landing-effect",
+      };
+      await expect(executeLoopshipAfn(adapters, action, identity)).rejects.toThrow(
+        "legacy_execution_unsupported",
+      );
+      await expect(
+        executeLoopshipAfn(adapters, action, identity),
+      ).rejects.toThrow("legacy_execution_unsupported");
+      expect(readFileSync(legacyTasks, "utf8")).toBe(legacyState);
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -3458,7 +6116,7 @@ describe("Loopship Fastflow-native bridge", () => {
       runGit(coordinatorWorktree, ["add", "FEATURE.md"]);
       runGit(coordinatorWorktree, ["commit", "-m", "feature"]);
 
-      const result = await (adapters.executeAfn as Function)({
+      const result = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
@@ -3482,6 +6140,248 @@ describe("Loopship Fastflow-native bridge", () => {
       const landedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
       expect(landedState.stage).toBe("archived");
       expect(landedState.landed_commit).toBe(result.landed_commit);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("serializes distinct landing effect keys by canonical Git repository", async () => {
+    const fixture = createGitFixture("loopship-native-landing-resource-lock-");
+    const children: Array<ReturnType<typeof Bun.spawn>> = [];
+    try {
+      const prepareLanding = (wtree: string, file: string) => {
+        const branch = `codex/${wtree}`;
+        const workspace = ensureTaskWorkspace(
+          fixture.repo,
+          branch,
+          join(fixture.repo, "worktrees", wtree),
+          "main",
+        );
+        createQuest({
+          repoRoot: fixture.repo,
+          wtree,
+          prompt: `loopship: land ${wtree}`,
+          resolutionSource: "test",
+          workspace,
+          flowId: "swe",
+          initialStage: "initial",
+        });
+        writeFileSync(join(workspace.worktree_path, file), `${wtree}\n`, "utf8");
+        runGit(workspace.worktree_path, ["add", file]);
+        runGit(workspace.worktree_path, ["commit", "-m", `add ${wtree}`]);
+        return {
+          repo: fixture.repo,
+          wtree,
+          source_branch: branch,
+          next_stage: "archived",
+        };
+      };
+      const bodies = [
+        prepareLanding("landing-a", "LANDING_A.md"),
+        prepareLanding("landing-b", "LANDING_B.md"),
+      ];
+      const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+      const wrapperRoot = join(fixture.root, "bin");
+      const mergeLog = join(fixture.root, "landing-merges.log");
+      mkdirSync(wrapperRoot, { recursive: true });
+      writeFileSync(
+        join(wrapperRoot, "git"),
+        `#!/bin/sh
+if [ "$1" = "merge" ]; then
+  printf 'start:%s\\n' "$*" >> "$LOOPSHIP_LANDING_MERGE_LOG"
+  sleep 0.2
+  "$LOOPSHIP_REAL_GIT" "$@"
+  status=$?
+  printf 'end:%s:%s\\n' "$*" "$status" >> "$LOOPSHIP_LANDING_MERGE_LOG"
+  exit "$status"
+fi
+exec "$LOOPSHIP_REAL_GIT" "$@"
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+      const childScript = `
+        import {
+          createAfnInvocation,
+          digestNativeContract,
+          validateExecutionDecision,
+        } from "@cueintent/fastflow";
+        import {
+          createLoopshipFastflowAdapters,
+          LOOPSHIP_AFN_CALLS,
+        } from ${JSON.stringify(pathToFileURL(resolve(process.cwd(), "scripts", "loopship_fastflow.ts")).href)};
+        const body = JSON.parse(process.env.LOOPSHIP_LANDING_BODY);
+        const effectKey = process.env.LOOPSHIP_LANDING_EFFECT_KEY;
+        const executionId = process.env.LOOPSHIP_LANDING_EXECUTION_ID;
+        const adapters = createLoopshipFastflowAdapters();
+        const dispatch = adapters.afnDispatch;
+        const route = dispatch.listRoutes().find(
+          (entry) => entry.callId === LOOPSHIP_AFN_CALLS.landingApplyOutcome,
+        );
+        const invocation = createAfnInvocation({
+          executionId,
+          nodeId: route.callId,
+          invocationId: digestNativeContract({ executionId, call: route.callId, attempt: 1 }),
+          attempt: 1,
+          call: {
+            callId: route.callId,
+            contractDigest: route.contractDigest,
+            implementationDigest: route.implementationDigest,
+          },
+          input: body,
+          effectKey,
+          bindingRefs: [],
+          affinityRefs: [],
+          grants: [],
+        });
+        const decision = validateExecutionDecision(await dispatch.dispatch(invocation));
+        if (decision.kind !== "completed") {
+          throw new Error(decision.kind === "failed" ? decision.error.message : decision.kind);
+        }
+      `;
+      const spawnLanding = (body: Record<string, unknown>, index: number) => {
+        const child = Bun.spawn({
+          cmd: [process.execPath, "--no-install", "-e", childScript],
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            PATH: `${wrapperRoot}:${process.env.PATH || ""}`,
+            LOOPSHIP_REAL_GIT: realGit,
+            LOOPSHIP_LANDING_MERGE_LOG: mergeLog,
+            LOOPSHIP_LANDING_BODY: JSON.stringify(body),
+            LOOPSHIP_LANDING_EFFECT_KEY: `landing-resource-effect-${index}`,
+            LOOPSHIP_LANDING_EXECUTION_ID: `landing-resource-execution-${index}`,
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        children.push(child);
+        return child;
+      };
+      const spawned = bodies.map(spawnLanding);
+      const stderr = spawned.map((child) => new Response(child.stderr).text());
+      const exits = await Promise.all(spawned.map((child) => child.exited));
+      const errors = await Promise.all(stderr);
+      expect(exits, errors.join("\n")).toEqual([0, 0]);
+      const mergeRecords = readFileSync(mergeLog, "utf8").trim().split("\n");
+      expect(mergeRecords).toHaveLength(4);
+      expect(mergeRecords[0]).toStartWith("start:");
+      expect(mergeRecords[1]).toStartWith("end:");
+      expect(mergeRecords[2]).toStartWith("start:");
+      expect(mergeRecords[3]).toStartWith("end:");
+      expect(readFileSync(join(fixture.repo, "LANDING_A.md"), "utf8")).toBe("landing-a\n");
+      expect(readFileSync(join(fixture.repo, "LANDING_B.md"), "utf8")).toBe("landing-b\n");
+      const receipts = readdirSync(
+        join(fixture.repo, ".loopship", "runtime", "afn-effects"),
+      )
+        .filter((name) => name.endsWith(".json"))
+        .map((name) =>
+          JSON.parse(
+            readFileSync(
+              join(fixture.repo, ".loopship", "runtime", "afn-effects", name),
+              "utf8",
+            ),
+          ),
+        );
+      expect(receipts.map((receipt) => receipt.effectKey).sort()).toEqual([
+        "landing-resource-effect-0",
+        "landing-resource-effect-1",
+      ]);
+    } finally {
+      for (const child of children) {
+        if (child.exitCode === null) child.kill();
+        await child.exited;
+      }
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("landing.apply crash recovery retains the exact merge commit after target advancement", async () => {
+    const fixture = createGitFixture("loopship-native-landing-receipt-recovery-");
+    try {
+      const adapters = createLoopshipFastflowAdapters();
+      const workspace = ensureTaskWorkspace(
+        fixture.repo,
+        "codex/demo",
+        join(fixture.repo, "worktrees", "demo"),
+        "main",
+      );
+      const { files, state } = createQuest({
+        repoRoot: fixture.repo,
+        wtree: "demo",
+        prompt: "loopship: retain the exact landing receipt",
+        resolutionSource: "test",
+        workspace,
+        flowId: "swe",
+        initialStage: "initial",
+      });
+      const initialTasks = readFileSync(files.tasks, "utf8");
+      const initialEvents = readFileSync(files.events, "utf8");
+      const coordinatorWorktree = String(state.coordinator_worktree);
+      writeFileSync(join(coordinatorWorktree, "FEATURE.md"), "# exact landing\n", "utf8");
+      runGit(coordinatorWorktree, ["add", "FEATURE.md"]);
+      runGit(coordinatorWorktree, ["commit", "-m", "exact landing feature"]);
+
+      const action = {
+        call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
+        with: {
+          body: {
+            repo: fixture.repo,
+            wtree: "demo",
+            source_branch: "codex/demo",
+            next_stage: "archived",
+          },
+        },
+      };
+      const identity = {
+        executionId: "loopship-landing-exact-recovery",
+        effectKey: "loopship-landing-exact-recovery-effect",
+      };
+      const landed = await executeLoopshipAfn(adapters, { action }, identity);
+      const exactLandingCommit = String(landed.landed_commit);
+      const mergeEvent = readFileSync(files.events, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .find(
+          (event) =>
+            event.event === "landing_merge_recorded" &&
+            event.payload?.landed_commit === exactLandingCommit,
+        );
+      expect(mergeEvent).toBeTruthy();
+
+      const receiptRoot = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+      const receiptPath = readdirSync(receiptRoot)
+        .filter((name) => name.endsWith(".json"))
+        .map((name) => join(receiptRoot, name))
+        .find((path) => {
+          const receipt = JSON.parse(readFileSync(path, "utf8"));
+          return receipt.effectKey === identity.effectKey;
+        });
+      expect(receiptPath).toBeTruthy();
+      const receipt = JSON.parse(readFileSync(receiptPath!, "utf8"));
+      receipt.status = "started";
+      delete receipt.output;
+      writeFileSync(receiptPath!, `${JSON.stringify(receipt)}\n`, "utf8");
+      writeFileSync(files.tasks, initialTasks, "utf8");
+      writeFileSync(
+        files.events,
+        `${initialEvents}${JSON.stringify(mergeEvent)}\n`,
+        "utf8",
+      );
+
+      writeFileSync(join(fixture.repo, "AFTER.md"), "# later target work\n", "utf8");
+      runGit(fixture.repo, ["add", "AFTER.md"]);
+      runGit(fixture.repo, ["commit", "-m", "advance target after landing"]);
+      const laterTargetCommit = runGit(fixture.repo, ["rev-parse", "HEAD"]);
+      expect(laterTargetCommit).not.toBe(exactLandingCommit);
+
+      const recovered = await executeLoopshipAfn(adapters, { action }, identity);
+      expect(recovered.landed_commit).toBe(exactLandingCommit);
+      expect(recovered.landed_commit).not.toBe(laterTargetCommit);
+      expect(parseTasksYaml(readFileSync(files.tasks, "utf8"))).toMatchObject({
+        stage: "archived",
+        landed_commit: exactLandingCommit,
+      });
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -3527,7 +6427,7 @@ describe("Loopship Fastflow-native bridge", () => {
       ]);
 
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
@@ -3579,7 +6479,7 @@ describe("Loopship Fastflow-native bridge", () => {
       );
 
       await expect(
-        (adapters.executeAfn as Function)({
+        executeLoopshipAfn(adapters, {
           action: {
             call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
             with: {
@@ -3622,7 +6522,7 @@ describe("Loopship Fastflow-native bridge", () => {
         initialStage: "initial",
       });
 
-      const output = await (adapters.executeAfn as Function)({
+      const output = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
           with: {
@@ -3704,6 +6604,78 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test("cleanup preserves a recorded path that was reused by another branch", () => {
+    const fixture = createGitFixture("loopship-native-cleanup-reused-worktree-");
+    try {
+      const coordinator = ensureTaskWorkspace(
+        fixture.repo,
+        "codex/demo",
+        join(fixture.repo, "worktrees", "demo"),
+        "main",
+      );
+      const { files, state } = createQuest({
+        repoRoot: fixture.repo,
+        wtree: "demo",
+        prompt: "loopship: preserve a substituted worktree",
+        resolutionSource: "test",
+        workspace: coordinator,
+        flowId: "swe",
+        initialStage: "archived",
+      });
+      const oldBranch = "codex/recorded-child";
+      const reusedPath = join(fixture.repo, "worktrees", "recorded-child");
+      runGit(fixture.repo, ["branch", oldBranch, "main"]);
+      const unrelated = ensureTaskWorkspace(
+        fixture.repo,
+        "codex/unrelated-child",
+        reusedPath,
+        "main",
+      );
+      writeFileSync(join(unrelated.worktree_path, "UNRELATED.md"), "keep me\n", "utf8");
+      runGit(unrelated.worktree_path, ["add", "UNRELATED.md"]);
+      runGit(unrelated.worktree_path, ["commit", "-m", "unrelated worktree content"]);
+      writeFileSync(
+        files.tasks,
+        renderTasksYaml({
+          ...(state as QuestState),
+          stage: "archived",
+          landed_commit: runGit(fixture.repo, ["rev-parse", "main"]),
+          tasks: [
+            questTaskFixture({
+              id: "recorded-child",
+              status: "child_archived",
+              branch_ref: oldBranch,
+              worktree_path: reusedPath,
+            }),
+          ],
+        }),
+      );
+
+      const dryRun = cleanupLandedWorktrees({
+        repo: fixture.repo,
+        wtree: "demo",
+        dryRun: true,
+      });
+      expect(dryRun.removed_worktrees).not.toContain(reusedPath);
+      expect(dryRun.skipped).toContainEqual(
+        expect.objectContaining({
+          branch: oldBranch,
+          worktree: reusedPath,
+          reason: "worktree_branch_mismatch",
+        }),
+      );
+
+      cleanupLandedWorktrees({ repo: fixture.repo, wtree: "demo" });
+      expect(existsSync(reusedPath)).toBe(true);
+      expect(readFileSync(join(reusedPath, "UNRELATED.md"), "utf8")).toBe("keep me\n");
+      expect(runGit(reusedPath, ["branch", "--show-current"])).toBe(
+        "codex/unrelated-child",
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   test("cleanup removes landed merged quest worktrees and branches", async () => {
     const fixture = createGitFixture("loopship-native-cleanup-");
     try {
@@ -3755,7 +6727,7 @@ describe("Loopship Fastflow-native bridge", () => {
         }),
       );
 
-      const landed = await (adapters.executeAfn as Function)({
+      const landed = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
@@ -3774,7 +6746,7 @@ describe("Loopship Fastflow-native bridge", () => {
         next_stage: "archived",
       });
 
-      const dryRunOutput = await (adapters.executeAfn as Function)({
+      const dryRunOutput = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
           with: {
@@ -3793,7 +6765,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const unsavedDocs = join(childWorkspace.worktree_path, ".loopship", "docs");
       mkdirSync(unsavedDocs, { recursive: true });
       writeFileSync(join(unsavedDocs, "unsaved.yaml"), "schema_version: 1\n", "utf8");
-      const dirtyDryRunOutput = await (adapters.executeAfn as Function)({
+      const dirtyDryRunOutput = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
           with: {
@@ -3815,6 +6787,29 @@ describe("Loopship Fastflow-native bridge", () => {
         }),
       );
       expect(existsSync(join(unsavedDocs, "unsaved.yaml"))).toBe(true);
+      const childGitFile = join(childWorkspace.worktree_path, ".git");
+      const childGitLink = readFileSync(childGitFile, "utf8");
+      try {
+        writeFileSync(childGitFile, "gitdir: /missing/loopship-worktree\n", "utf8");
+        await expect(
+          executeLoopshipAfn(adapters, {
+            action: {
+              call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+              with: {
+                body: {
+                  repo: fixture.repo,
+                  wtree: "demo",
+                  dry_run: true,
+                },
+              },
+            },
+          }),
+        ).rejects.toThrow("cannot inspect Git worktree");
+        expect(existsSync(childWorkspace.worktree_path)).toBe(true);
+        expect(existsSync(join(unsavedDocs, "unsaved.yaml"))).toBe(true);
+      } finally {
+        writeFileSync(childGitFile, childGitLink, "utf8");
+      }
       rmSync(unsavedDocs, { recursive: true, force: true });
       const fastflowCache = join(fixture.root, "fastflow-cache");
       mkdirSync(fastflowCache, { recursive: true });
@@ -3824,17 +6819,57 @@ describe("Loopship Fastflow-native bridge", () => {
         "dir",
       );
 
-      const output = await (adapters.executeAfn as Function)({
-        action: {
-          call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
-          with: {
-            body: {
-              repo: fixture.repo,
-              wtree: "demo",
-            },
+      const cleanupAction = {
+        call: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+        with: {
+          body: {
+            repo: fixture.repo,
+            wtree: "demo",
           },
         },
-      });
+      };
+      const cleanupIdentity = {
+        executionId: "loopship-cleanup-crash-window",
+        effectKey: "loopship-cleanup-crash-window-effect",
+      };
+      const preparedOutput = { ...dryRunOutput, dry_run: false };
+      const receiptRoot = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+      mkdirSync(receiptRoot, { recursive: true });
+      const cleanupReceiptPath = join(
+        receiptRoot,
+        `${createHash("sha256").update(cleanupIdentity.effectKey).digest("hex")}.json`,
+      );
+      writeFileSync(
+        cleanupReceiptPath,
+        `${JSON.stringify({
+          schemaVersion: "loopship.afn-effect-receipt/v1",
+          status: "started",
+          callId: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+          effectKey: cleanupIdentity.effectKey,
+          inputDigest: digestNativeContract({
+            callId: LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees,
+            body: cleanupAction.with.body,
+          }),
+          requestId: null,
+          preparedOutput,
+        })}\n`,
+        "utf8",
+      );
+
+      // Model a crash after the durable snapshot and only the first removal.
+      runGit(fixture.repo, [
+        "worktree",
+        "remove",
+        "--force",
+        childWorkspace.worktree_path,
+      ]);
+      runGit(fixture.repo, ["branch", "-d", "--", "codex/demo-child"]);
+      const output = await executeLoopshipAfn(
+        adapters,
+        { action: cleanupAction },
+        cleanupIdentity,
+      );
+      expect(output).toEqual(preparedOutput);
       expect(output.removed_worktrees).toEqual(
         expect.arrayContaining([childWorkspace.worktree_path, coordinatorWorktree]),
       );
@@ -3847,6 +6882,10 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(runGit(fixture.repo, ["branch", "--list", "codex/demo-child"])).toBe("");
       expect(runGit(fixture.repo, ["branch", "--list", "codex/demo"])).toBe("");
       expect(runGit(fixture.repo, ["branch", "--show-current"])).toBe("main");
+      expect(JSON.parse(readFileSync(cleanupReceiptPath, "utf8"))).toMatchObject({
+        status: "completed",
+        output,
+      });
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -3897,7 +6936,7 @@ describe("Loopship Fastflow-native bridge", () => {
       runGit(coordinatorWorktree, ["add", ".loopship/.gitignore"]);
       runGit(coordinatorWorktree, ["commit", "-m", "add loopship gitignore"]);
 
-      const result = await (adapters.executeAfn as Function)({
+      const result = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
@@ -3925,7 +6964,7 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("landing.apply commits canonical Loopship docs without transient runtime artifacts", async () => {
+  test("landing.apply commits only canonical Loopship docs and preserves unrelated staged state", async () => {
     const fixture = createGitFixture("loopship-native-landing-durable-loopship-");
     try {
       const adapters = createLoopshipFastflowAdapters();
@@ -3962,11 +7001,16 @@ describe("Loopship Fastflow-native bridge", () => {
         "{}\n",
       );
       writeFileSync(join(coordinatorWorktree, ".loopship", "cache"), "transient\n");
+      writeFileSync(
+        join(coordinatorWorktree, ".loopship", "notes.yaml"),
+        "owner: user\n",
+      );
       writeFileSync(join(coordinatorWorktree, "FEATURE.md"), "# feature\n", "utf8");
       runGit(coordinatorWorktree, ["add", "FEATURE.md"]);
       runGit(coordinatorWorktree, ["commit", "-m", "feature"]);
+      runGit(coordinatorWorktree, ["add", ".loopship/notes.yaml"]);
 
-      const result = await (adapters.executeAfn as Function)({
+      const result = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
@@ -3993,6 +7037,12 @@ describe("Loopship Fastflow-native bridge", () => {
       ]);
       expect(existsSync(join(fixture.repo, ".loopship", "runtime", "tasks.yaml"))).toBe(false);
       expect(existsSync(join(fixture.repo, ".loopship", "cache"))).toBe(false);
+      expect(existsSync(join(fixture.repo, ".loopship", "notes.yaml"))).toBe(false);
+      expect(
+        runGit(coordinatorWorktree, ["diff", "--cached", "--name-only"])
+          .split(/\r?\n/)
+          .filter(Boolean),
+      ).toContain(".loopship/notes.yaml");
       expect(readFileSync(join(fixture.repo, ".loopship", "system.yaml"), "utf8")).toContain(
         "schema_version: 1",
       );
@@ -4046,7 +7096,7 @@ describe("Loopship Fastflow-native bridge", () => {
       runGit(coordinatorWorktree, ["add", "FEATURE.md"]);
       runGit(coordinatorWorktree, ["commit", "-m", "feature"]);
 
-      const result = await (adapters.executeAfn as Function)({
+      const result = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
           with: {
@@ -4079,7 +7129,7 @@ describe("Loopship Fastflow-native bridge", () => {
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   test("system update signs non-Loopship repo resources without requiring packaged schemas", () => {
     const fixture = createGitFixture("loopship-native-system-update-external-repo-");
@@ -4344,7 +7394,7 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       };
 
-      await (adapters.executeAfn as Function)({
+      await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
           with: { body },
@@ -4357,7 +7407,7 @@ describe("Loopship Fastflow-native bridge", () => {
       runGit(parentWorktree, ["commit", "-m", "foundation"]);
       const parentHead = runGit(parentWorktree, ["rev-parse", "HEAD"]);
 
-      await (adapters.executeAfn as Function)({
+      await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
           with: { body },
@@ -4410,20 +7460,23 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       const adapters = createLoopshipFastflowAdapters();
       const { files } = createNativeQuest(fixture.repo, "demo");
-      const result = await (adapters.executeAfn as Function)({
-        action: {
-          call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
-          with: {
-            body: {
-              repo: fixture.repo,
-              wtree: "demo",
-              status: "blocked",
-              summary: "not ready",
-              next_stage: "landing_ready",
-            },
+      const action = {
+        call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
+        with: {
+          body: {
+            repo: fixture.repo,
+            wtree: "demo",
+            status: "blocked",
+            summary: "not ready",
+            next_stage: "landing_ready",
           },
         },
-      });
+      };
+      const identity = {
+        executionId: "loopship-blocked-landing-crash-window",
+        effectKey: "loopship-blocked-landing-crash-window-effect",
+      };
+      const result = await executeLoopshipAfn(adapters, { action }, identity);
       expect(result).toMatchObject({
         schema_version: "loopship.landing.apply/v1",
         dry_run: false,
@@ -4432,7 +7485,25 @@ describe("Loopship Fastflow-native bridge", () => {
       const blockedState = parseTasksYaml(readFileSync(files.tasks, "utf8"));
       expect(blockedState.stage).toBe("landing_ready");
       expect(String(blockedState.landed_commit || "")).toBe("");
-      expect(readFileSync(files.events, "utf8")).toContain("landing_submitted");
+      const events = readFileSync(files.events, "utf8");
+      expect(events).toContain("landing_submitted");
+
+      const receiptRoot = join(fixture.repo, ".loopship", "runtime", "afn-effects");
+      const receiptPath = readdirSync(receiptRoot)
+        .filter((name) => name.endsWith(".json"))
+        .map((name) => join(receiptRoot, name))
+        .find((path) => {
+          const receipt = JSON.parse(readFileSync(path, "utf8"));
+          return receipt.effectKey === identity.effectKey;
+        });
+      expect(receiptPath).toBeTruthy();
+      const receipt = JSON.parse(readFileSync(receiptPath!, "utf8"));
+      receipt.status = "started";
+      delete receipt.output;
+      writeFileSync(receiptPath!, `${JSON.stringify(receipt)}\n`, "utf8");
+
+      expect(await executeLoopshipAfn(adapters, { action }, identity)).toEqual(result);
+      expect(readFileSync(files.events, "utf8")).toBe(events);
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }

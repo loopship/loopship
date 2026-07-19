@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 
 import {
+  existsSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -9,17 +11,35 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  startLoopshipTestScheduler,
+  type LoopshipTestScheduler,
+} from "./loopship_fastflow_test_scheduler.ts";
 import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
+const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
+  Object.fromEntries(
+    [
+      "llm.cli.codex.gpt-5.5.max",
+      "llm.cli.codex.gpt-5.3-codex-spark.max",
+      "llm.cli.codex.gpt-5.3-codex-spark.high",
+    ].map((routeRef) => [
+      routeRef,
+      { client: "handoff", resolverPath: routeRef, routeRef },
+    ]),
+  ),
+);
+let nativeRuntimeEnv: Record<string, string> = {};
 
 type JsonObject = Record<string, any>;
 type PauseToken = {
   sessionId: string;
-  nonce?: string;
-  workspaceRoot?: string;
+  nonce: string;
+  workspaceRoot: string;
   reason: string;
   kind: "handoff_answer" | "supervisor_review" | "inline_answer";
+  command: string;
 };
 
 function fail(message: string): never {
@@ -29,6 +49,7 @@ function fail(message: string): never {
 function runLoopship(repo: string, args: string[]) {
   return runCommand("bun", [SCRIPT, ...args], {
     cwd: repo,
+    env: nativeRuntimeEnv,
     timeoutMs: 180_000,
   });
 }
@@ -124,6 +145,7 @@ function pauseToken(value: JsonObject): PauseToken | null {
   if (value.schemaVersion !== "fastflow/interaction-response/v1") return null;
   const nextCall = value.nextCall && typeof value.nextCall === "object" ? value.nextCall : null;
   const args = nextCall?.args && typeof nextCall.args === "object" ? nextCall.args : null;
+  const command = String(nextCall?.command ?? "").trim();
   const request =
     value.context && typeof value.context === "object" && !Array.isArray(value.context)
       ? value.context.request
@@ -136,6 +158,11 @@ function pauseToken(value: JsonObject): PauseToken | null {
       ? String(request.reason ?? "").trim()
       : "";
   if (!sessionId) fail(`interaction response must include nextCall.args.sessionId: ${JSON.stringify(value)}`);
+  if (!nonce) fail(`interaction response must include nextCall.args.nonce: ${JSON.stringify(value)}`);
+  if (!workspaceRoot) fail(`interaction response must include nextCall.args.workspaceRoot: ${JSON.stringify(value)}`);
+  if (command !== "loopship stepper step --json @-") {
+    fail(`interaction response must advertise the Loopship resume wrapper: ${JSON.stringify(value)}`);
+  }
   const kind = String(value.kind || "");
   if (kind !== "handoff_answer" && kind !== "supervisor_review" && kind !== "inline_answer") {
     fail(`interaction response has unsupported kind: ${JSON.stringify(value)}`);
@@ -156,10 +183,11 @@ function pauseToken(value: JsonObject): PauseToken | null {
   }
   return {
     sessionId,
-    ...(nonce ? { nonce } : {}),
-    ...(workspaceRoot ? { workspaceRoot } : {}),
+    nonce,
+    workspaceRoot,
     reason,
     kind,
+    command,
   };
 }
 
@@ -178,42 +206,72 @@ function assertNativeFastflowResponse(value: JsonObject, label: string): PauseTo
   return null;
 }
 
+function assertHookRouteMatches(workspaceRoot: string, pause: PauseToken | null): void {
+  const path = join(workspaceRoot, ".loopship", "runtime", "hook-state.json");
+  if (!existsSync(path)) fail(`stepper run must persist its hook route: ${path}`);
+  const state = parseJson(readFileSync(path, "utf8"), "stepper hook route");
+  const handle = state.fastflow && typeof state.fastflow === "object" ? state.fastflow : null;
+  if (!pause) {
+    if (handle) fail(`terminal stepper result must clear its hook route: ${JSON.stringify(state)}`);
+    return;
+  }
+  if (
+    String(handle?.sessionId ?? "") !== pause.sessionId ||
+    String(handle?.nonce ?? "") !== pause.nonce ||
+    String(handle?.workspaceRoot ?? "") !== pause.workspaceRoot
+  ) {
+    fail(`stepper hook route must advance to the emitted continuation: ${JSON.stringify(state)}`);
+  }
+}
+
 function resumeNativePause(input: {
   repo: string;
   root: string;
   pause: PauseToken;
 }): JsonObject {
-  const resumePath = join(input.root, "native-resume.json");
-  const resumePayload =
+  const response =
     input.pause.kind === "handoff_answer"
-      ? { decision: nativeClarifyingPlanDecision() }
-      : { supervisorDecision: "ok" };
-  writeFileSync(
-    resumePath,
-    JSON.stringify({
-      sessionId: input.pause.sessionId,
-      ...(input.pause.nonce ? { nonce: input.pause.nonce } : {}),
-      ...(input.pause.workspaceRoot ? { workspaceRoot: input.pause.workspaceRoot } : {}),
-      ...resumePayload,
-    }),
-    "utf8",
-  );
-  const resumed = runLoopship(input.repo, [
-    "stepper",
-    "step",
-    "--repo",
-    input.repo,
-    "--json",
-    `@${resumePath}`,
-  ]);
+      ? { answer: nativeClarifyingPlanDecision() }
+      : { decision: "ok" };
+  const payload = {
+    sessionId: input.pause.sessionId,
+    nonce: input.pause.nonce,
+    workspaceRoot: input.pause.workspaceRoot,
+    response,
+  };
+  const tokens = input.pause.command.split(/\s+/u);
+  if (tokens.shift() !== "loopship") {
+    fail(`unexpected nextCall command: ${input.pause.command}`);
+  }
+  const resumed = runCommand("bun", [SCRIPT, ...tokens], {
+    cwd: input.repo,
+    env: nativeRuntimeEnv,
+    timeoutMs: 180_000,
+    input: JSON.stringify(payload),
+  });
   if (resumed.status !== 0) fail(resumed.stderr || resumed.stdout);
   return parseJson(resumed.stdout, "stepper step");
 }
 
-function main(): number {
+async function main(): Promise<number> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "loopship-native-stepper-")));
+  let scheduler: LoopshipTestScheduler | null = null;
   try {
     const repo = createRepo(root);
+    scheduler = await startLoopshipTestScheduler({
+      dbPath: join(root, "scheduler", "native-v1.sqlite"),
+      home: join(root, "home"),
+    });
+    nativeRuntimeEnv = {
+      ...scheduler.env,
+      HOME: join(root, "home"),
+      INFERENCE_CLIENT: "handoff",
+      INFERENCE_PROVIDER: "",
+      INFERENCE_MODEL: "",
+      OPENAI_API_KEY: "",
+      CODEX_THREAD_ID: "loopship-stepper-thread",
+      INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+    };
     const start = runLoopship(repo, [
       "stepper",
       "init",
@@ -227,20 +285,24 @@ function main(): number {
     const first = parseJson(start.stdout, "stepper init");
     const pause = assertNativeFastflowResponse(first, "stepper init");
     if (pause) {
+      assertHookRouteMatches(pause.workspaceRoot, pause);
       const resumed = resumeNativePause({ repo, root, pause });
-      assertNativeFastflowResponse(resumed, "stepper step");
+      const nextPause = assertNativeFastflowResponse(resumed, "stepper step");
+      assertHookRouteMatches(pause.workspaceRoot, nextPause);
     }
     console.log(
       "loopship native stepper production run paused/resumed under superviseStep before child execution",
     );
     return 0;
   } finally {
+    await scheduler?.stop();
+    nativeRuntimeEnv = {};
     rmSync(root, { recursive: true, force: true });
   }
 }
 
 try {
-  process.exit(main());
+  process.exit(await main());
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

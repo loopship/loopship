@@ -15,8 +15,8 @@ describe("loopship lifecycle matrix", () => {
     const runCase = executeMatrix ? it : it.skip;
     runCase(
       `machine-checks ${scenario.id}`,
-      () => {
-        const result = runLifecycleScenario(scenario);
+      async () => {
+        const result = await runLifecycleScenario(scenario);
         results.push(result);
 
         expect(result.archived).toBe(true);

@@ -401,7 +401,7 @@ function assertFastflowSessionTimeout(): void {
   assertContains(
     text,
     "timeoutMs: LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS",
-    "Loopship Fastflow node-session timeout must use the audited timeout constant",
+    "Loopship Fastflow Bun-session timeout must use the audited timeout constant",
   );
   assertContains(
     text,
@@ -426,11 +426,13 @@ function assertReadmeCommandSurface(): void {
   const text = readText(resolve(PACKAGE_ROOT, "README.md"));
   const scope = "README.md";
   for (const needle of [
-    "node index.ts handbook",
-    "node index.ts handbook --raw",
-    "node index.ts handbook --duplicates --json",
-    "node index.ts handbook --fix-duplicates --json",
-    "node index.ts cmdproto execjson handbook",
+    "bun index.ts handbook",
+    "bun index.ts handbook --raw",
+    "bun index.ts handbook --duplicates --json",
+    "bun index.ts handbook --fix-duplicates --json",
+    "bun index.ts cmdproto execjson handbook",
+    "Bun is the canonical application and daemon runtime",
+    "Node 26 or newer is required only as Fastflow's",
     "`loopship handbook` renders a standalone generated Markdown handbook",
     "`loopship handbook --duplicates` reports exact normalized duplicate prose",
     "recoverable system temp path",

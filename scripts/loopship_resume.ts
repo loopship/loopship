@@ -1,5 +1,3 @@
-const SUPERVISOR_DECISIONS = new Set(["ok", "rerun_step", "rerun_full"]);
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -16,116 +14,52 @@ function objectField(
   return isPlainObject(value) ? value : {};
 }
 
-function templateLike(value: unknown): boolean {
-  if (typeof value === "string") return value.includes("{{");
-  if (Array.isArray(value)) return value.some((entry) => templateLike(entry));
-  if (!isPlainObject(value)) return false;
-  return Object.values(value).some((entry) => templateLike(entry));
-}
-
-function normalizeResponseEnvelope(value: unknown): {
-  decision?: unknown;
-  hasDecision: boolean;
-  supervisorDecision?: string;
-} {
+function exactResponseEnvelope(value: unknown): Record<string, unknown> {
   if (!isPlainObject(value)) {
-    return { decision: value, hasDecision: true };
+    throw new Error("Native Fastflow resume requires response with exactly one of answer or decision.");
   }
-  const response = isPlainObject(value.response) ? value.response : value;
-  const normalized: {
-    decision?: unknown;
-    hasDecision: boolean;
-    supervisorDecision?: string;
-  } = { hasDecision: false };
-  if (hasOwn(response, "answer")) {
-    normalized.decision = response.answer;
-    normalized.hasDecision = true;
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || (keys[0] !== "answer" && keys[0] !== "decision")) {
+    throw new Error("Native Fastflow resume response must contain exactly one of answer or decision.");
   }
-  if (hasOwn(response, "decision")) {
-    if (typeof response.decision === "string" && SUPERVISOR_DECISIONS.has(response.decision)) {
-      normalized.supervisorDecision = response.decision;
-    } else if (!normalized.hasDecision) {
-      normalized.decision = response.decision;
-      normalized.hasDecision = true;
-    }
+  if (keys[0] === "decision" && value.decision !== "ok") {
+    throw new Error("Native Fastflow supervisor resume decision must be 'ok'.");
   }
-  if (!normalized.hasDecision && !normalized.supervisorDecision) {
-    normalized.decision = response;
-    normalized.hasDecision = true;
-  }
-  return normalized;
-}
-
-function applyResponseEnvelope(
-  request: Record<string, unknown>,
-  response: unknown,
-): void {
-  const normalized = normalizeResponseEnvelope(response);
-  if (normalized.supervisorDecision) {
-    request.supervisorDecision = normalized.supervisorDecision;
-  }
-  if (normalized.hasDecision) {
-    request.response = { answer: normalized.decision };
-  }
-}
-
-function applyLegacyDecision(
-  request: Record<string, unknown>,
-  decision: unknown,
-): void {
-  if (typeof decision === "string" && SUPERVISOR_DECISIONS.has(decision)) {
-    request.supervisorDecision = decision;
-    return;
-  }
-  request.response = { answer: decision };
+  return { [keys[0]]: value[keys[0]] };
 }
 
 export function nativeResumeRequest(
   value: Record<string, unknown>,
 ): Record<string, unknown> | null {
+  if (isPlainObject(value.fastflow) || isPlainObject(value.resume)) {
+    throw new Error(
+      "Native Fastflow resume compatibility wrappers are unsupported; submit the exact resume args object.",
+    );
+  }
   const nextCall = objectField(value, "nextCall");
   const nextArgs = objectField(nextCall, "args");
-  const source =
-    isPlainObject(value.fastflow)
-      ? value.fastflow
-      : isPlainObject(value.resume)
-        ? value.resume
-        : Object.keys(nextArgs).length
-          ? nextArgs
-          : value;
+  const source = Object.keys(nextArgs).length ? nextArgs : value;
   const sessionId = String(source.sessionId ?? "").trim();
   if (!sessionId) return null;
-  const request: Record<string, unknown> = { sessionId };
-  for (const field of ["nonce", "workspaceRoot", "executionName", "progressMode"]) {
-    const fieldValue = source[field] ?? nextArgs[field];
-    if (typeof fieldValue === "string" && fieldValue.trim()) {
-      request[field] = fieldValue.trim();
-    }
+  const nonce = String(source.nonce ?? nextArgs.nonce ?? "").trim();
+  if (!nonce) {
+    throw new Error("Native Fastflow resume requires the current pause nonce.");
   }
-  const supervisorDecision = source.supervisorDecision ?? value.supervisorDecision;
-  if (supervisorDecision !== undefined) {
-    request.supervisorDecision = supervisorDecision;
+  const workspaceRoot = String(
+    source.workspaceRoot ?? nextArgs.workspaceRoot ?? "",
+  ).trim();
+  const response = hasOwn(value, "response")
+    ? value.response
+    : source !== nextArgs && hasOwn(source, "response")
+      ? source.response
+      : undefined;
+  if (response === undefined) {
+    throw new Error("Native Fastflow resume requires a response envelope.");
   }
-
-  if (hasOwn(value, "response")) {
-    applyResponseEnvelope(request, value.response);
-    return request;
-  }
-  if (hasOwn(source, "response") && !templateLike(source.response)) {
-    applyResponseEnvelope(request, source.response);
-    return request;
-  }
-  if (hasOwn(value, "answer")) {
-    request.response = { answer: value.answer };
-    return request;
-  }
-  if (hasOwn(source, "answer")) {
-    request.response = { answer: source.answer };
-    return request;
-  }
-  const decision = hasOwn(value, "decision") ? value.decision : source.decision;
-  if (decision !== undefined) {
-    applyLegacyDecision(request, decision);
-  }
-  return request;
+  return {
+    sessionId,
+    nonce,
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+    response: exactResponseEnvelope(response),
+  };
 }

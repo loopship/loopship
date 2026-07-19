@@ -3,26 +3,29 @@
 Spec workflows, looped until shipped.
 
 Publishable Loopship runtime package for deterministic V3 worktree-based quest workflows.
-Installed package entrypoints run under Bun. Node 26 or newer is also required
-for the Fastflow subprocesses launched by the runtime.
+Bun is the canonical application and daemon runtime. Shared modules stay portable
+by using Node-standard APIs, while runtime-specific SQLite access is isolated
+behind a small Bun/Node adapter. Node 26 or newer is required only as Fastflow's
+hardened workflow-script security worker until Bun provides equivalent verified
+permission isolation; it is not a second supported Loopship application host.
 
 ```bash
-npx @omar391/loopship init "loopship: build the app" --runtime codex
-node index.ts init "loopship: build the app" --runtime codex --flow swe
-node index.ts resume --repo /repo --wtree build-the-app
-node index.ts resume --repo /repo --json @fastflow-resume.json
-node index.ts hook --runtime codex
-node index.ts stepper init "loopship: build me a python app" --runtime codex --flow swe
-node index.ts stepper step --json @fastflow-resume.json
-node index.ts stepper hook --runtime codex
-node index.ts doctor --fix
-node index.ts handbook
-node index.ts handbook --raw
-node index.ts handbook --duplicates --json
-node index.ts handbook --fix-duplicates --json
-node index.ts cmdproto execjson init '{"request":"loopship:build-the-app","repo":"/repo","runtime":"codex"}'
-node index.ts cmdproto execjson resume '{"repo":"/repo","wtree":"build-the-app"}'
-node index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
+bunx @omar391/loopship init "loopship: build the app" --runtime codex
+bun index.ts init "loopship: build the app" --runtime codex --flow swe
+bun index.ts resume --repo /repo --wtree build-the-app
+bun index.ts resume --repo /repo --json @fastflow-resume.json
+bun index.ts hook --runtime codex
+bun index.ts stepper init "loopship: build me a python app" --runtime codex --flow swe
+bun index.ts stepper step --json @fastflow-resume.json
+bun index.ts stepper hook --runtime codex
+bun index.ts doctor --fix
+bun index.ts handbook
+bun index.ts handbook --raw
+bun index.ts handbook --duplicates --json
+bun index.ts handbook --fix-duplicates --json
+bun index.ts cmdproto execjson init '{"request":"loopship:build-the-app","repo":"/repo","runtime":"codex"}'
+bun index.ts cmdproto execjson resume '{"repo":"/repo","wtree":"build-the-app"}'
+bun index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
 ```
 
 Init installs or refreshes the launcher skill under `LOOPSHIP_SKILL_HOME`, when
@@ -34,8 +37,11 @@ is the consumer layer: CLI parsing, repo/runtime bootstrap, Fastflow app
 configuration, and Loopship AFN adapter registration.
 
 The reusable Fastflow consumer facade is exported at `@omar391/loopship/fastflow`.
-The legacy workflow runner is validation tooling only and is not exported as a
-package API.
+Native v1 is the sole execution path. Each stage request pins one immutable
+Fastflow plan, keeps the same execution and effect identities across its waits
+and recovery, and receives a fresh execution identity only after the preceding
+stage reaches a terminal result. Loopship does not expose an `executeAfn`
+compatibility runner or select between execution engines.
 
 The root package resolution pins local development to an immutable commit
 from the private Fastflow GitHub repository. Published Loopship artifacts list Fastflow in
@@ -53,18 +59,35 @@ Fastflow workflow run/resume responses, the Loopship Fastflow consumer adapter,
 and JSON Schema payload contracts are the lifecycle contract.
 
 `loopship resume` has two explicit recovery modes. `--json` forwards the
-`sessionId`, `nonce`, `workspaceRoot`, and answer or decision from a Fastflow
+`sessionId`, `nonce`, `workspaceRoot`, and exact `response` envelope from a Fastflow
 handoff response. `--wtree` starts a new Fastflow process against an existing
-canonical quest after an unexpected inline-process interruption. Ordinary
-inline process failures are retried once automatically from the same durable
-worktree state; `resume --wtree` covers failures that terminate the wrapper
-itself, such as a machine restart.
+canonical quest after an unexpected inline-process interruption. It resubmits
+the exact pending Native request from the durable per-request ledger with the
+same idempotency key; Loopship never retries a failed submission automatically.
+Quest state created by the pre-1.0 execution path fails with
+`legacy_execution_unsupported` and must be abandoned or cancelled and
+resubmitted as a new Native execution.
+
+Production uses Fastflow's `local-durable` scheduler profile and requires a
+supervised scheduler daemon. Start Loopship's packaged daemon before accepting
+work. Export one SQLite path so the daemon and every Loopship command share the
+same durable scheduler authority:
+
+```bash
+export FASTFLOW_SCHEDULER_DB=/durable/path/native-v1.sqlite
+loopship-fastflow-daemon
+```
+
+The process-local scheduler is available only through an explicit `embedded`
+or `test` profile. Production does not fall back to `setTimeout` or process-local
+wake behavior when the durable daemon is absent.
 
 Fastflow sessions and their configured CLI agents run with the canonical quest
 worktree as the process working directory. Question rounds pause only through
-`hitl.review`. A failed validation or verification transition pauses through an
-`aitl.subagent` repair handoff, then resumes by re-reading canonical state; it
-does not return a successful nonterminal result or require another `init`.
+a durable `hitl.review` Native scheduler handoff. A failed validation or verification
+transition pauses through an `aitl.subagent` repair handoff, then resumes by
+re-reading canonical state; it does not return a successful nonterminal result
+or require another `init`.
 
 `loopship handbook` renders a standalone generated Markdown handbook from
 `.loopship/system.yaml` and canonical document resources. By default it writes to a
@@ -84,12 +107,12 @@ workflow source tree.
 For mocked runtime lifecycle stepping, `loopship stepper` supports:
 
 - `loopship stepper init "loopship: <request>" --repo <repo> --flow <id> --runtime codex`: run the configured Fastflow workflow with `superviseStep: true`
-- `loopship stepper step --repo <repo> --json @-`: resume a native Fastflow pause using `sessionId`, optional `nonce`, and the pause-specific `decision` or supervisor decision fields
+- `loopship stepper step --json @-`: resume a native Fastflow pause using required `sessionId`, `nonce`, and `workspaceRoot` plus exactly one `response.answer` or `response.decision: "ok"`
 - `loopship stepper hook --repo <repo> --json @-`: explicitly exercise native Fastflow resume passthrough behavior
 
-Fastflow owns every handoff `nextCall` resume command and decision payload.
-Loopship only contributes concise supervisor guidance through Fastflow app
-configuration; it does not render continuation commands.
+Fastflow owns the handoff schema, nonce validation, and decision payload.
+Loopship configures the app-owned `nextCall.command` wrapper so a fresh process
+restores Loopship adapters before invoking that Fastflow contract.
 
 Runtime hooks keep the agent thread ID separate from Fastflow's `sessionId`.
 Loopship installs and diagnoses hooks for Codex, Gemini, and Copilot. The hook
@@ -119,9 +142,10 @@ Routine verification keeps lifecycle checks focused and bounded:
 bun run verify
 ```
 
-Release/publish verification runs the focused native lifecycle release set,
-including single-child, multi-child, clarification, child callback, validation,
-verification, system-update, landing, and archive paths:
+Release/publish verification runs the focused native lifecycle release set and
+the multi-node Native `PinnedPlan` stress matrix, including single-child,
+multi-child, clarification, child callback, validation, verification,
+system-update, landing, and archive paths:
 
 ```bash
 bun run verify:release

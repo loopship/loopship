@@ -38,9 +38,9 @@ triggers:
   task-intake: |-
     A quest starts from a schema-backed task payload submitted through loopship init. Fastflow
     handoffs continue through loopship resume --json, and interrupted inline processes recover
-    from canonical worktree state through loopship resume --wtree. Question rounds use
-    hitl.review; failed validation or verification transitions use an aitl.subagent repair
-    handoff and re-read canonical state after resume.
+    from canonical worktree state through loopship resume --wtree. Question rounds use a
+    durable hitl.review Native scheduler handoff; failed validation or verification transitions use an
+    aitl.subagent repair handoff and re-read canonical state after resume.
 inputs:
   task-yaml:
     schema_ref: loopship://schemas/tasks.yaml

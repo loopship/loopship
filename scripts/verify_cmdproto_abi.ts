@@ -97,8 +97,8 @@ function main(): number {
     if (missingResume.status === 0) {
       fail("cmdproto resume unexpectedly recovered a missing quest");
     }
-    if (!missingResume.stderr.includes("missing canonical Loopship quest state")) {
-      fail(`cmdproto resume did not select canonical worktree recovery: ${missingResume.stderr}`);
+    if (!missingResume.stderr.includes("Native recovery requires canonical worktree")) {
+      fail(`cmdproto resume did not reject a missing canonical worktree: ${missingResume.stderr}`);
     }
 
     const handbook = runCommand(
