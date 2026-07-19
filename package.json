@@ -1,6 +1,6 @@
 {
   "name": "@omar391/loopship",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Spec workflows, looped until shipped.",
   "module": "index.ts",
   "type": "module",
@@ -65,7 +65,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@cueintent/fastflow": "1.0.0",
+    "@cueintent/fastflow": "1.0.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a",
@@ -75,7 +75,7 @@
     "cmdproto"
   ],
   "resolutions": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#310653f9502813846d6a70689877aaff6fd87735"
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#c0aee6b1529ccb68921f843c7dfe6089fd48dcf1"
   },
   "bundledDependencies": [
     "@cueintent/fastflow"
