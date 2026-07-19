@@ -14,12 +14,15 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  assertLocalDurableFilesystem,
   completedDecision,
   createAfnDispatchPort,
   createRuntimeOffer,
+  deriveFastflowAppConfig,
   digestCallContract,
   digestNativeContract,
   failedDecision,
+  resolveNativeSchedulerDbPath,
   type CallDescriptor,
   type ExecutionDecision,
   type JsonValue,
@@ -31,6 +34,7 @@ import {
   assertCanonicalWtreeName,
   assertValidGitBranchRef,
   appendJsonl,
+  coordinatorWorktreePath,
   createQuest,
   createQuestInitialState,
   ensureCoordinatorWorkspace,
@@ -966,6 +970,7 @@ function resolveRunWorkspace(input: LoopshipFastflowRunInput): {
         "Native execution requires inputs.wtree or inputs.request to select a canonical registered worktree",
       );
     }
+    assertLoopshipDurablePath(coordinatorWorktreePath(repoRoot, wtree));
     const workspace = ensureCoordinatorWorkspace(repoRoot, wtree);
     inputs.wtree = wtree;
     canonical = requireCanonicalRegisteredWorktree({
@@ -975,6 +980,9 @@ function resolveRunWorkspace(input: LoopshipFastflowRunInput): {
       operation: "Native execution",
     });
   }
+  assertLoopshipDurablePath(
+    resolve(canonical.workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE, "native-execution.json"),
+  );
   inputs.sourceBranch = canonical.branch;
   inputs.source_branch = canonical.branch;
   const targetBranch = optionalString(inputs.targetBranch) || "main";
@@ -1126,12 +1134,54 @@ function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/catalog.mjs"
 }
 
 function assertAbsoluteSchedulerDatabase(): void {
+  assertAbsoluteLoopshipHome();
   const schedulerDb = optionalString(process.env.FASTFLOW_SCHEDULER_DB);
   if (schedulerDb && !isAbsolute(schedulerDb)) {
     throw new Error("FASTFLOW_SCHEDULER_DB must be an absolute path for Loopship");
   }
   if (schedulerDb) process.env.FASTFLOW_SCHEDULER_DB = schedulerDb;
   else delete process.env.FASTFLOW_SCHEDULER_DB;
+  if (!usesLocalDurableScheduler()) return;
+  const config = deriveFastflowAppConfig("loopship") as { globalStateRoot: string };
+  const dbPath = resolveNativeSchedulerDbPath({
+    schedulerDbPath: schedulerDb || resolve(
+      config.globalStateRoot,
+      "scheduler",
+      "native-v1.sqlite",
+    ),
+  });
+  assertLocalDurableFilesystem(dbPath);
+}
+
+function assertAbsoluteLoopshipHome(): void {
+  const configuredHome = optionalString(process.env.LOOPSHIP_HOME);
+  if (configuredHome && !isAbsolute(configuredHome)) {
+    throw new Error("LOOPSHIP_HOME must be an absolute path for Loopship");
+  }
+  if (configuredHome) process.env.LOOPSHIP_HOME = configuredHome;
+  else delete process.env.LOOPSHIP_HOME;
+}
+
+function usesLocalDurableScheduler(): boolean {
+  const configuredMode = process.env.FASTFLOW_SCHEDULER_MODE;
+  const mode = optionalString(configuredMode) || "local-durable";
+  if (!new Set(["local-durable", "embedded", "test"]).has(mode)) {
+    throw new Error(`unsupported schedulerMode '${mode}'`);
+  }
+  if (configuredMode !== undefined) process.env.FASTFLOW_SCHEDULER_MODE = mode;
+  return mode === "local-durable";
+}
+
+function assertLoopshipDurablePath(path: string): void {
+  if (usesLocalDurableScheduler()) assertLocalDurableFilesystem(path);
+}
+
+function assertNativeExecutionWorkspaceDurable(workspaceRoot: string): void {
+  if (!usesLocalDurableScheduler()) return;
+  assertLocalDurableFilesystem(workspaceRoot);
+  assertLocalDurableFilesystem(
+    resolve(workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE, "native-execution.json"),
+  );
 }
 
 function workflowCatalogScopeRoot(root: string, scope: string): string {
@@ -1229,33 +1279,47 @@ function runFastflowSession(input: {
       } from ${JSON.stringify(pathToFileURL(fileURLToPath(import.meta.url)).href)};
 
       const request = JSON.parse(readFileSync(process.argv[2], "utf8"));
-      process.env.LOOPSHIP_WORKSPACE_ROOT = ${JSON.stringify(workspaceRoot)};
-      Fastflow.configureFastflowApp({
-        appName: "loopship",
-        systemWorkflowsDir: ${JSON.stringify(input.catalogRoot)},
-        callCatalogRoots: [${JSON.stringify(input.catalogRoot)}, LOOPSHIP_CALL_CATALOG_ROOT],
-        supervisorGuidance: LOOPSHIP_SUPERVISOR_GUIDANCE,
-        workflowResumeCommand: LOOPSHIP_WORKFLOW_RESUME_COMMAND,
-        adapters: createLoopshipFastflowAdapters(),
-      });
-      const operation = ${JSON.stringify(input.operation)};
-      let result;
-      if (operation === "run") {
-        result = await Fastflow.executeFastflowWorkflowRunRequest(request);
-      } else if (operation === "resume") {
-        result = await Fastflow.executeFastflowWorkflowResumeRequest(request);
-      } else {
-        try {
-          result = await Fastflow.executeFastflowWorkflowRecoverRequest({
-            executionId: request.executionId,
-          });
-        } catch (error) {
-          if (error?.code !== "FASTFLOW_EXECUTION_NOT_FOUND") throw error;
+      try {
+        process.env.LOOPSHIP_WORKSPACE_ROOT = ${JSON.stringify(workspaceRoot)};
+        Fastflow.configureFastflowApp({
+          appName: "loopship",
+          systemWorkflowsDir: ${JSON.stringify(input.catalogRoot)},
+          callCatalogRoots: [${JSON.stringify(input.catalogRoot)}, LOOPSHIP_CALL_CATALOG_ROOT],
+          supervisorGuidance: LOOPSHIP_SUPERVISOR_GUIDANCE,
+          workflowResumeCommand: LOOPSHIP_WORKFLOW_RESUME_COMMAND,
+          adapters: createLoopshipFastflowAdapters(),
+        });
+        const operation = ${JSON.stringify(input.operation)};
+        let result;
+        if (operation === "run") {
           result = await Fastflow.executeFastflowWorkflowRunRequest(request);
+        } else if (operation === "resume") {
+          result = await Fastflow.executeFastflowWorkflowResumeRequest(request);
+        } else {
+          try {
+            result = await Fastflow.executeFastflowWorkflowRecoverRequest({
+              executionId: request.executionId,
+            });
+          } catch (error) {
+            if (error?.code !== "FASTFLOW_EXECUTION_NOT_FOUND") throw error;
+            result = await Fastflow.executeFastflowWorkflowRunRequest(request);
+          }
         }
+        await new Promise((resolve) => process.stdout.write(JSON.stringify(result) + "\\n", resolve));
+        process.exit(0);
+      } catch (error) {
+        const failure = {
+          schemaVersion: "loopship.fastflow-child-error/v1",
+          code: typeof error?.code === "string" ? error.code : "FASTFLOW_SESSION_FAILED",
+          message: error instanceof Error ? error.message : String(error),
+          retryable: error?.retryable === true,
+        };
+        await new Promise((resolve) => process.stderr.write(
+          "LOOPSHIP_FASTFLOW_ERROR " + JSON.stringify(failure) + "\\n",
+          resolve,
+        ));
+        process.exit(1);
       }
-      await new Promise((resolve) => process.stdout.write(JSON.stringify(result) + "\\n", resolve));
-      process.exit(0);
     `,
     "utf8",
   );
@@ -1265,6 +1329,8 @@ function runFastflowSession(input: {
       timeoutMs: LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS,
     });
     if (proc.status !== 0) {
+      const structured = parseFastflowChildError(proc.stderr);
+      if (structured) throw fastflowChildError(structured, input.request);
       throw new Error(proc.stderr || proc.stdout || "Fastflow session command failed");
     }
     const lines = proc.stdout.trim().split(/\r?\n/).filter(Boolean);
@@ -1277,6 +1343,53 @@ function runFastflowSession(input: {
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+type FastflowChildError = {
+  schemaVersion: "loopship.fastflow-child-error/v1";
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+function parseFastflowChildError(stderr: string): FastflowChildError | null {
+  const prefix = "LOOPSHIP_FASTFLOW_ERROR ";
+  const lines = stderr.trim().split(/\r?\n/u).reverse();
+  for (const line of lines) {
+    if (!line.startsWith(prefix)) continue;
+    try {
+      const parsed = JSON.parse(line.slice(prefix.length)) as Partial<FastflowChildError>;
+      if (
+        parsed.schemaVersion === "loopship.fastflow-child-error/v1" &&
+        typeof parsed.code === "string" &&
+        typeof parsed.message === "string" &&
+        typeof parsed.retryable === "boolean"
+      ) {
+        return parsed as FastflowChildError;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function fastflowChildError(
+  failure: FastflowChildError,
+  request: Record<string, unknown>,
+): Error & { code: string; retryable: boolean } {
+  const executionId = typeof request.executionId === "string"
+    ? request.executionId
+    : typeof request.sessionId === "string"
+      ? request.sessionId
+      : "<unknown>";
+  const guidance = failure.code === "FASTFLOW_PLAN_INCOMPATIBLE"
+    ? ` ${executionId} is pinned to a different runtime closure. Restore the exact prior Loopship/Fastflow release to finish or cancel it, then deploy this release and resubmit as a new Native execution.`
+    : "";
+  return Object.assign(new Error(`${failure.message}${guidance}`), {
+    code: failure.code,
+    retryable: failure.retryable,
+  });
 }
 
 function assertNativePublicResponse(result: Record<string, unknown>): void {
@@ -1501,6 +1614,7 @@ function requireCanonicalNativeWorkspace(input: {
 } {
   const repoRoot = canonicalRepositoryRoot(input.repoRoot, "repoRoot");
   const workspaceRoot = resolve(requireString(input.workspaceRoot, "workspaceRoot"));
+  assertNativeExecutionWorkspaceDurable(workspaceRoot);
   const canonical = requireCanonicalRegisteredWorktree({
     repoRoot,
     workspaceRoot,
@@ -1670,6 +1784,7 @@ export async function recoverLoopshipFastflowWorkflow(
     request: nativeExecution.request,
   });
   throwIfNativeExecutionUnsettled(result, nativeExecution.executionId);
+  assertNativeExecutionWorkspaceDurable(workspaceRoot);
   finalizeLoopshipNativeExecution({
     repoRoot,
     workspaceRoot,
@@ -1733,6 +1848,7 @@ export async function resumeLoopshipFastflowWorkflow(
     request: input.request,
   });
   throwIfNativeExecutionUnsettled(result, executionId);
+  assertNativeExecutionWorkspaceDurable(canonical.workspaceRoot);
   finalizeLoopshipNativeExecution({
     repoRoot: canonical.repoRoot,
     workspaceRoot: canonical.workspaceRoot,

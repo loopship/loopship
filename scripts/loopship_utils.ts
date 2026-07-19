@@ -2,11 +2,14 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import {
-  chmodSync,
+  closeSync,
   existsSync,
+  fchmodSync,
+  fsyncSync,
   lstatSync,
   linkSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -74,16 +77,19 @@ export function writeJson(path: string, value: unknown): void {
 }
 
 export function writeJsonExclusively(path: string, value: unknown): boolean {
-  mkdirSync(dirname(path), { recursive: true });
+  ensureDirectoryDurable(dirname(path));
   const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let published = false;
   try {
-    writeFileSync(tempPath, `${JSON.stringify(value)}\n`, {
-      encoding: "utf8",
-      mode: newFileMode(path),
-    });
-    if (isRuntimeStatePath(path)) chmodSync(tempPath, 0o600);
+    writeSyncedTempFile(
+      tempPath,
+      `${JSON.stringify(value)}\n`,
+      newFileMode(path),
+      isRuntimeStatePath(path),
+    );
     try {
       linkSync(tempPath, path);
+      published = true;
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
@@ -91,21 +97,77 @@ export function writeJsonExclusively(path: string, value: unknown): boolean {
     }
   } finally {
     rmSync(tempPath, { force: true });
+    if (published) syncDirectory(dirname(path));
   }
 }
 
 function writeFileAtomically(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true });
+  ensureDirectoryDurable(dirname(path));
   const original = inspectAtomicTarget(path);
   const mode = original ? Number(original.mode) & 0o777 : newFileMode(path);
   const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(tempPath, content, { encoding: "utf8", mode });
-    if (original || isRuntimeStatePath(path)) chmodSync(tempPath, mode);
+    writeSyncedTempFile(
+      tempPath,
+      content,
+      mode,
+      Boolean(original) || isRuntimeStatePath(path),
+    );
     assertAtomicTargetUnchanged(path, original);
     renameSync(tempPath, path);
+    syncDirectory(dirname(path));
   } finally {
     rmSync(tempPath, { force: true });
+  }
+}
+
+function writeSyncedTempFile(
+  path: string,
+  content: string,
+  mode: number,
+  forceMode: boolean,
+): void {
+  const descriptor = openSync(path, "wx", mode);
+  try {
+    writeFileSync(descriptor, content, { encoding: "utf8" });
+    if (forceMode) fchmodSync(descriptor, mode);
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+export function ensureDirectoryDurable(path: string): void {
+  const missing: string[] = [];
+  let cursor = resolve(path);
+  while (!existsSync(cursor)) {
+    missing.push(cursor);
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  mkdirSync(path, { recursive: true });
+  for (const created of missing.reverse()) syncDirectory(dirname(created));
+}
+
+export function removeFileDurably(path: string): boolean {
+  try {
+    lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  rmSync(path, { force: true });
+  syncDirectory(dirname(path));
+  return true;
+}
+
+function syncDirectory(path: string): void {
+  const descriptor = openSync(path, "r");
+  try {
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
   }
 }
 
@@ -149,7 +211,6 @@ function newFileMode(path: string): number {
 }
 
 export function acquireCrashSafeFileLock(path: string, timeoutMs: number): () => void {
-  mkdirSync(dirname(path), { recursive: true });
   return openExclusiveSqliteTransaction(path, timeoutMs);
 }
 

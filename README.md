@@ -78,6 +78,26 @@ export FASTFLOW_SCHEDULER_DB=/durable/path/native-v1.sqlite
 loopship-fastflow-daemon
 ```
 
+The scheduler database and Loopship runtime locks must be on a verified local,
+persistent filesystem. Startup fails with
+`FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM` when the host reports a known remote,
+distributed, memory-backed, or unverified filesystem type. Operators must also
+keep durable state out of cloud-synced folders, mapped network drives, and
+mounts that mask remote behavior; filesystem-type probes cannot reliably
+identify every path-level sync layer or masked mount.
+
+When set, `LOOPSHIP_HOME` must be absolute so callers, child sessions, and the
+daemon resolve the same default scheduler authority regardless of working directory.
+Loopship's authoritative ledgers, hook routes, effect receipts, quest documents,
+and manifests sync file contents and directory entries before reporting a write
+as complete.
+
+Before upgrading Loopship or Fastflow, stop new submissions and let pending
+executions finish. If an execution must be interrupted, restore its exact pinned
+Loopship/Fastflow release long enough to finish or cancel it, then deploy the new
+release and resubmit the work. An incompatible pinned plan remains fail-closed
+with `FASTFLOW_PLAN_INCOMPATIBLE`; Loopship never rebinds or migrates it.
+
 The process-local scheduler is available only through an explicit `embedded`
 or `test` profile. Production does not fall back to `setTimeout` or process-local
 wake behavior when the durable daemon is absent.

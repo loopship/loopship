@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
+import fs, {
   chmodSync,
   existsSync,
   lstatSync,
@@ -14,10 +14,12 @@ import {
   rmSync,
   symlinkSync,
   statSync,
+  type PathLike,
+  type StatFsOptions,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
@@ -76,6 +78,7 @@ import {
 import { recordHookRoute } from "./loopship_hook_state.ts";
 import {
   acquireCrashSafeFileLock,
+  removeFileDurably,
   runCommand,
   writeJson as writeJsonFile,
   writeText,
@@ -734,6 +737,9 @@ describe("Loopship Fastflow-native bridge", () => {
       const runtimePath = join(root, ".loopship", "runtime", "hook-state.json");
       writeJsonFile(runtimePath, {});
       expect(statSync(runtimePath).mode & 0o777).toBe(0o600);
+      expect(
+        readdirSync(dirname(runtimePath)).filter((name) => name.endsWith(".tmp")),
+      ).toEqual([]);
 
       const linkedTarget = join(root, "shared-hooks.json");
       const linkedPath = join(root, ".codex", "linked-hooks.json");
@@ -749,10 +755,22 @@ describe("Loopship Fastflow-native bridge", () => {
       const linkedDatabase = join(root, ".loopship", "runtime", "linked-lock.sqlite");
       writeFileSync(externalDatabase, "not-a-loopship-lock\n", "utf8");
       symlinkSync(externalDatabase, linkedDatabase);
-      expect(() => acquireCrashSafeFileLock(linkedDatabase, 10)).toThrow(
-        "refusing symbolic-link SQLite lock target",
-      );
+      let linkedDatabaseError: unknown;
+      try {
+        acquireCrashSafeFileLock(linkedDatabase, 10);
+      } catch (error) {
+        linkedDatabaseError = error;
+      }
+      expect(linkedDatabaseError).toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      expect((linkedDatabaseError as Error).message).toContain("symbolic link");
       expect(readFileSync(externalDatabase, "utf8")).toBe("not-a-loopship-lock\n");
+
+      const danglingPath = join(root, ".loopship", "runtime", "dangling.json");
+      symlinkSync(join(root, "missing-target.json"), danglingPath);
+      expect(removeFileDurably(danglingPath)).toBe(true);
+      expect(() => lstatSync(danglingPath)).toThrow();
 
       const hardLinkedDatabase = join(root, "hard-linked-external.sqlite");
       const hardLinkPath = join(root, ".loopship", "runtime", "hard-linked-lock.sqlite");
@@ -760,7 +778,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const hardLinkedMode = statSync(hardLinkedDatabase).mode & 0o777;
       linkSync(hardLinkedDatabase, hardLinkPath);
       expect(() => acquireCrashSafeFileLock(hardLinkPath, 10)).toThrow(
-        "refusing hard-linked SQLite lock target",
+        "must remain one private regular file",
       );
       expect(readFileSync(hardLinkedDatabase, "utf8")).toBe("hard-linked-marker\n");
       expect(statSync(hardLinkedDatabase).mode & 0o777).toBe(hardLinkedMode);
@@ -768,6 +786,42 @@ describe("Loopship Fastflow-native bridge", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test(
+    "SQLite locks stay bound to their canonical parent after alias retargeting",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "loopship-canonical-lock-"));
+      const firstRoot = join(root, "first");
+      const secondRoot = join(root, "second");
+      const aliasRoot = join(root, "active");
+      const lockName = "quest.sqlite";
+      mkdirSync(firstRoot);
+      mkdirSync(secondRoot);
+      symlinkSync(firstRoot, aliasRoot, "dir");
+
+      const release = acquireCrashSafeFileLock(join(aliasRoot, lockName), 10);
+      try {
+        expect(realpathSync(join(aliasRoot, lockName))).toBe(
+          join(realpathSync(firstRoot), lockName),
+        );
+        rmSync(aliasRoot);
+        symlinkSync(secondRoot, aliasRoot, "dir");
+
+        let concurrentError: unknown;
+        try {
+          acquireCrashSafeFileLock(join(firstRoot, lockName), 10);
+        } catch (error) {
+          concurrentError = error;
+        }
+        expect(concurrentError).toMatchObject({ code: "loopship_file_lock_busy" });
+        expect(existsSync(join(secondRoot, lockName))).toBe(false);
+      } finally {
+        release();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    { timeout: 10_000 },
+  );
 
   test("requires focused native lifecycle release verification", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -799,12 +853,12 @@ describe("Loopship Fastflow-native bridge", () => {
       "bun run verify:stress",
     );
     expect(packageJson.scripts.prepublishOnly).toBe("bun run verify:release");
-    expect(packageJson.version).toBe("1.0.0");
+    expect(packageJson.version).toBe("1.0.1");
     expect(packageJson.engines.node).toBe(">=26.0.0");
     expect(packageJson.engines.bun).toBe(">=1.3.0");
-    expect(packageJson.dependencies["@cueintent/fastflow"]).toBe("1.0.0");
+    expect(packageJson.dependencies["@cueintent/fastflow"]).toBe("1.0.1");
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#310653f9502813846d6a70689877aaff6fd87735",
+      "git+ssh://git@github.com/cueintent/fastflow.git#c0aee6b1529ccb68921f843c7dfe6089fd48dcf1",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
@@ -1537,6 +1591,347 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test("revalidates recovery and resume after the workspace filesystem changes", async () => {
+    const fixture = createGitFixture("loopship-native-remounted-recovery-");
+    const wtree = "remounted-recovery";
+    const prompt = "loopship: re-admit a remounted Native workspace";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const native = resolveLoopshipNativeExecutionRequest(workspaceRoot, {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: prompt,
+        repoRoot: fixture.repo,
+        runtime: "codex",
+        wtree,
+      },
+    });
+    const { files } = createQuest({
+      repoRoot: fixture.repo,
+      wtree,
+      prompt,
+      resolutionSource: "test",
+      workspace,
+      flowId: "swe",
+      initialStage: "initial",
+    });
+    const executionPath = join(
+      workspaceRoot,
+      ".loopship",
+      "runtime",
+      "native-execution.json",
+    );
+    const authoritativePaths = [
+      files.tasks,
+      files.events,
+      files.hook_state,
+      files.manifest,
+      executionPath,
+    ];
+    const before = new Map(
+      authoritativePaths.map((path) => [path, readFileSync(path, "utf8")]),
+    );
+    const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
+    const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    const originalStatfsSync = fs.statfsSync;
+    try {
+      process.env.FASTFLOW_SCHEDULER_DB = join(
+        fixture.root,
+        "scheduler",
+        "native-v1.sqlite",
+      );
+      process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
+      const remoteFilesystemType = process.platform === "darwin" ? 2 : 0x6969;
+      fs.statfsSync = ((
+        probePath: PathLike,
+        options?: StatFsOptions,
+      ) => {
+        const current = originalStatfsSync(probePath, options);
+        const probe = resolve(String(probePath));
+        const workspaceRelative = relative(workspaceRoot, probe);
+        const insideWorkspace = workspaceRelative === "" ||
+          (!workspaceRelative.startsWith("..") && !isAbsolute(workspaceRelative));
+        if (!insideWorkspace) return current;
+        return {
+          ...current,
+          type: typeof current.type === "bigint"
+            ? BigInt(remoteFilesystemType)
+            : remoteFilesystemType,
+        } as ReturnType<typeof fs.statfsSync>;
+      }) as typeof fs.statfsSync;
+
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      await expect(
+        resumeLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          workspaceRoot,
+          request: {
+            sessionId: native.executionId,
+            workspaceRoot,
+            response: { answer: { status: "ok" } },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      for (const [path, content] of before) {
+        expect(readFileSync(path, "utf8")).toBe(content);
+      }
+      expect(
+        existsSync(join(workspaceRoot, ".loopship", "runtime", "quest-init.lock.sqlite")),
+      ).toBe(false);
+
+      for (const mode of ["embedded", "test"] as const) {
+        process.env.FASTFLOW_SCHEDULER_MODE = mode;
+        await expect(
+          resumeLoopshipFastflowWorkflow({
+            repoRoot: fixture.repo,
+            workspaceRoot,
+            request: {
+              sessionId: "loopship-wrong-ledger",
+              workspaceRoot,
+              response: { answer: { status: "ok" } },
+            },
+          }),
+        ).rejects.toThrow("does not match current ledger");
+      }
+    } finally {
+      fs.statfsSync = originalStatfsSync;
+      if (previousDb === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
+      else process.env.FASTFLOW_SCHEDULER_DB = previousDb;
+      if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
+      else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rechecks durable workspace authority after child dispatch before finalization", async () => {
+    const fixture = createGitFixture("loopship-native-post-dispatch-remount-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-remount-fastflow-"));
+    const markerPath = join(fakeFastflowRoot, "remounted");
+    const operationLog = join(fakeFastflowRoot, "operations.jsonl");
+    const wtree = "post-dispatch-remount";
+    const prompt = "loopship: stop finalization after a workspace remount";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const native = resolveLoopshipNativeExecutionRequest(workspaceRoot, {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: prompt,
+        repoRoot: fixture.repo,
+        runtime: "codex",
+        wtree,
+      },
+    });
+    const { files } = createQuest({
+      repoRoot: fixture.repo,
+      wtree,
+      prompt,
+      resolutionSource: "test",
+      workspace,
+      flowId: "swe",
+      initialStage: "initial",
+    });
+    const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
+    const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const previousMarker = process.env.LOOPSHIP_REMOUNT_MARKER;
+    const previousLog = process.env.LOOPSHIP_REMOUNT_OPERATION_LOG;
+    const originalStatfsSync = fs.statfsSync;
+    const originalHookState = readFileSync(files.hook_state, "utf8");
+    try {
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          import { appendFileSync, writeFileSync } from "node:fs";
+          export function configureFastflowApp() {}
+          function completed(executionId, operation) {
+            appendFileSync(process.env.LOOPSHIP_REMOUNT_OPERATION_LOG, operation + "\\n");
+            writeFileSync(process.env.LOOPSHIP_REMOUNT_MARKER, "remounted\\n");
+            return {
+              schemaVersion: "fastflow/workflow-run-artifact/v1",
+              kind: "workflow_result",
+              ok: true,
+              status: "completed",
+              executionId,
+            };
+          }
+          export async function executeFastflowWorkflowRecoverRequest({ executionId }) {
+            return completed(executionId, "recover");
+          }
+          export async function executeFastflowWorkflowResumeRequest(request) {
+            return completed(request.sessionId, "resume");
+          }
+          export async function executeFastflowWorkflowRunRequest(request) {
+            return completed(request.executionId, "run");
+          }
+        `,
+      );
+      process.env.FASTFLOW_SCHEDULER_DB = join(
+        fixture.root,
+        "scheduler",
+        "native-v1.sqlite",
+      );
+      process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      process.env.LOOPSHIP_REMOUNT_MARKER = markerPath;
+      process.env.LOOPSHIP_REMOUNT_OPERATION_LOG = operationLog;
+      const remoteFilesystemType = process.platform === "darwin" ? 2 : 0x6969;
+      fs.statfsSync = ((
+        probePath: PathLike,
+        options?: StatFsOptions,
+      ) => {
+        const current = originalStatfsSync(probePath, options);
+        const probe = resolve(String(probePath));
+        const workspaceRelative = relative(workspaceRoot, probe);
+        const insideWorkspace = workspaceRelative === "" ||
+          (!workspaceRelative.startsWith("..") && !isAbsolute(workspaceRelative));
+        if (!insideWorkspace || !existsSync(markerPath)) return current;
+        return {
+          ...current,
+          type: typeof current.type === "bigint"
+            ? BigInt(remoteFilesystemType)
+            : remoteFilesystemType,
+        } as ReturnType<typeof fs.statfsSync>;
+      }) as typeof fs.statfsSync;
+
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      expect(readLoopshipNativeExecutionRequest(workspaceRoot)).toMatchObject({
+        executionId: native.executionId,
+        status: "pending",
+      });
+      expect(readFileSync(files.hook_state, "utf8")).toBe(originalHookState);
+
+      rmSync(markerPath, { force: true });
+      await expect(
+        resumeLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          workspaceRoot,
+          request: {
+            sessionId: native.executionId,
+            workspaceRoot,
+            response: { answer: { status: "ok" } },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      expect(readLoopshipNativeExecutionRequest(workspaceRoot)).toMatchObject({
+        executionId: native.executionId,
+        status: "pending",
+      });
+      expect(readFileSync(files.hook_state, "utf8")).toBe(originalHookState);
+      expect(readFileSync(operationLog, "utf8").trim().split("\n")).toEqual([
+        "recover",
+        "resume",
+      ]);
+    } finally {
+      fs.statfsSync = originalStatfsSync;
+      if (previousDb === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
+      else process.env.FASTFLOW_SCHEDULER_DB = previousDb;
+      if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
+      else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      if (previousMarker === undefined) delete process.env.LOOPSHIP_REMOUNT_MARKER;
+      else process.env.LOOPSHIP_REMOUNT_MARKER = previousMarker;
+      if (previousLog === undefined) delete process.env.LOOPSHIP_REMOUNT_OPERATION_LOG;
+      else process.env.LOOPSHIP_REMOUNT_OPERATION_LOG = previousLog;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a moved authoritative ledger before recovery or resume reads it", async () => {
+    const fixture = createGitFixture("loopship-native-moved-ledger-");
+    const wtree = "moved-ledger";
+    const prompt = "loopship: reject a moved Native ledger";
+    const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+    const workspaceRoot = workspace.worktree_path;
+    const native = resolveLoopshipNativeExecutionRequest(workspaceRoot, {
+      workflowRef: loopshipFlowWorkflowRef("swe"),
+      inputs: {
+        request: prompt,
+        repoRoot: fixture.repo,
+        runtime: "codex",
+        wtree,
+      },
+    });
+    const { files } = createQuest({
+      repoRoot: fixture.repo,
+      wtree,
+      prompt,
+      resolutionSource: "test",
+      workspace,
+      flowId: "swe",
+      initialStage: "initial",
+    });
+    const executionPath = join(
+      workspaceRoot,
+      ".loopship",
+      "runtime",
+      "native-execution.json",
+    );
+    const movedExecutionPath = join(fixture.root, "moved-native-execution.json");
+    const originalExecution = readFileSync(executionPath, "utf8");
+    const originalHookState = readFileSync(files.hook_state, "utf8");
+    rmSync(executionPath);
+    writeFileSync(movedExecutionPath, originalExecution, "utf8");
+    symlinkSync(movedExecutionPath, executionPath);
+    const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
+    const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    try {
+      process.env.FASTFLOW_SCHEDULER_DB = join(
+        fixture.root,
+        "scheduler",
+        "native-v1.sqlite",
+      );
+      process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
+
+      await expect(
+        recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      await expect(
+        resumeLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          workspaceRoot,
+          request: {
+            sessionId: native.executionId,
+            workspaceRoot,
+            response: { answer: { status: "ok" } },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      expect(lstatSync(executionPath).isSymbolicLink()).toBe(true);
+      expect(readFileSync(movedExecutionPath, "utf8")).toBe(originalExecution);
+      expect(readFileSync(files.hook_state, "utf8")).toBe(originalHookState);
+      expect(
+        existsSync(join(workspaceRoot, ".loopship", "runtime", "quest-init.lock.sqlite")),
+      ).toBe(false);
+    } finally {
+      if (previousDb === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
+      else process.env.FASTFLOW_SCHEDULER_DB = previousDb;
+      if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
+      else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
   test("binds Native recovery and resume to the registered canonical worktree ledger", async () => {
     const fixture = createGitFixture("loopship-native-canonical-recovery-");
     const wtree = "canonical-recovery";
@@ -1585,7 +1980,9 @@ describe("Loopship Fastflow-native bridge", () => {
             response: { answer: { status: "ok" } },
           },
         }),
-      ).rejects.toThrow("requires canonical worktree");
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
       rmSync(linkedWorkspace);
 
       const wrongBranch = "codex/wrong-native-recovery";
@@ -1837,6 +2234,156 @@ describe("Loopship Fastflow-native bridge", () => {
     } finally {
       if (previousDb === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
       else process.env.FASTFLOW_SCHEDULER_DB = previousDb;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an unsupported default scheduler database before claiming quest state", async () => {
+    const fixture = createGitFixture("loopship-native-default-scheduler-db-");
+    const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
+    const previousHome = process.env.LOOPSHIP_HOME;
+    const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    const wtree = "unsupported-default-scheduler";
+    try {
+      const schedulerRoot = join(fixture.root, "loopship-home", "scheduler");
+      const target = join(fixture.root, "scheduler-target.sqlite");
+      mkdirSync(schedulerRoot, { recursive: true });
+      writeFileSync(target, "");
+      symlinkSync(target, join(schedulerRoot, "native-v1.sqlite"));
+      delete process.env.FASTFLOW_SCHEDULER_DB;
+      process.env.LOOPSHIP_HOME = join(fixture.root, "loopship-home");
+      process.env.FASTFLOW_SCHEDULER_MODE = " local-durable ";
+
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject an unsupported default scheduler authority",
+            wtree,
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      expect(process.env.FASTFLOW_SCHEDULER_MODE).toBe("local-durable");
+      expect(existsSync(join(fixture.repo, "worktrees", wtree))).toBe(false);
+    } finally {
+      if (previousDb === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
+      else process.env.FASTFLOW_SCHEDULER_DB = previousDb;
+      if (previousHome === undefined) delete process.env.LOOPSHIP_HOME;
+      else process.env.LOOPSHIP_HOME = previousHome;
+      if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
+      else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an unsupported prospective worktree before creating its branch", async () => {
+    const fixture = createGitFixture("loopship-native-worktree-filesystem-");
+    const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
+    const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    const wtree = "unsupported-worktree";
+    try {
+      const worktreesRoot = join(fixture.repo, "worktrees");
+      const prospective = join(worktreesRoot, wtree);
+      const target = join(fixture.root, "worktree-target");
+      mkdirSync(worktreesRoot, { recursive: true });
+      mkdirSync(target, { recursive: true });
+      symlinkSync(target, prospective);
+      process.env.FASTFLOW_SCHEDULER_DB = join(fixture.root, "scheduler", "native-v1.sqlite");
+      process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
+
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject an unsupported prospective worktree",
+            wtree,
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM",
+      });
+      expect(
+        runCommand("git", ["show-ref", "--verify", `refs/heads/${wtree}`], {
+          cwd: fixture.repo,
+          timeoutMs: 10_000,
+        }).status,
+      ).not.toBe(0);
+    } finally {
+      if (previousDb === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
+      else process.env.FASTFLOW_SCHEDULER_DB = previousDb;
+      if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
+      else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an unknown scheduler mode before creating a worktree", async () => {
+    const fixture = createGitFixture("loopship-native-scheduler-mode-");
+    const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    const wtree = "unsupported-scheduler-mode";
+    try {
+      process.env.FASTFLOW_SCHEDULER_MODE = "production";
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject an unknown scheduler profile",
+            wtree,
+          },
+        }),
+      ).rejects.toThrow("unsupported schedulerMode 'production'");
+      expect(existsSync(join(fixture.repo, "worktrees", wtree))).toBe(false);
+    } finally {
+      if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
+      else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a relative Loopship home before selecting scheduler authority", async () => {
+    const fixture = createGitFixture("loopship-native-relative-home-");
+    const previousHome = process.env.LOOPSHIP_HOME;
+    const wtree = "relative-loopship-home";
+    try {
+      process.env.LOOPSHIP_HOME = "./relative-loopship-home";
+      await expect(
+        runLoopshipFastflowWorkflow({
+          repoRoot: fixture.repo,
+          flowId: "swe",
+          inputs: {
+            request: "loopship: reject cwd-relative durable authority",
+            wtree,
+          },
+        }),
+      ).rejects.toThrow("LOOPSHIP_HOME must be an absolute path");
+      expect(existsSync(join(fixture.repo, "worktrees", wtree))).toBe(false);
+
+      const env: Record<string, string | undefined> = {
+        ...process.env,
+        LOOPSHIP_HOME: "./relative-loopship-home",
+      };
+      delete env.FASTFLOW_SCHEDULER_DB;
+      const daemon = Bun.spawn(
+        [process.execPath, "--no-install", resolve(process.cwd(), "bin", "loopship-fastflow-daemon")],
+        {
+          cwd: fixture.repo,
+          env,
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      expect(await daemon.exited).not.toBe(0);
+      expect(await new Response(daemon.stderr).text()).toContain(
+        "LOOPSHIP_HOME must be an absolute path",
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.LOOPSHIP_HOME;
+      else process.env.LOOPSHIP_HOME = previousHome;
       rmSync(fixture.root, { recursive: true, force: true });
     }
   });
@@ -2506,6 +3053,83 @@ describe("Loopship Fastflow-native bridge", () => {
       else process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = previousLog;
       if (previousThread === undefined) delete process.env.CODEX_THREAD_ID;
       else process.env.CODEX_THREAD_ID = previousThread;
+      rmSync(fakeFastflowRoot, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("incompatible pinned plans preserve structured recovery guidance without resubmission", async () => {
+    const fixture = createGitFixture("loopship-native-incompatible-recovery-");
+    const fakeFastflowRoot = mkdtempSync(join(process.cwd(), "tmp", "loopship-incompatible-fastflow-"));
+    const operationLog = join(fakeFastflowRoot, "operations.jsonl");
+    const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const previousLog = process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+    const wtree = "incompatible-recovery";
+    const prompt = "loopship: keep an incompatible pinned execution fail closed";
+    try {
+      mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
+      writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
+      writeFileSync(
+        join(fakeFastflowRoot, "src", "index.mjs"),
+        `
+          import { appendFileSync } from "node:fs";
+          export function configureFastflowApp() {}
+          export async function executeFastflowWorkflowRecoverRequest() {
+            appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover\\n");
+            const error = new Error("pinned plan has no exact dispatch route");
+            error.code = "FASTFLOW_PLAN_INCOMPATIBLE";
+            error.retryable = false;
+            throw error;
+          }
+          export async function executeFastflowWorkflowRunRequest() {
+            appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "run\\n");
+            throw new Error("incompatible recovery must not resubmit");
+          }
+          export async function executeFastflowWorkflowResumeRequest() {
+            throw new Error("unexpected resume");
+          }
+        `,
+      );
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
+      process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = operationLog;
+      const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
+      const native = resolveLoopshipNativeExecutionRequest(workspace.worktree_path, {
+        workflowRef: loopshipFlowWorkflowRef("swe"),
+        inputs: {
+          request: prompt,
+          repo: fixture.repo,
+          repoRoot: fixture.repo,
+          runtime: "codex",
+          wtree,
+        },
+      });
+      const { files } = createFastflowQuest(fixture.repo, wtree, prompt);
+
+      let failure: unknown;
+      try {
+        await recoverLoopshipFastflowWorkflow({ repoRoot: fixture.repo, wtree });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        code: "FASTFLOW_PLAN_INCOMPATIBLE",
+        retryable: false,
+      });
+      expect((failure as Error).message).toContain(native.executionId);
+      expect((failure as Error).message).toContain("Restore the exact prior Loopship/Fastflow release");
+      expect((failure as Error).message).toContain("finish or cancel");
+      expect((failure as Error).message).toContain("resubmit as a new Native execution");
+      expect(readFileSync(operationLog, "utf8").trim().split("\n")).toEqual(["recover"]);
+      expect(readLoopshipNativeExecutionRequest(files.workspace_root)).toMatchObject({
+        executionId: native.executionId,
+        status: "pending",
+      });
+    } finally {
+      if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      if (previousLog === undefined) delete process.env.LOOPSHIP_NATIVE_RECOVERY_LOG;
+      else process.env.LOOPSHIP_NATIVE_RECOVERY_LOG = previousLog;
       rmSync(fakeFastflowRoot, { recursive: true, force: true });
       rmSync(fixture.root, { recursive: true, force: true });
     }

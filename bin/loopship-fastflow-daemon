@@ -2,6 +2,13 @@
 
 import { isAbsolute } from "node:path";
 
+const loopshipHome = String(process.env.LOOPSHIP_HOME || "").trim();
+if (loopshipHome && !isAbsolute(loopshipHome)) {
+  throw new Error("LOOPSHIP_HOME must be an absolute path for Loopship");
+}
+if (loopshipHome) process.env.LOOPSHIP_HOME = loopshipHome;
+else delete process.env.LOOPSHIP_HOME;
+
 const schedulerDb = String(process.env.FASTFLOW_SCHEDULER_DB || "").trim();
 if (schedulerDb && !isAbsolute(schedulerDb)) {
   throw new Error("FASTFLOW_SCHEDULER_DB must be an absolute path for Loopship");

@@ -3,7 +3,6 @@
 import {
   chmodSync,
   existsSync,
-  mkdirSync,
   realpathSync,
   readdirSync,
   rmSync,
@@ -17,9 +16,11 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   expandHome,
+  ensureDirectoryDurable,
   hashText,
   nowIso,
   readText,
+  removeFileDurably,
   runCommand,
   shellQuote,
   writeJson,
@@ -1062,13 +1063,11 @@ export function ensureSystemScaffold(repoRoot: string): string[] {
   }
   const architecturePath = resolve(repoRoot, ".loopship/docs/software/architecture.yaml");
   if (!existsSync(architecturePath)) {
-    mkdirSync(dirname(architecturePath), { recursive: true });
     writeText(architecturePath, renderSystemDocYaml(defaultArchitectureDoc(repoRoot)));
     touched.push(architecturePath);
   }
   const decisionLogPath = resolve(repoRoot, ".loopship/docs/decisions/records.yaml");
   if (!existsSync(decisionLogPath)) {
-    mkdirSync(dirname(decisionLogPath), { recursive: true });
     writeText(decisionLogPath, renderSystemDocYaml(defaultDecisionLogDoc(repoRoot)));
     touched.push(decisionLogPath);
   }
@@ -1283,11 +1282,10 @@ export function applySystemUpdate(
 
   for (const item of plannedExternalDocs) {
     if (item.op === "delete") {
-      rmSync(item.fullPath, { force: true });
+      removeFileDurably(item.fullPath);
       continue;
     }
     if (!item.document) continue;
-    mkdirSync(dirname(item.fullPath), { recursive: true });
     writeText(item.fullPath, renderSystemDocYaml(item.document));
     touched.push(item.fullPath);
   }
@@ -1716,7 +1714,6 @@ export function appendJsonl(
   file: string,
   record: Record<string, unknown>,
 ): void {
-  mkdirSync(dirname(file), { recursive: true });
   const line = JSON.stringify({ ts: nowIso(), ...record });
   writeText(file, `${readText(file)}${line}\n`);
 }
@@ -2383,7 +2380,7 @@ function ensureNamedWorkspace(
 ): QuestWorkspace {
   branchRef = assertValidGitBranchRef(branchRef);
   if (!hasGitCommit(repoRoot)) {
-    mkdirSync(desiredPath, { recursive: true });
+    ensureDirectoryDurable(desiredPath);
     return {
       branch_ref: branchRef,
       worktree_path: desiredPath,

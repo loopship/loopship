@@ -5,7 +5,7 @@
     "": {
       "name": "@omar391/loopship",
       "dependencies": {
-        "@cueintent/fastflow": "1.0.0",
+        "@cueintent/fastflow": "1.0.1",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
         "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a",
@@ -22,12 +22,12 @@
     "cmdproto",
   ],
   "overrides": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#310653f9502813846d6a70689877aaff6fd87735",
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#c0aee6b1529ccb68921f843c7dfe6089fd48dcf1",
   },
   "packages": {
     "@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.0", "", {}, "sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA=="],
 
-    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#310653f9502813846d6a70689877aaff6fd87735", { "dependencies": { "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a" }, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "310653f9502813846d6a70689877aaff6fd87735"],
+    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#c0aee6b1529ccb68921f843c7dfe6089fd48dcf1", { "dependencies": { "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a" }, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "c0aee6b1529ccb68921f843c7dfe6089fd48dcf1"],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
