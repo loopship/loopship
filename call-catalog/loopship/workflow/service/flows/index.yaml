@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 60
-      digest: "sha256:19c5460e26b32c13557770290dbca590c9adcd570138e7da1f5921821725afce"
-      summary: "Repin lifecycle flow to promoted step routing releases."
+      release: 61
+      digest: "sha256:cd100ecd06c86c18d4ee8aa26b5678d476bf14d0abc4e33c6e6cc3ce2ddc795a"
+      summary: "Keep clarification review durable and refresh the pinned flow reference."
       inputs:
         required: []
         optional: []
@@ -28,9 +28,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalVJHRsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGulLgEA/lyGzicZYTQLL2TXGSum
-    dgIF7L3r9s/WWdKDL0JWd9UA/Akp8zB7yNKM3XxMhYkHZrjg6ZOhwAAr9JEB89O9
-    n/4L
-    =sZvG
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalwdFhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGthJgD+IXxvhg4pPzhcrU99OYll
+    SLNrlDONlRt8CtPCKDXn5rwA/24zR/cYjbNkH7qhvLbhsWUCKp5PsiAQdQp/RRVq
+    pJsA
+    =cSMH
     -----END PGP SIGNATURE-----

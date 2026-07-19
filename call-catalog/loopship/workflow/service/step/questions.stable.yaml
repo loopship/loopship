@@ -24,7 +24,7 @@ document:
             - invalid_output
             - abstain
           try:
-            - aitl.chat
+            - hitl.review
 input:
   schema:
     document:
