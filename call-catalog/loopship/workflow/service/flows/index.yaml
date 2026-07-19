@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 61
-      digest: "sha256:cd100ecd06c86c18d4ee8aa26b5678d476bf14d0abc4e33c6e6cc3ce2ddc795a"
-      summary: "Keep clarification review durable and refresh the pinned flow reference."
+      release: 62
+      digest: "sha256:a8c467b6352633b178b68df8b2f9ddbebeb6b8eab585f091854eb9561ad3dbd2"
+      summary: "Commit durable quest state before lifecycle continuation."
       inputs:
         required: []
         optional: []
@@ -14,6 +14,7 @@ workflows:
         - loopship.afn.service.flow.compose-transition-result
         - loopship.afn.service.git.resolve-commit
         - loopship.afn.service.landing.cleanup-landed-worktrees
+        - loopship.afn.service.runtime.commit-quest-state
         - loopship.workflow.service.step.archived
         - loopship.workflow.service.step.child-result
         - loopship.workflow.service.step.executing
@@ -28,9 +29,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalwdFhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGthJgD+IXxvhg4pPzhcrU99OYll
-    SLNrlDONlRt8CtPCKDXn5rwA/24zR/cYjbNkH7qhvLbhsWUCKp5PsiAQdQp/RRVq
-    pJsA
-    =cSMH
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalxnAxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsgSgEA5+nWYWGRduyl6NOGDsfG
+    rjShwgPUF9lfr//bJuL0JkUA/25kvU+cveQMnGZhiq0eEhOtWo4EbbagKs0cxpGS
+    OSkH
+    =G+sV
     -----END PGP SIGNATURE-----

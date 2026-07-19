@@ -2007,7 +2007,7 @@ do:
             additionalProperties: true
         as: "${action}"
   - append_stage_event:
-      then: continue_or_stop
+      then: commit_quest_state
       metadata:
         description: "Append the Fastflow-derived stage transition event through workflow data."
         validation:
@@ -2036,6 +2036,38 @@ do:
           adapter: jsonl
           log: events
           events: "${state.steps.build_stage_result?.action?.events || []}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+  - commit_quest_state:
+      then: continue_or_stop
+      metadata:
+        description: "Commit the workflow-data tasks and event mutations to the canonical quest manifest."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_quest_manifest_committed
+              kind: behaviour
+              statement: "The canonical quest manifest covers the persisted tasks and event log."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    const ok = action?.schema_version === "loopship.runtime.commit-quest-state/v1";
+                    return { ok, evidence: { wtree: action?.wtree || "" } };
+      call: loopship.afn.service.runtime.commit-quest-state
+      with:
+        body:
+          repo: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+          wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
       output:
         schema:
           document:
