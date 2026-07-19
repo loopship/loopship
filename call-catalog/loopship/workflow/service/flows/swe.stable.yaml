@@ -2058,11 +2058,12 @@ do:
               kind: behaviour
               statement: "The canonical quest manifest covers the persisted tasks and event log."
               check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action?.schema_version === "loopship.runtime.commit-quest-state/v1";
-                    return { ok, evidence: { wtree: action?.wtree || "" } };
+                call: loopship.afn.service.runtime.commit-quest-state
+                with:
+                  body:
+                    repo: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+                    wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
+                    as_check: true
       call: loopship.afn.service.runtime.commit-quest-state
       with:
         body:
