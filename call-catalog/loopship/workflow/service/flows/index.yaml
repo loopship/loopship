@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 62
-      digest: "sha256:a8c467b6352633b178b68df8b2f9ddbebeb6b8eab585f091854eb9561ad3dbd2"
-      summary: "Commit durable quest state before lifecycle continuation."
+      release: 63
+      digest: "sha256:55770be1a4e287379e3b71b419a2e2c53a000e7a5b29e523dec357886ca3241a"
+      summary: "Verify durable quest manifest before lifecycle continuation."
       inputs:
         required: []
         optional: []
@@ -29,9 +29,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalxnAxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsgSgEA5+nWYWGRduyl6NOGDsfG
-    rjShwgPUF9lfr//bJuL0JkUA/25kvU+cveQMnGZhiq0eEhOtWo4EbbagKs0cxpGS
-    OSkH
-    =G+sV
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalxptRsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtQXAEAjMaKteC+uoMwa2lmgEf9
+    vzOndWB/FCpVWFY70fZgyykBAKwHyhq87qBg8hXJyhH1+/e2gNslu7Xq3edAocZv
+    s9kC
+    =bDm/
     -----END PGP SIGNATURE-----
