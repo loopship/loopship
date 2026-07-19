@@ -101,6 +101,7 @@ do:
               additionalProperties: true
             build:
               kind: js
+              timeout_ms: 5000
               using:
                 - inputs
                 - state
