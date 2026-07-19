@@ -5,7 +5,7 @@ document:
   namespace: service-flows
   name: swe
   version: 0.1.0
-  summary: "Loopship swe flow orchestration for Fastflow-native supervision."
+  summary: "Loopship SWE flow orchestration with Native durable supervision."
   metadata:
     catalog:
       tags:
