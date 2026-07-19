@@ -522,6 +522,7 @@ do:
                     type: string
             build:
               kind: js
+              timeout_ms: 5000
               using:
                 - inputs
                 - state

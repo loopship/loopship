@@ -37,9 +37,9 @@ workflows:
       requires: []
   child-result:
     stable:
-      release: 5
-      digest: "sha256:9664aadffb8c08700a9a4ed995944d5d7b5a3c4b29ea299b34f34fe576577917"
-      summary: "Separate human questions from automated lifecycle routing and scope validation to task evidence."
+      release: 6
+      digest: "sha256:8e14ae7ae30e24fae1527eb4a40589dd6ed44021b912f3b14a3cf3405985ebd0"
+      summary: "Give Node-backed request builders a bounded five-second launch budget."
       inputs:
         required: []
         optional:
@@ -126,9 +126,9 @@ workflows:
         - loopship.afn.service.landing.apply-outcome
   plan:
     stable:
-      release: 11
-      digest: "sha256:aae338274e6ebd8fca7da1b41ec4c324a1822bbfc2bad08e99a6ce4372ea6185"
-      summary: "Separate human questions from automated lifecycle routing and scope validation to task evidence."
+      release: 12
+      digest: "sha256:f096b7d9b41dcfbe346ba25a36d1985416eb144e5467b0dd3a01344542734cce"
+      summary: "Give Node-backed request builders a bounded five-second launch budget."
       inputs:
         required: []
         optional:
@@ -162,9 +162,9 @@ workflows:
       requires: []
   questions:
     stable:
-      release: 5
-      digest: "sha256:41385edfdbfb3108d1fa90d9484834ed00ad28722b989eb8a3efe08cae8b8000"
-      summary: "Keep clarification review durable and refresh the pinned flow reference."
+      release: 6
+      digest: "sha256:47c9130205d673c021e5300004abc3997a26b9ecbcca84a03df4cfb76994ac3a"
+      summary: "Give Node-backed request builders a bounded five-second launch budget."
       inputs:
         required: []
         optional:
@@ -195,9 +195,9 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 10
-      digest: "sha256:e4b7113d14127110f03f814dba064738a253c27c93dde680c1d1c2c9da057828"
-      summary: "Separate human questions from automated lifecycle routing and scope validation to task evidence."
+      release: 11
+      digest: "sha256:2e8ebcb4cbdc6f30f8715c3ad2fae81773ed2050f5a8458ba4b333cfc7cc2af6"
+      summary: "Give Node-backed request builders a bounded five-second launch budget."
       inputs:
         required: []
         optional: []
@@ -205,9 +205,9 @@ workflows:
         - loopship.afn.service.system.apply-update
   task-graph:
     stable:
-      release: 6
-      digest: "sha256:d260c68d986f02eb5ddd1b133dd9feb660361ac2adbe55dab9428f662b930222"
-      summary: "Separate human questions from automated lifecycle routing and scope validation to task evidence."
+      release: 7
+      digest: "sha256:9a472cf0a486669e8d9afb7fdc48ba9b83c8844af3a0a5594bf735ed2f80d45f"
+      summary: "Give Node-backed request builders a bounded five-second launch budget."
       inputs:
         required: []
         optional:
@@ -238,9 +238,9 @@ workflows:
       requires: []
   validation:
     stable:
-      release: 7
-      digest: "sha256:d16e9112071a18f941e1c72cbab7b4f42b3cddec87afe9bc2ecc2d4bed4360d3"
-      summary: "Separate human questions from automated lifecycle routing and scope validation to task evidence."
+      release: 8
+      digest: "sha256:d41941f303b7d3fe31c083008005581ff914005dc2d25b92f139f6d4ee32d4fd"
+      summary: "Give Node-backed request builders a bounded five-second launch budget."
       inputs:
         required: []
         optional:
@@ -271,9 +271,9 @@ workflows:
       requires: []
   verification:
     stable:
-      release: 6
-      digest: "sha256:da1d1957757e8d63a1950b91424e8d525ad4e07569b1c1a285af636ba026b01c"
-      summary: "Route failed transitions to AITL repair and scope verification to current declared acceptance."
+      release: 7
+      digest: "sha256:baf3bebf95258fccd04fa7405a43c2bb4b086a42a54fa755df6a1d7aa2151589"
+      summary: "Give Node-backed request builders a bounded five-second launch budget."
       inputs:
         required: []
         optional:
@@ -306,9 +306,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCalwdFBsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsEWQEAug7A0D6IEGukkjU3THmU
-    GFc2l877khXr9FzAEHruilEA/iI0MpRneQR8k6h5E8Tys53KClLDmKUCDd5DWKWK
-    HHQN
-    =Z1YZ
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaly4HhsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtE9gD8DF29xHUv1vDua6ISwfGa
+    bumtLLIPFiyTd+8j17DcVXIA/i6QpXIG5QWNyqen0d+jx/qlFJOfBCClShj8QL+p
+    D9IH
+    =6t9Q
     -----END PGP SIGNATURE-----
