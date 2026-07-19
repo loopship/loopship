@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): {
       hookScript = resolve(expandHome(inlineValue(arg, "--hook-script")));
     else if (arg === "--help" || arg === "-h") {
       console.log(
-        "Install loopship runtime hooks\n\nUsage: bun|node|npx tsx setup_runtime_hooks.ts --repo <path> --runtime <codex|gemini|copilot|all> [--hook-script <path>]",
+        "Install loopship runtime hooks\n\nUsage: bun setup_runtime_hooks.ts --repo <path> --runtime <codex|gemini|copilot|all> [--hook-script <path>]",
       );
       process.exit(0);
     } else {

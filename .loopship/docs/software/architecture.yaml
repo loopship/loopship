@@ -64,8 +64,12 @@ context:
     Generated apps, child outputs, fixture repos, and landed artifacts are evidence about
     Loopship behavior unless the user explicitly switches scope to those artifacts.
   technical: |-
-    Bun executes the TypeScript CLI, workflow runner, simulation commands, schema validators,
-    and verification scripts. Git worktrees isolate child implementation state from root
+    Bun is the canonical application and daemon runtime for the TypeScript CLI, workflow runner,
+    simulation commands, schema validators, and verification scripts. Shared modules use
+    portable Node-standard APIs, and runtime-specific SQLite access stays behind a small
+    Bun/Node adapter. Node 26 is an explicit hardened workflow-script security worker only
+    until Bun provides equivalent verified permission isolation; it is not a second supported
+    Loopship application host. Git worktrees isolate child implementation state from root
     coordination and protect the main branch from direct agent edits.
 
     Built-in hook installers cover Codex CLI, Codex Desktop, Gemini CLI, Copilot CLI, and
@@ -200,11 +204,14 @@ deployment:
     runtime-files: |-
       Tracked durable files include .loopship/system.yaml, .loopship/docs/**/*.yaml, and
       .loopship/signature.yaml. Quest-local ignored files include tasks.yaml, events.jsonl,
-      manifest.yaml, hook-state.json, and lock.json under .loopship/runtime.
+      manifest.yaml, hook-state.json, lock.json, native-execution.json, immutable
+      native-executions/*.json receipts, and host-local SQLite transaction locks under
+      .loopship/runtime.
   nodes:
     developer-machine: |-
-      The developer machine hosts Bun, Git, schema files, workflow assets, runtime hook shims,
-      optional external CLI runtimes, and verification commands.
+      The developer machine hosts the canonical Bun application runtime, the Node 26 hardened
+      workflow-script worker, Git, schema files, workflow assets, runtime hook shims, optional
+      external CLI runtimes, and verification commands.
     runtime-hook-host: |-
       Built-in runtime hook hosts include Codex CLI/Desktop, Gemini CLI, Copilot CLI, and Copilot
       in VS Code. Manually configured Claude, Antigravity, and other hosts use the generic hook
@@ -214,14 +221,16 @@ interfaces:
     kind: cli
     text: |-
       loopship init starts a new quest and refuses an already initialized worktree. Inline
-      lifecycle stages continue within the same Fastflow run and restart once automatically
-      from canonical state after a process failure. loopship resume --wtree recovers an
-      interrupted wrapper process, while loopship resume --json consumes the session, nonce,
-      workspace root, and response emitted by a Fastflow handoff. Public quest identity is
-      wtree, the base worktree name. Fastflow and configured CLI-agent subprocesses run with
-      that canonical quest worktree as their current working directory. Question rounds use
-      hitl.review handoffs; failed validation or verification transitions use aitl.subagent
-      repair handoffs before canonical inline continuation.
+      lifecycle stages continue within one Native execution. A failed submission is never
+      retried automatically. loopship resume --wtree explicitly recovers an interrupted wrapper
+      by addressing the exact pending execution from native-execution.json; only a scheduler
+      execution-not-found result permits resubmission of that identical request and idempotency
+      key. loopship resume --json consumes the session, nonce, workspace root, and response
+      emitted by a Fastflow handoff. Public quest identity is wtree, the base worktree name.
+      Fastflow and configured CLI-agent subprocesses run with that canonical quest worktree as
+      their current working directory. Question rounds use durable hitl.review Native scheduler
+      handoffs; failed validation or verification transitions use aitl.subagent repair handoffs
+      before canonical inline continuation.
   hook-command:
     kind: cli
     text: |-
@@ -284,8 +293,10 @@ data:
       canonical resources without adding integrity fields to the root.
     quest-runtime-state: |-
       Worktree-local runtime state includes tasks.yaml, events.jsonl, manifest.yaml,
-      hook-state.json, and lock.json. Together these files define quest truth, audit history,
-      managed-file hashes, duplicate suppression state, and concurrency guards.
+      hook-state.json, lock.json, native-execution.json, immutable native-executions/*.json
+      receipts, and SQLite transaction-lock databases. Together these files define quest truth,
+      audit history, managed-file hashes, stable Native execution identity, duplicate suppression
+      state, and crash-released concurrency guards.
     task-qa: |-
       Quest dossiers use tasks.yaml schema v4 with answers co-located inside
       question_rounds[].questions[] rather than a top-level answers array.

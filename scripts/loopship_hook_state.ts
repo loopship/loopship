@@ -1,18 +1,21 @@
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+} from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { readJson, writeJson } from "./loopship_utils.ts";
+import { acquireCrashSafeFileLock, writeJson } from "./loopship_utils.ts";
 
 export type FastflowResumeHandle = {
   sessionId: string;
-  nonce?: string;
+  nonce: string;
   workspaceRoot: string;
-  executionName?: string;
-  progressMode?: string;
   kind?: string;
 };
 
 export type HookRouteState = {
-  schema_version: 1;
+  schema_version: 2;
   runtime: string;
   thread_id?: string;
   wtree: string;
@@ -28,6 +31,66 @@ const THREAD_ENV_BY_RUNTIME: Record<string, string[]> = {
   claude: ["CLAUDE_CODE_SESSION_ID"],
   augment: ["AUGMENT_CONVERSATION_ID"],
 };
+
+const HOOK_STATE_LOCK_WAIT_MS = 5_000;
+
+function hookStateError(code: string, message: string): Error {
+  return Object.assign(new Error(`${code}: ${message}`), { code });
+}
+
+function legacyHookStateUnsupported(path: string): Error {
+  return hookStateError(
+    "legacy_execution_unsupported",
+    `hook route at ${path} predates the Native v1 nonce contract; resubmit it as a new Native execution`,
+  );
+}
+
+function readStateDocument(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw hookStateError(
+      "loopship_hook_state_corrupt",
+      `hook route at ${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw hookStateError(
+      "loopship_hook_state_corrupt",
+      `hook route at ${path} must contain a JSON object`,
+    );
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function assertNativeHookStateVersion(
+  value: Record<string, unknown>,
+  path: string,
+): void {
+  if (value.schema_version !== 2) throw legacyHookStateUnsupported(path);
+}
+
+function withHookStateLock<T>(statePath: string, operation: () => T): T {
+  let release: (() => void) | null = null;
+  try {
+    release = acquireCrashSafeFileLock(`${statePath}.lock.sqlite`, HOOK_STATE_LOCK_WAIT_MS);
+  } catch (error) {
+    if ((error as { code?: string }).code === "loopship_file_lock_busy") {
+      throw hookStateError(
+        "loopship_hook_state_busy",
+        `hook route update is already in progress at ${statePath}`,
+      );
+    }
+    throw error;
+  }
+  try {
+    return operation();
+  } finally {
+    release();
+  }
+}
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -67,33 +130,43 @@ function statePath(repoRoot: string, wtree: string): string | null {
 }
 
 function readState(path: string): HookRouteState | null {
-  const value = readJson(path) as Record<string, unknown> | null;
+  const value = readStateDocument(path);
   if (!value) return null;
+  if (!Object.keys(value).length) return null;
+  assertNativeHookStateVersion(value, path);
   const fastflow = objectValue(value.fastflow);
+  const sessionId = stringValue(fastflow.sessionId);
+  if (!sessionId) return null;
+  const nonce = stringValue(fastflow.nonce);
+  if (!nonce) throw legacyHookStateUnsupported(path);
   const state: HookRouteState = {
     ...value,
-    schema_version: 1,
+    schema_version: 2,
     runtime: stringValue(value.runtime),
     wtree: stringValue(value.wtree),
     workspace_root: stringValue(value.workspace_root),
     fastflow: {
-      sessionId: stringValue(fastflow.sessionId),
+      sessionId,
+      nonce,
       workspaceRoot: stringValue(fastflow.workspaceRoot),
-      ...(stringValue(fastflow.nonce) ? { nonce: stringValue(fastflow.nonce) } : {}),
-      ...(stringValue(fastflow.executionName)
-        ? { executionName: stringValue(fastflow.executionName) }
-        : {}),
-      ...(stringValue(fastflow.progressMode)
-        ? { progressMode: stringValue(fastflow.progressMode) }
-        : {}),
       ...(stringValue(fastflow.kind) ? { kind: stringValue(fastflow.kind) } : {}),
     },
     updated_at: stringValue(value.updated_at),
     ...(stringValue(value.thread_id) ? { thread_id: stringValue(value.thread_id) } : {}),
   };
-  return state.runtime && state.wtree && state.workspace_root && state.fastflow.sessionId
-    ? state
-    : null;
+  if (
+    !state.runtime ||
+    !state.wtree ||
+    !state.workspace_root ||
+    !state.fastflow.workspaceRoot ||
+    !state.updated_at
+  ) {
+    throw hookStateError(
+      "loopship_hook_state_corrupt",
+      `Native v1 hook route at ${path} is missing required routing fields`,
+    );
+  }
+  return state;
 }
 
 function workspaceWtree(repoRoot: string, workspaceRoot: string): string | null {
@@ -128,16 +201,13 @@ function fastflowResumeHandle(
   const nextCall = objectValue(result.nextCall);
   const args = objectValue(nextCall.args);
   const sessionId = stringValue(args.sessionId);
+  const nonce = stringValue(args.nonce);
   const resolvedWorkspace = stringValue(args.workspaceRoot) || stringValue(workspaceRoot);
-  if (!sessionId || !resolvedWorkspace) return null;
+  if (!sessionId || !nonce || !resolvedWorkspace) return null;
   return {
     sessionId,
+    nonce,
     workspaceRoot: resolve(resolvedWorkspace),
-    ...(stringValue(args.nonce) ? { nonce: stringValue(args.nonce) } : {}),
-    ...(stringValue(args.executionName)
-      ? { executionName: stringValue(args.executionName) }
-      : {}),
-    ...(stringValue(args.progressMode) ? { progressMode: stringValue(args.progressMode) } : {}),
     ...(stringValue(result.kind) ? { kind: stringValue(result.kind) } : {}),
   };
 }
@@ -209,20 +279,27 @@ export function recordHookRoute(input: {
   const workspaceRoot = worktreeDirectory(input.repoRoot, wtree);
   if (!workspaceRoot) return null;
   handle.workspaceRoot = workspaceRoot;
-  const current = (readJson(path) ?? {}) as Record<string, unknown>;
-  const state: HookRouteState = {
-    ...current,
-    schema_version: 1,
-    runtime: input.runtime,
-    wtree,
-    workspace_root: workspaceRoot,
-    fastflow: handle,
-    updated_at: new Date().toISOString(),
-    ...(stringValue(input.threadId) ? { thread_id: stringValue(input.threadId) } : {}),
-  };
-  if (!stringValue(input.threadId)) delete state.thread_id;
-  writeJson(path, state);
-  return state;
+  return withHookStateLock(path, () => {
+    const current = readStateDocument(path) ?? {};
+    if (Object.keys(current).length) assertNativeHookStateVersion(current, path);
+    const threadId = stringValue(input.threadId);
+    const currentRuntime = stringValue(current.runtime);
+    const state: HookRouteState = {
+      ...current,
+      schema_version: 2,
+      runtime:
+        !threadId && currentRuntime && currentRuntime !== "all"
+          ? currentRuntime
+          : input.runtime,
+      wtree,
+      workspace_root: workspaceRoot,
+      fastflow: handle,
+      updated_at: new Date().toISOString(),
+      ...(threadId ? { thread_id: threadId } : {}),
+    };
+    writeJson(path, state);
+    return state;
+  });
 }
 
 export function resolveHookRoute(input: {
@@ -235,33 +312,44 @@ export function resolveHookRoute(input: {
   const explicit = stringValue(input.wtree);
   if (explicit) {
     const path = statePath(input.repoRoot, explicit);
-    const state = path ? readState(path) : null;
-    if (!state || !validRouteWorkspace(input.repoRoot, state)) return null;
-    if (!state.thread_id) {
-      state.runtime = input.runtime;
-      state.thread_id = input.threadId;
-      state.updated_at = new Date().toISOString();
-      writeJson(path!, state);
-    } else if (
-      state.thread_id !== input.threadId ||
-      state.runtime !== input.runtime
-    ) {
-      if (!input.allowTransfer) return null;
-      state.runtime = input.runtime;
-      state.thread_id = input.threadId;
-      state.updated_at = new Date().toISOString();
-      writeJson(path!, state);
-    }
-    return state;
+    if (!path) return null;
+    return withHookStateLock(path, () => {
+      const state = readState(path);
+      if (!state || !validRouteWorkspace(input.repoRoot, state)) return null;
+      if (!state.thread_id) {
+        state.runtime = input.runtime;
+        state.thread_id = input.threadId;
+        state.updated_at = new Date().toISOString();
+        writeJson(path, state);
+      } else if (
+        state.thread_id !== input.threadId ||
+        state.runtime !== input.runtime
+      ) {
+        if (!input.allowTransfer) return null;
+        state.runtime = input.runtime;
+        state.thread_id = input.threadId;
+        state.updated_at = new Date().toISOString();
+        writeJson(path, state);
+      }
+      return state;
+    });
   }
 
   const worktreesRoot = resolve(input.repoRoot, "worktrees");
   if (!existsSync(worktreesRoot)) return null;
-  const matches = readdirSync(worktreesRoot, { withFileTypes: true })
+  const states = readdirSync(worktreesRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => statePath(input.repoRoot, entry.name))
     .filter((path): path is string => Boolean(path))
-    .map(readState)
+    .flatMap((path) => {
+      try {
+        const state = readState(path);
+        return state ? [state] : [];
+      } catch {
+        return [];
+      }
+    });
+  const matches = states
     .filter(
       (state): state is HookRouteState =>
         Boolean(
@@ -271,30 +359,80 @@ export function resolveHookRoute(input: {
             state.thread_id === input.threadId,
         ),
     );
-  return matches.length === 1 ? matches[0] : null;
+  if (matches.length === 1) return matches[0];
+  return null;
+}
+
+export function readHookRouteForWorkspace(input: {
+  repoRoot: string;
+  workspaceRoot: string;
+}): HookRouteState | null {
+  const wtree = workspaceWtree(input.repoRoot, input.workspaceRoot);
+  const path = wtree ? statePath(input.repoRoot, wtree) : null;
+  if (!path) return null;
+  return withHookStateLock(path, () => {
+    const state = readState(path);
+    return state && validRouteWorkspace(input.repoRoot, state) ? state : null;
+  });
 }
 
 export function updateHookRoute(
   route: HookRouteState,
   result: Record<string, unknown>,
+  expected: { sessionId: string; nonce?: string } = route.fastflow,
 ): void {
   const directPath = resolve(route.workspace_root, ".loopship", "runtime", "hook-state.json");
-  const current = (readJson(directPath) ?? {}) as Record<string, unknown>;
   const handle = fastflowResumeHandle(result, route.workspace_root);
-  if (handle) current.fastflow = handle;
-  else delete current.fastflow;
-  current.updated_at = new Date().toISOString();
-  writeJson(directPath, current);
+  if (!existsSync(directPath) && !handle) {
+    return;
+  }
+  withHookStateLock(directPath, () => {
+    const current = readStateDocument(directPath);
+    if (!current) {
+      throw hookStateError(
+        "loopship_hook_state_corrupt",
+        `active hook route disappeared before update at ${directPath}`,
+      );
+    }
+    assertNativeHookStateVersion(current, directPath);
+    const currentHandle = objectValue(current.fastflow);
+    if (
+      stringValue(currentHandle.sessionId) !== expected.sessionId ||
+      (expected.nonce !== undefined &&
+        stringValue(currentHandle.nonce) !== expected.nonce)
+    ) {
+      return;
+    }
+    if (handle) {
+      if (resolve(handle.workspaceRoot) !== resolve(route.workspace_root)) {
+        throw hookStateError(
+          "loopship_hook_state_corrupt",
+          `Fastflow resume workspace does not match hook route ${route.workspace_root}`,
+        );
+      }
+      handle.workspaceRoot = route.workspace_root;
+      current.fastflow = handle;
+    } else {
+      delete current.fastflow;
+    }
+    current.updated_at = new Date().toISOString();
+    writeJson(directPath, current);
+  });
 }
 
 export function updateHookRouteForWorkspace(input: {
   repoRoot: string;
   workspaceRoot: string;
   result: Record<string, unknown>;
+  expectedSessionId?: string;
+  expectedNonce?: string;
 }): void {
   const wtree = workspaceWtree(input.repoRoot, input.workspaceRoot);
   const path = wtree ? statePath(input.repoRoot, wtree) : null;
   const route = path ? readState(path) : null;
   if (!route || !validRouteWorkspace(input.repoRoot, route)) return;
-  updateHookRoute(route, input.result);
+  updateHookRoute(route, input.result, {
+    sessionId: input.expectedSessionId || route.fastflow.sessionId,
+    ...(input.expectedNonce ? { nonce: input.expectedNonce } : {}),
+  });
 }

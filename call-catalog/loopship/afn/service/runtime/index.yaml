@@ -1,0 +1,38 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+calls:
+  - call: loopship.afn.service.runtime.commit-quest-state
+    summary: "Commit workflow-data quest mutations to the canonical quest manifest."
+    inputs:
+      required:
+        - repo
+        - wtree
+      optional:
+        - request_id
+        - as_check
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - repo
+          - wtree
+        properties:
+          repo:
+            type: string
+            minLength: 1
+          wtree:
+            type: string
+            minLength: 1
+          request_id:
+            type: string
+          as_check:
+            type: boolean
+    preferWhen:
+      - "A Loopship flow has durably written canonical quest tasks and events."
+    avoidWhen:
+      - "The workflow has not changed canonical quest state."
+    metadata:
+      allowed_phases:
+        - action
+        - verification
+      effects:
+        - quest.manifest.write

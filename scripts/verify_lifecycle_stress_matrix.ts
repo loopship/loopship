@@ -472,137 +472,108 @@ function cleanupAfterArchive(fixture: Fixture, state: StressState): void {
   saveState(fixture, state);
 }
 
-async function executeFastflowSchedulerProbe(
+async function executeFastflowNativeProbe(
   id: string,
   items: Array<Record<string, unknown>>,
-  concurrency: number,
 ): Promise<Record<string, unknown>> {
   const fastflowRoot = resolveFastflowRoot();
-  const workflow = {
-    document: {
-      dsl: "1.0.3",
-      namespace: "loopship-stress",
-      name: id,
-      version: "1.0.0",
-    },
-    input: { schema: { format: "json", document: { type: "object", properties: { items: {} } } } },
-    output: {
-      schema: {
-        format: "json",
-        document: {
-          type: "object",
-          properties: {
-            result: {},
-          },
-          required: ["result"],
-        },
-      },
-      as: { result: "${state.steps.run_tasks.action}" },
-    },
-    do: [
-      {
-        run_tasks: {
-          for: { in: "${inputs.items}", each: "task", at: "position" },
-          do: [
-            {
-              capture: {
-                set: {
-                  id: "${state.vars.task.id}",
-                  index: "${state.vars.position}",
-                },
-                metadata: {
-                  description: "Capture scheduled stress task.",
-                  validation: staticValidation(),
-                  verification: stepVerification("capture"),
-                },
-              },
-            },
-          ],
-          metadata: {
-            description: "Run scheduled stress tasks.",
-            validation: staticValidation(),
-            verification: stepVerification("run_tasks"),
-            extensions: {
-              fastflow: {
-                schemaVersion: "fastflow.task/v1",
-                scheduler: {
-                  concurrency,
-                  id: "${state.vars.task.id}",
-                  depends_on: "${state.vars.task.dependencies || []}",
-                  complete: "all_success",
-                  fail: "block_descendants",
-                },
-              },
-            },
-          },
-        },
-      },
-    ],
-  };
   const tempDir = mkdtempSync(join(tmpdir(), "loopship-stress-fastflow-"));
-  const workflowPath = join(tempDir, "workflow.json");
   const inputsPath = join(tempDir, "inputs.json");
   const scriptPath = join(tempDir, "probe.mjs");
-  writeFileSync(workflowPath, JSON.stringify(workflow), "utf8");
   writeFileSync(inputsPath, JSON.stringify({ items }), "utf8");
   writeFileSync(
     scriptPath,
     `
       import { readFileSync } from "node:fs";
       import {
-        normalizeSwfWorkflow,
-        validateFastflowSwfSubset,
-        validateFastflowWorkflowSchema,
-      } from ${JSON.stringify(pathToFileURL(join(fastflowRoot, "src", "workflow.mjs")).href)};
-      import { markWorkflowRecordValidated } from ${JSON.stringify(pathToFileURL(join(fastflowRoot, "src", "lib", "workflows.mjs")).href)};
-      import { executeWorkflow } from ${JSON.stringify(pathToFileURL(join(fastflowRoot, "src", "lib", "engine.mjs")).href)};
+        completedDecision,
+        createAfnDispatchPort,
+        createEmbeddedSchedulerProfile,
+        createMemoryExecutionStore,
+        createNativeSchedulerBackend,
+        digestCallContract,
+        digestNativeContract,
+        failedDecision,
+        pinPlan,
+      } from ${JSON.stringify(pathToFileURL(join(fastflowRoot, "src", "native-scheduler.mjs")).href)};
 
-      const workflow = JSON.parse(readFileSync(process.argv[2], "utf8"));
-      const inputs = JSON.parse(readFileSync(process.argv[3], "utf8"));
-      const seed = { filePath: ${JSON.stringify(`${id}.yaml`)}, store: "project", workflow };
-      const errors = [];
-      validateFastflowWorkflowSchema(workflow, errors);
-      validateFastflowSwfSubset(workflow, seed, errors);
-      if (errors.length) throw new Error(errors.join("; "));
-      const normalizeErrors = [];
-      const normalized = normalizeSwfWorkflow(workflow, seed, normalizeErrors);
-      if (normalizeErrors.length || !normalized) throw new Error(normalizeErrors.join("; "));
-      const record = markWorkflowRecordValidated({
-        ...seed,
-        rawWorkflow: workflow,
-        reference: ${JSON.stringify(`loopship-stress.${id}`)},
-        workflow_call_id: ${JSON.stringify(`loopship.workflow.service.stress.${id}`)},
-        summary: {
-          id: ${JSON.stringify(`loopship.workflow.service.stress.${id}`)},
-          name: normalized.name,
-          namespace: normalized.namespace,
-          version: normalized.version,
-          dsl: normalized.dsl,
-          filePath: seed.filePath,
-          store: seed.store,
-          reference: ${JSON.stringify(`loopship-stress.${id}`)},
-          digest: "sha256:stress",
-          target: normalized.target,
-        },
-        workflow: normalized,
+      const { items } = JSON.parse(readFileSync(process.argv[2], "utf8"));
+      const callId = "loopship.afn.service.stress.capture";
+      const contractDigest = digestCallContract({
+        call: callId,
+        inputs: { required: ["id"], optional: ["dependencies"] },
       });
-      const result = await executeWorkflow(
-        {
-          target: normalized.target,
-          currentMode: "headed",
-          preferredMode: "headed",
-          async close() {},
-        },
-        record,
-        inputs,
-        { workspaceRoot: ${JSON.stringify(tempDir)} },
+      const implementationDigest = digestNativeContract({
+        implementation: "loopship.lifecycle-stress.capture/v1",
+      });
+      const call = { callId, contractDigest, implementationDigest };
+      const dependencyById = new Map(
+        items.map((item) => [String(item.id), Array.isArray(item.dependencies) ? item.dependencies : []]),
       );
-      console.log(JSON.stringify(result.state.steps.run_tasks.action));
+      const completed = new Set();
+      const dispatchOrder = [];
+      const dispatchPort = createAfnDispatchPort({
+        routes: [{
+          ...call,
+          routeId: "loopship:stress:capture",
+          async handler(invocation) {
+            const missing = (dependencyById.get(invocation.nodeId) || [])
+              .filter((dependency) => !completed.has(dependency));
+            dispatchOrder.push(invocation.nodeId);
+            if (missing.length) {
+              return failedDecision({
+                invocationId: invocation.invocationId,
+                error: {
+                  code: "loopship-stress-dependency-violation",
+                  message: "dispatched before dependencies: " + missing.join(","),
+                  retryable: false,
+                },
+              });
+            }
+            completed.add(invocation.nodeId);
+            return completedDecision({
+              invocationId: invocation.invocationId,
+              output: { id: invocation.nodeId },
+            });
+          },
+        }],
+      });
+      const plan = pinPlan({
+        planId: ${JSON.stringify(`loopship-stress-${id}`)},
+        source: {
+          kind: "workflow",
+          ref: ${JSON.stringify(`loopship.workflow.service.stress.${id}`)},
+          digest: digestNativeContract({ id: ${JSON.stringify(id)}, items }),
+        },
+        nodes: items.map((item) => ({
+          nodeId: String(item.id),
+          dependencies: Array.isArray(item.dependencies) ? item.dependencies.map(String) : [],
+          call,
+          input: item,
+        })),
+      });
+      const backend = createNativeSchedulerBackend({
+        store: createMemoryExecutionStore(),
+        dispatchPort,
+        profile: createEmbeddedSchedulerProfile({ mode: "test" }),
+      });
+      const handle = await backend.submit({
+        executionId: ${JSON.stringify(`loopship-stress-${id}`)},
+        idempotencyKey: ${JSON.stringify(`loopship-stress-${id}`)},
+        plan,
+      });
+      console.log(JSON.stringify({
+        ok: handle.status === "completed",
+        count: handle.nodes.length,
+        passed: handle.nodes.filter((node) => node.status === "passed").length,
+        dispatch_order: dispatchOrder,
+        plan_digest: plan.planDigest,
+      }));
     `,
     "utf8",
   );
   try {
-    const result = runCommand("node", [scriptPath, workflowPath, inputsPath], {
+    const result = runCommand("node", [scriptPath, inputsPath], {
       cwd: PACKAGE_ROOT,
       timeoutMs: 60_000,
     });
@@ -611,38 +582,6 @@ async function executeFastflowSchedulerProbe(
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
-}
-
-function staticValidation(): Record<string, unknown> {
-  return {
-    post: {
-      kind: "static",
-      ok: true,
-    },
-  };
-}
-
-function stepVerification(id: string): Record<string, unknown> {
-  return {
-    assertions: [
-      {
-        id: `${id}_completed`,
-        kind: "behaviour",
-        statement: "The stress probe step completed and recorded action output.",
-        check: {
-          script: {
-            kind: "js",
-            code: [
-              "return {",
-              "  ok: action != null,",
-              "  evidence: { has_action: action != null }",
-              "};",
-            ].join("\n") + "\n",
-          },
-        },
-      },
-    ],
-  };
 }
 
 function resolveFastflowRoot(): string {
@@ -654,7 +593,7 @@ function resolveFastflowRoot(): string {
     existsSync(join(candidate, "src", "index.mjs")) &&
     existsSync(join(candidate, "schemas", "fastflow.workflow.ext.yaml")),
   );
-  assert(found, "could not resolve Fastflow root with scheduler extension");
+  assert(found, "could not resolve the Native v1 Fastflow root");
   return found;
 }
 
@@ -670,10 +609,9 @@ async function scenarioParallelClean(): Promise<void> {
   const fixture = createFixture("parallel-20-clean");
   try {
     const state = createTasks(fixture, 20);
-    const scheduler = await executeFastflowSchedulerProbe(
+    const scheduler = await executeFastflowNativeProbe(
       "parallel-20-clean",
       state.tasks.map((task) => ({ id: task.id, dependencies: [] })),
-      5,
     );
     assert(scheduler.ok === true && scheduler.count === 20 && scheduler.passed === 20, "Fastflow scheduler did not pass 20 clean nodes");
     for (const task of state.tasks) {
@@ -728,10 +666,9 @@ async function scenarioDagUnblock(): Promise<void> {
   const fixture = createFixture("dag-unblock");
   try {
     const state = createTasks(fixture, 3, [[], ["t01"], ["t02"]]);
-    const scheduler = await executeFastflowSchedulerProbe(
+    const scheduler = await executeFastflowNativeProbe(
       "dag-unblock",
       state.tasks.map((task) => ({ id: task.id, dependencies: task.dependencies })),
-      2,
     );
     assert(scheduler.ok === true && scheduler.passed === 3, "Fastflow scheduler did not pass DAG");
     const observedReady: string[][] = [];
@@ -923,10 +860,9 @@ async function scenarioParallel100Clean(): Promise<void> {
   const fixture = createFixture("parallel-100-clean");
   try {
     const state = createTasks(fixture, 100);
-    const scheduler = await executeFastflowSchedulerProbe(
+    const scheduler = await executeFastflowNativeProbe(
       "parallel-100-clean",
       state.tasks.map((task) => ({ id: task.id, dependencies: [] })),
-      20,
     );
     assert(scheduler.ok === true && scheduler.count === 100 && scheduler.passed === 100, "Fastflow scheduler did not pass 100 clean nodes");
     for (const task of state.tasks) {
@@ -950,10 +886,9 @@ async function scenarioDagDepth20(): Promise<void> {
       index === 0 ? [] : [`t${String(index).padStart(2, "0")}`],
     );
     const state = createTasks(fixture, 20, dependencies);
-    const scheduler = await executeFastflowSchedulerProbe(
+    const scheduler = await executeFastflowNativeProbe(
       "dag-depth-20",
       state.tasks.map((task) => ({ id: task.id, dependencies: task.dependencies })),
-      5,
     );
     assert(scheduler.ok === true && scheduler.passed === 20, "Fastflow scheduler did not pass depth-20 DAG");
     const readyWidths: number[] = [];
@@ -983,10 +918,9 @@ async function scenarioWideAndDeepMixedDag(): Promise<void> {
       return ["t21", "t22", "t23", "t24", "t25", "t26", "t27", "t28", "t29", "t30"];
     });
     const state = createTasks(fixture, 40, dependencies);
-    const scheduler = await executeFastflowSchedulerProbe(
+    const scheduler = await executeFastflowNativeProbe(
       "wide-and-deep-mixed-dag",
       state.tasks.map((task) => ({ id: task.id, dependencies: task.dependencies })),
-      10,
     );
     assert(scheduler.ok === true && scheduler.passed === 40, "Fastflow scheduler did not pass mixed DAG");
     const observedWidths: number[] = [];
@@ -1011,12 +945,11 @@ async function scenarioLockContentionManyReady(): Promise<void> {
   const fixture = createFixture("lock-contention-many-ready");
   try {
     const state = createTasks(fixture, 50);
-    const scheduler = await executeFastflowSchedulerProbe(
+    const scheduler = await executeFastflowNativeProbe(
       "lock-contention-many-ready",
-      state.tasks.map((task) => ({ id: task.id, dependencies: [], concurrency_group: "shared-lock" })),
-      25,
+      state.tasks.map((task) => ({ id: task.id, dependencies: [] })),
     );
-    assert(scheduler.ok === true && scheduler.passed === 50, "Fastflow scheduler did not pass lock-contention inputs");
+    assert(scheduler.ok === true && scheduler.passed === 50, "Fastflow Native plan did not pass 50 ready nodes");
     const serializedOrder: string[] = [];
     while (state.tasks.some((task) => task.status !== "landed")) {
       const [task] = readyTasks(state);
@@ -1152,8 +1085,8 @@ const SCENARIOS: Array<{
   },
   {
     id: "lock-contention-many-ready",
-    proves: "many ready tasks can be deterministically sequenced when a shared lock prevents actual parallel landing",
-    checks: "50 ready tasks, shared lock serialization order, landing/archive evidence",
+    proves: "many Native-ready tasks can feed deterministic consumer-owned landing serialization",
+    checks: "50-node PinnedPlan, consumer merge serialization order, landing/archive evidence",
     run: scenarioLockContentionManyReady,
   },
   {

@@ -27,7 +27,7 @@ function selectedMatrix(): MatrixScenario[] {
 
 if (process.env.LOOPSHIP_EXECUTE_LIFECYCLE_MATRIX === "1") {
   const scenarios = selectedMatrix();
-  const results = runLifecycleMatrix(scenarios);
+  const results = await runLifecycleMatrix(scenarios);
   const summary = summarizeLifecycleMatrix(results);
 
   process.stdout.write(lifecycleMatrixMarkdown(results));

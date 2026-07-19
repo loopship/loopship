@@ -1,9 +1,20 @@
 #!/usr/bin/env bun
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { openExclusiveSqliteTransaction } from "./loopship_sqlite.ts";
 
 export type Runtime = "codex" | "gemini" | "copilot";
 
@@ -43,8 +54,7 @@ export function readText(path: string): string {
 }
 
 export function writeText(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, text, "utf8");
+  writeFileAtomically(path, text);
 }
 
 export function readJson(path: string): Record<string, unknown> | null {
@@ -60,22 +70,91 @@ export function readJson(path: string): Record<string, unknown> | null {
 }
 
 export function writeJson(path: string, value: unknown): void {
-  writeText(path, `${JSON.stringify(value, null, 2)}\n`);
+  writeFileAtomically(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+export function writeJsonExclusively(path: string, value: unknown): boolean {
+  mkdirSync(dirname(path), { recursive: true });
+  const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(value)}\n`, {
+      encoding: "utf8",
+      mode: newFileMode(path),
+    });
+    if (isRuntimeStatePath(path)) chmodSync(tempPath, 0o600);
+    try {
+      linkSync(tempPath, path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+  } finally {
+    rmSync(tempPath, { force: true });
+  }
+}
+
+function writeFileAtomically(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const original = inspectAtomicTarget(path);
+  const mode = original ? Number(original.mode) & 0o777 : newFileMode(path);
+  const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tempPath, content, { encoding: "utf8", mode });
+    if (original || isRuntimeStatePath(path)) chmodSync(tempPath, mode);
+    assertAtomicTargetUnchanged(path, original);
+    renameSync(tempPath, path);
+  } finally {
+    rmSync(tempPath, { force: true });
+  }
+}
+
+function inspectAtomicTarget(path: string): ReturnType<typeof lstatSync> | null {
+  let state: ReturnType<typeof lstatSync>;
+  try {
+    state = lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  if (state.isSymbolicLink()) {
+    throw new Error(`refusing to replace symbolic-link target: ${path}`);
+  }
+  if (!state.isFile()) {
+    throw new Error(`atomic write target must be a regular file: ${path}`);
+  }
+  return state;
+}
+
+function assertAtomicTargetUnchanged(
+  path: string,
+  original: ReturnType<typeof lstatSync> | null,
+): void {
+  const current = inspectAtomicTarget(path);
+  if (!original) {
+    if (current) throw new Error(`atomic write target appeared concurrently: ${path}`);
+    return;
+  }
+  if (!current || current.dev !== original.dev || current.ino !== original.ino) {
+    throw new Error(`atomic write target changed concurrently: ${path}`);
+  }
+}
+
+function isRuntimeStatePath(path: string): boolean {
+  return /(?:^|[\\/])\.loopship[\\/]runtime(?:[\\/]|$)/u.test(path);
+}
+
+function newFileMode(path: string): number {
+  return isRuntimeStatePath(path) ? 0o600 : 0o666;
+}
+
+export function acquireCrashSafeFileLock(path: string, timeoutMs: number): () => void {
+  mkdirSync(dirname(path), { recursive: true });
+  return openExclusiveSqliteTransaction(path, timeoutMs);
 }
 
 export function hashText(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function nodeSupportsTs(): boolean {
-  const version = runCommand(
-    "node",
-    ["-e", "process.stdout.write(process.versions.node)"],
-    { timeoutMs: 5_000 },
-  );
-  if (version.status !== 0) return false;
-  const major = Number(version.stdout.trim().split(".")[0]);
-  return Number.isFinite(major) && major >= 26;
 }
 
 export function tsRunner(
@@ -85,16 +164,12 @@ export function tsRunner(
   if (commandExists("bun")) {
     return { cmd: "bun", args: ["--no-install", script, ...args] };
   }
-  if (nodeSupportsTs()) return { cmd: "node", args: [script, ...args] };
-  if (commandExists("npx"))
-    return { cmd: "npx", args: ["-y", "tsx", script, ...args] };
-  throw new Error("bun, node, and npx tsx are unavailable");
+  throw new Error("Loopship application runtime requires Bun");
 }
 
 export function tsShellCommand(script: string, args: string[] = []): string {
   const parts = [shellQuote(script), ...args.map(shellQuote)].join(" ");
-  const nodeGate = `node -e "const major=Number(process.versions.node.split('.')[0]); process.exit(major >= 26 ? 0 : 1)" >/dev/null 2>&1`;
-  return `if command -v bun >/dev/null 2>&1; then exec bun --no-install ${parts}; elif command -v node >/dev/null 2>&1 && ${nodeGate}; then exec node ${parts}; elif command -v npx >/dev/null 2>&1; then exec npx -y tsx ${parts}; else echo "bun, node, and npx tsx are unavailable" >&2; exit 127; fi`;
+  return `if command -v bun >/dev/null 2>&1; then exec bun --no-install ${parts}; else echo "Loopship application runtime requires Bun" >&2; exit 127; fi`;
 }
 
 export function readStdinText(): string {

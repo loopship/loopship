@@ -11,6 +11,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTasksYaml } from "./loopship_core.ts";
+import {
+  startLoopshipTestScheduler,
+  type LoopshipTestScheduler,
+} from "./loopship_fastflow_test_scheduler.ts";
 import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
@@ -114,7 +118,10 @@ function gitWorktrees(repo: string, env: Record<string, string>): string[] {
     .map((line) => resolve(line.slice("worktree ".length).trim()));
 }
 
-function latestQuestState(fixture: MatrixFixture, wtree: string): any {
+function latestQuestState(
+  fixture: MatrixFixture,
+  wtree: string,
+): ReturnType<typeof parseTasksYaml> {
   return parseTasksYaml(
     readFileSync(
       join(fixture.repo, "worktrees", wtree, ".loopship", "runtime", "tasks.yaml"),
@@ -176,6 +183,20 @@ function runInitCommand(
   return parseJson(init.stdout);
 }
 
+function runResumeCommand(
+  fixture: MatrixFixture,
+  wtree: string,
+): Record<string, unknown> {
+  const resumed = runLoopship(
+    fixture.repo,
+    ["resume", "--repo", fixture.repo, "--wtree", wtree],
+    undefined,
+    fixture.env,
+  );
+  expect(resumed.status, resumed.stderr || resumed.stdout).toBe(0);
+  return parseJson(resumed.stdout);
+}
+
 function nativeWorkflowOutput(value: Record<string, unknown>): Record<string, unknown> | null {
   if (
     value.schemaVersion !== "fastflow/workflow-run-artifact/v1" ||
@@ -192,12 +213,14 @@ function nativePauseToken(value: Record<string, unknown>): Record<string, unknow
   const nextCall = isRecord(value.nextCall) ? value.nextCall : {};
   const args = isRecord(nextCall.args) ? nextCall.args : {};
   const sessionId = String(args.sessionId ?? "").trim();
+  const nonce = String(args.nonce ?? "").trim();
   expect(sessionId).toBeTruthy();
+  expect(nonce).toBeTruthy();
   const context = isRecord(value.context) ? value.context : {};
   const request = isRecord(context.request) ? context.request : {};
   return {
     sessionId,
-    nonce: String(args.nonce ?? "").trim(),
+    nonce,
     workspaceRoot: String(args.workspaceRoot ?? "").trim(),
     kind: String(value.kind ?? ""),
     wtree: String(request.wtree ?? request.quest_id ?? "").trim(),
@@ -212,13 +235,13 @@ function resumeNativePause(
 ): Record<string, unknown> {
   const payload = {
     sessionId: String(pause.sessionId),
-    ...(String(pause.nonce ?? "").trim() ? { nonce: String(pause.nonce) } : {}),
+    nonce: String(pause.nonce),
     ...(String(pause.workspaceRoot ?? "").trim()
       ? { workspaceRoot: String(pause.workspaceRoot) }
       : {}),
-    ...(pause.kind === "supervisor_review"
-      ? { supervisorDecision: "ok" }
-      : { decision }),
+    response: pause.kind === "supervisor_review"
+      ? { decision: "ok" }
+      : { answer: decision },
   };
   const proc = runLoopship(
     fixture.repo,
@@ -238,37 +261,85 @@ function resumeNativePause(
   return parseJson(proc.stdout);
 }
 
-function completeNativeStartedStage(input: {
-  fixture: MatrixFixture;
-  started: Record<string, unknown>;
-  decision?: Record<string, unknown>;
-}): { output: Record<string, unknown>; wtree: string } {
-  const directOutput = nativeWorkflowOutput(input.started);
-  if (directOutput) return { output: directOutput, wtree: "" };
-
-  const pause = nativePauseToken(input.started);
-  expect(pause, JSON.stringify(input.started)).not.toBeNull();
-  if (!input.decision && pause?.kind !== "supervisor_review") {
-    throw new Error(`native lifecycle pause requires a decision: ${JSON.stringify(input.started)}`);
+function settleSupervisorPauses(
+  fixture: MatrixFixture,
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  let current = value;
+  while (nativePauseToken(current)?.kind === "supervisor_review") {
+    current = resumeNativePause(fixture, nativePauseToken(current)!, {});
   }
-  const resumed = resumeNativePause(input.fixture, pause!, input.decision ?? {});
-  const output = nativeWorkflowOutput(resumed);
-  expect(output, JSON.stringify(resumed)).not.toBeNull();
-  return { output: output!, wtree: String(pause!.wtree ?? "") };
+  return current;
 }
 
-function runNativeStage(input: {
-  fixture: MatrixFixture;
-  prompt: string;
-  wtree: string;
-  decision?: Record<string, unknown>;
-}): Record<string, unknown> {
-  const started = runInitCommand(input.fixture, input.prompt, input.wtree);
-  return completeNativeStartedStage({
-    fixture: input.fixture,
-    started,
-    decision: input.decision,
-  }).output;
+function resumeNativeDecision(
+  fixture: MatrixFixture,
+  value: Record<string, unknown>,
+  decision: Record<string, unknown>,
+): Record<string, unknown> {
+  const current = settleSupervisorPauses(fixture, value);
+  const pause = nativePauseToken(current);
+  expect(pause, JSON.stringify(current)).not.toBeNull();
+  const answerSchema = isRecord(pause!.answerSchema) ? pause!.answerSchema : {};
+  const required = Array.isArray(answerSchema.required)
+    ? answerSchema.required.map(String)
+    : [];
+  for (const field of required) {
+    expect(
+      Object.prototype.hasOwnProperty.call(decision, field),
+      `decision ${JSON.stringify(decision)} does not match ${JSON.stringify(answerSchema)}`,
+    ).toBe(true);
+  }
+  if (answerSchema.additionalProperties === false && isRecord(answerSchema.properties)) {
+    for (const field of Object.keys(decision)) {
+      expect(
+        Object.prototype.hasOwnProperty.call(answerSchema.properties, field),
+        `decision ${JSON.stringify(decision)} does not match ${JSON.stringify(answerSchema)}`,
+      ).toBe(true);
+    }
+  }
+  return settleSupervisorPauses(
+    fixture,
+    resumeNativePause(fixture, pause!, decision),
+  );
+}
+
+type NativeHandoffEvidence = {
+  stage: string;
+  executionId: string;
+  requiredAnswerFields: string[];
+};
+
+function expectNativeHandoffAtStage(
+  value: Record<string, unknown>,
+  stage: string,
+  evidence: NativeHandoffEvidence[],
+): Record<string, unknown> {
+  const pause = nativePauseToken(value);
+  expect(pause, JSON.stringify(value)).not.toBeNull();
+  expect(pause!.kind, JSON.stringify(value)).toBe("handoff_answer");
+  const context = isRecord(value.context) ? value.context : {};
+  const request = isRecord(context.request) ? context.request : {};
+  expect(request.current_stage, JSON.stringify(value)).toBe(stage);
+  const answerSchema = isRecord(pause!.answerSchema) ? pause!.answerSchema : {};
+  evidence.push({
+    stage,
+    executionId: String(pause!.sessionId),
+    requiredAnswerFields: Array.isArray(answerSchema.required)
+      ? answerSchema.required.map(String)
+      : [],
+  });
+  return pause!;
+}
+
+function expectCanonicalStage(
+  fixture: MatrixFixture,
+  wtree: string,
+  stage: string,
+) {
+  const state = latestQuestState(fixture, wtree);
+  expect(state.stage).toBe(stage);
+  return state;
 }
 
 function nestedNativeStepOutput(stageResult: Record<string, unknown>): Record<string, unknown> {
@@ -283,62 +354,74 @@ function driveScenario(
   fixture: MatrixFixture,
   scenario: MatrixScenario,
 ): MatrixScenarioResult {
-  const initial = runInitCommand(fixture, scenario.prompt);
-  const firstPlan = completeNativeStartedStage({
+  const handoffEvidence: NativeHandoffEvidence[] = [];
+  let current = settleSupervisorPauses(
     fixture,
-    started: initial,
-    decision: scenarioPlanPayload(
-      scenario,
-      scenario.questions?.length ? "questions" : "task_graph",
-    ),
-  });
-  let wtree = firstPlan.wtree;
+    runInitCommand(fixture, scenario.prompt),
+  );
+  let pause = expectNativeHandoffAtStage(current, "planning", handoffEvidence);
+  const wtree = String(pause.wtree ?? "");
   expect(wtree).toBeTruthy();
-  expect(firstPlan.output.step).toBe("plan");
+  let executionId = String(pause.sessionId);
 
   let questionRoundUsed = false;
   if (scenario.questions?.length) {
-    expect(firstPlan.output.stage_after).toBe("awaiting_user_answers");
+    current = resumeNativeDecision(
+      fixture,
+      current,
+      scenarioPlanPayload(scenario, "questions"),
+    );
+    const firstPlan = nativeWorkflowOutput(current);
+    expect(firstPlan, JSON.stringify(current)).not.toBeNull();
+    expect(firstPlan!.step).toBe("plan");
+    expect(firstPlan!.stage_after).toBe("awaiting_user_answers");
+    expectCanonicalStage(fixture, wtree, "awaiting_user_answers");
     questionRoundUsed = true;
 
-    const answered = runNativeStage({
-      fixture,
-      prompt: scenario.prompt,
-      wtree,
-      decision: { answers: scenario.preplanAnswers ?? [] },
-    });
-    expect(answered.step).toBe("questions");
-    expect(answered.stage_after).toBe("planning");
+    current = settleSupervisorPauses(fixture, runResumeCommand(fixture, wtree));
+    pause = expectNativeHandoffAtStage(
+      current,
+      "awaiting_user_answers",
+      handoffEvidence,
+    );
+    expect(String(pause.sessionId)).not.toBe(executionId);
+    executionId = String(pause.sessionId);
 
-    const planned = runNativeStage({
-      fixture,
-      prompt: scenario.prompt,
-      wtree,
-      decision: scenarioPlanPayload(scenario, "task_graph"),
+    current = resumeNativeDecision(fixture, current, {
+      answers: scenario.preplanAnswers ?? [],
     });
-    expect(planned.step).toBe("plan");
-    expect(planned.stage_after).toBe("plan_review");
+    pause = expectNativeHandoffAtStage(current, "planning", handoffEvidence);
+    expect(String(pause.sessionId)).toBe(executionId);
+    expectCanonicalStage(fixture, wtree, "planning");
+
+    current = resumeNativeDecision(
+      fixture,
+      current,
+      scenarioPlanPayload(scenario, "task_graph"),
+    );
+    pause = expectNativeHandoffAtStage(current, "plan_review", handoffEvidence);
+    expect(String(pause.sessionId)).toBe(executionId);
+    expectCanonicalStage(fixture, wtree, "plan_review");
   } else {
-    expect(firstPlan.output.stage_after).toBe("plan_review");
+    current = resumeNativeDecision(
+      fixture,
+      current,
+      scenarioPlanPayload(scenario, "task_graph"),
+    );
+    pause = expectNativeHandoffAtStage(current, "plan_review", handoffEvidence);
+    expect(String(pause.sessionId)).toBe(executionId);
+    expectCanonicalStage(fixture, wtree, "plan_review");
   }
 
-  const approved = runNativeStage({
-    fixture,
-    prompt: scenario.prompt,
-    wtree,
-    decision: { approved: true },
-  });
-  expect(approved.step).toBe("task_graph");
-  expect(approved.stage_after).toBe("task_graph_ready");
-
-  const executing = runNativeStage({
-    fixture,
-    prompt: scenario.prompt,
-    wtree,
-  });
-  expect(executing.step).toBe("executing");
-  expect(executing.stage_after).toBe("executing");
-  const childDispatch = nestedNativeStepOutput(executing);
+  current = resumeNativeDecision(fixture, current, { approved: true });
+  const executing = nativeWorkflowOutput(current);
+  expect(executing, JSON.stringify(current)).not.toBeNull();
+  expectCanonicalStage(fixture, wtree, "executing");
+  const dispatchExecutionId = executionId;
+  const executingOutput = executing!;
+  expect(executingOutput.step).toBe("executing");
+  expect(executingOutput.stage_after).toBe("executing");
+  const childDispatch = nestedNativeStepOutput(executingOutput);
   expect(childDispatch.schema_version).toBe("loopship.child.prepare/v1");
   const children = Array.isArray(childDispatch.children)
     ? (childDispatch.children as Record<string, unknown>[])
@@ -375,77 +458,97 @@ function driveScenario(
     expect(worktrees).toContain(resolve(String(child.worktree_path)));
   }
 
+  current = settleSupervisorPauses(fixture, runResumeCommand(fixture, wtree));
+  pause = expectNativeHandoffAtStage(current, "executing", handoffEvidence);
+  expect(String(pause.sessionId)).not.toBe(dispatchExecutionId);
+  executionId = String(pause.sessionId);
+
   children.forEach((child, index) => {
-    const childResult = runNativeStage({
+    current = resumeNativeDecision(
       fixture,
-      prompt: scenario.prompt,
-      wtree,
-      decision: childResultPayload(
+      current,
+      childResultPayload(
         String(child.task_id),
         String(child.child_wtree),
         String(child.worktree_path),
       ),
-    });
-    expect(childResult.step).toBe("child_result");
-    expect(childResult.stage_after).toBe(
-      index === children.length - 1 ? "validating" : "executing",
     );
+    const nextStage = index === children.length - 1 ? "validating" : "executing";
+    pause = expectNativeHandoffAtStage(current, nextStage, handoffEvidence);
+    expect(String(pause.sessionId)).toBe(executionId);
+    expectCanonicalStage(fixture, wtree, nextStage);
   });
 
-  const validated = runNativeStage({
-    fixture,
-    prompt: scenario.prompt,
-    wtree,
-    decision: {
+  current = resumeNativeDecision(fixture, current, {
+    status: "passed",
+    checks: [{ name: `${scenario.id}-smoke`, status: "passed" }],
+  });
+  pause = expectNativeHandoffAtStage(
+    current,
+    "verification_pending",
+    handoffEvidence,
+  );
+  expect(String(pause.sessionId)).toBe(executionId);
+  expectCanonicalStage(fixture, wtree, "verification_pending");
+
+  current = resumeNativeDecision(fixture, current, {
+    status: "passed",
+    acceptance_trace: scenario.tasks.map((task) => ({
+      acceptance: String((task.acceptance as string[])[0] ?? task.title ?? "done"),
       status: "passed",
-      checks: [{ name: `${scenario.id}-smoke`, status: "passed" }],
-    },
+    })),
+    risks: [],
   });
-  expect(validated.step).toBe("validation");
-  expect(validated.stage_after).toBe("verification_pending");
+  pause = expectNativeHandoffAtStage(
+    current,
+    "system_update_pending",
+    handoffEvidence,
+  );
+  expect(String(pause.sessionId)).toBe(executionId);
+  expectCanonicalStage(fixture, wtree, "system_update_pending");
 
-  const verified = runNativeStage({
-    fixture,
-    prompt: scenario.prompt,
-    wtree,
-    decision: {
-      status: "passed",
-      acceptance_trace: scenario.tasks.map((task) => ({
-        acceptance: String((task.acceptance as string[])[0] ?? task.title ?? "done"),
-        status: "passed",
-      })),
-      risks: [],
+  current = resumeNativeDecision(fixture, current, {
+    system_update: {
+      schema_version: 1,
+      mode: "no_change",
+      summary: `${scenario.id} covered`,
     },
   });
-  expect(verified.step).toBe("verification");
-  expect(verified.stage_after).toBe("system_update_pending");
+  const landed = nativeWorkflowOutput(current);
+  expect(landed, JSON.stringify(current)).not.toBeNull();
+  expect(landed!.step).toBe("landing");
+  expect(landed!.stage_after).toBe("archived");
 
-  const updated = runNativeStage({
-    fixture,
-    prompt: scenario.prompt,
-    wtree,
-    decision: {
-      system_update: {
-        schema_version: 1,
-        mode: "no_change",
-        summary: `${scenario.id} covered`,
-      },
-    },
-  });
-  expect(updated.step).toBe("system_update");
-  expect(updated.stage_after).toBe("landing_ready");
-
-  const landed = runNativeStage({
-    fixture,
-    prompt: scenario.prompt,
-    wtree,
-    decision: {
-      status: "landed",
-      summary: `${scenario.id} complete`,
-    },
-  });
-  expect(landed.step).toBe("landing");
-  expect(landed.stage_after).toBe("archived");
+  const expectedHandoffStages = scenario.questions?.length
+    ? [
+        "planning",
+        "awaiting_user_answers",
+        "planning",
+        "plan_review",
+        "executing",
+        ...children.map((_, index) =>
+          index === children.length - 1 ? "validating" : "executing"
+        ),
+        "verification_pending",
+        "system_update_pending",
+      ]
+    : [
+        "planning",
+        "plan_review",
+        "executing",
+        ...children.map((_, index) =>
+          index === children.length - 1 ? "validating" : "executing"
+        ),
+        "verification_pending",
+        "system_update_pending",
+      ];
+  expect(handoffEvidence.map((entry) => entry.stage)).toEqual(expectedHandoffStages);
+  expect(new Set(handoffEvidence.map((entry) => entry.executionId)).size).toBe(
+    scenario.questions?.length ? 3 : 2,
+  );
+  expect(handoffEvidence.every((entry) => entry.requiredAnswerFields.length > 0)).toBe(
+    true,
+  );
 
   const finalStatePath = join(
     fixture.repo,
@@ -455,9 +558,9 @@ function driveScenario(
     "runtime",
     "tasks.yaml",
   );
-  const landedRuntime = isRecord(landed.runtime) ? landed.runtime : {};
+  const landedRuntime = isRecord(landed!.runtime) ? landed!.runtime : {};
   const landedRuntimeTasks = isRecord(landedRuntime.tasks) ? landedRuntime.tasks : {};
-  const landedStatePatch = isRecord(landed.state_patch) ? landed.state_patch : {};
+  const landedStatePatch = isRecord(landed!.state_patch) ? landed!.state_patch : {};
   const finalState = existsSync(finalStatePath)
     ? latestQuestState(fixture, wtree)
     : { ...landedRuntimeTasks, ...landedStatePatch };
@@ -650,21 +753,32 @@ export const LIFECYCLE_MATRIX: MatrixScenario[] = [
   },
 ];
 
-export function runLifecycleScenario(
+export async function runLifecycleScenario(
   scenario: MatrixScenario,
-): MatrixScenarioResult {
+): Promise<MatrixScenarioResult> {
   const fixture = createFixture(`loopship-matrix-${scenario.id}-`);
+  let scheduler: LoopshipTestScheduler | null = null;
   try {
+    scheduler = await startLoopshipTestScheduler({
+      dbPath: join(fixture.root, "scheduler", "native-v1.sqlite"),
+      home: fixture.env.HOME!,
+    });
+    Object.assign(fixture.env, scheduler.env);
     return driveScenario(fixture, scenario);
   } finally {
+    await scheduler?.stop();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 }
 
-export function runLifecycleMatrix(
+export async function runLifecycleMatrix(
   scenarios: MatrixScenario[] = LIFECYCLE_MATRIX,
-): MatrixScenarioResult[] {
-  return scenarios.map((scenario) => runLifecycleScenario(scenario));
+): Promise<MatrixScenarioResult[]> {
+  const results: MatrixScenarioResult[] = [];
+  for (const scenario of scenarios) {
+    results.push(await runLifecycleScenario(scenario));
+  }
+  return results;
 }
 
 export function summarizeLifecycleMatrix(results: MatrixScenarioResult[]): {

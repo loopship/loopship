@@ -2068,7 +2068,7 @@ export function applyLandingReceipt(
   return nextState;
 }
 
-export function createQuest(input: {
+export type CreateQuestInput = {
   repoRoot: string;
   wtree: string;
   prompt: string;
@@ -2085,7 +2085,9 @@ export function createQuest(input: {
   landingTargetWorktree?: string;
   landedCommit?: string;
   landingStrategy?: string;
-}): { files: QuestFiles; state: QuestState } {
+};
+
+export function createQuestInitialState(input: CreateQuestInput): QuestState {
   const workspacePath = assertRepoWorktreePath(input.repoRoot, input.workspace.worktree_path);
   const expectedWorkspacePath = coordinatorWorktreePath(input.repoRoot, input.wtree);
   if (workspacePath !== expectedWorkspacePath) {
@@ -2102,11 +2104,7 @@ export function createQuest(input: {
     "landing target branch",
   );
   if (input.parentWtree) assertCanonicalWtreeName(input.parentWtree, "parent_wtree");
-  const files = questFiles(input.repoRoot, input.wtree);
-  if (existsSync(files.tasks)) {
-    throw new Error(`quest wtree already exists: ${input.wtree}`);
-  }
-  const state: QuestState = {
+  return {
     schema_version: 4,
     wtree: input.wtree,
     quest_id: input.wtree,
@@ -2136,6 +2134,14 @@ export function createQuest(input: {
     child_results: [],
     tasks: [],
   };
+}
+
+export function createQuest(input: CreateQuestInput): { files: QuestFiles; state: QuestState } {
+  const state = createQuestInitialState(input);
+  const files = questFiles(input.repoRoot, input.wtree);
+  if (existsSync(files.tasks)) {
+    throw new Error(`quest wtree already exists: ${input.wtree}`);
+  }
   writeText(files.tasks, renderTasksYaml(state));
   if (!existsSync(files.events)) writeText(files.events, "");
   if (!existsSync(files.hook_state)) writeJson(files.hook_state, {});
@@ -2480,7 +2486,19 @@ export function ensureCoordinatorWorkspace(
   repoRoot: string,
   wtree: string,
 ): QuestWorkspace {
-  return ensureNamedWorkspace(repoRoot, wtree, coordinatorWorktreePath(repoRoot, wtree));
+  const requestedPath = coordinatorWorktreePath(repoRoot, wtree);
+  const existingBranchWorkspace = parseGitWorktrees(repoRoot).find(
+    (entry) => entry.branch === wtree,
+  );
+  if (
+    existingBranchWorkspace &&
+    resolve(existingBranchWorkspace.worktree) !== requestedPath
+  ) {
+    throw new Error(
+      `coordinator branch ${wtree} is already checked out outside its requested worktree: ${existingBranchWorkspace.worktree}`,
+    );
+  }
+  return ensureNamedWorkspace(repoRoot, wtree, requestedPath);
 }
 
 export function ensureTaskWorkspace(
@@ -2533,18 +2551,10 @@ function renderLoopshipShim(loopshipScriptAbs: string): string {
     "    shift",
     "    ;;",
     "esac",
-    "if command -v node >/dev/null 2>&1; then",
-    "  if node -e \"const major=Number(process.versions.node.split('.')[0]); process.exit(major >= 26 ? 0 : 1)\" >/dev/null 2>&1; then",
-    '    exec node "$SCRIPT" "$@"',
-    "  fi",
-    "fi",
     "if command -v bun >/dev/null 2>&1; then",
     '  exec bun --no-install "$SCRIPT" "$@"',
     "fi",
-    "if command -v npx >/dev/null 2>&1; then",
-    '  exec npx -y tsx "$SCRIPT" "$@"',
-    "fi",
-    'echo "bun, node, and npx tsx are unavailable" >&2',
+    'echo "Loopship application runtime requires Bun" >&2',
     "exit 127",
     "",
   ].join("\n");

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   loopshipFlowWorkflowRef,
   resolveLoopshipFastflowCommandBinding,
@@ -216,12 +216,18 @@ async function runInit(argv: string[]): Promise<number> {
 }
 
 async function runStep(args: StepperArgs): Promise<number> {
-  const repoRoot = defaultRepoRoot(args.repo);
   const payload = readJsonSource(args.json, "stepper step");
   const request = nativeResumeRequest(payload);
   if (!request) {
     throw new Error("stepper step requires a native Fastflow resume payload with sessionId");
   }
+  const workspaceRoot = String(request.workspaceRoot ?? "").trim();
+  if (!workspaceRoot) {
+    throw new Error("stepper step requires the native Fastflow workspaceRoot");
+  }
+  const repoRoot = args.repo
+    ? defaultRepoRoot(args.repo)
+    : dirname(dirname(resolve(workspaceRoot)));
   const result = await resumeLoopshipFastflowWorkflow({
     repoRoot,
     request,

@@ -106,24 +106,40 @@ $defs:
       - args
     properties:
       command:
-        type: string
-        minLength: 1
+        const: loopship stepper step --json @-
       args:
         type: object
-        additionalProperties: true
+        additionalProperties: false
         required:
           - sessionId
+          - nonce
+          - workspaceRoot
           - response
         properties:
           sessionId:
             type: string
+            minLength: 1
           nonce:
             type: string
+            minLength: 1
           workspaceRoot:
             type: string
+            minLength: 1
           response:
-            type: object
-            additionalProperties: true
+            $ref: "#/$defs/resumeResponse"
+  resumeResponse:
+    oneOf:
+      - type: object
+        additionalProperties: false
+        required: [answer]
+        properties:
+          answer: {}
+      - type: object
+        additionalProperties: false
+        required: [decision]
+        properties:
+          decision:
+            const: ok
   interactionChecks:
     type: object
     additionalProperties: false

@@ -1,0 +1,17 @@
+#!/usr/bin/env bun
+
+import { isAbsolute } from "node:path";
+
+const schedulerDb = String(process.env.FASTFLOW_SCHEDULER_DB || "").trim();
+if (schedulerDb && !isAbsolute(schedulerDb)) {
+  throw new Error("FASTFLOW_SCHEDULER_DB must be an absolute path for Loopship");
+}
+if (schedulerDb) process.env.FASTFLOW_SCHEDULER_DB = schedulerDb;
+else delete process.env.FASTFLOW_SCHEDULER_DB;
+
+process.env.FASTFLOW_APP_MODULE = new URL(
+  "../scripts/loopship_fastflow_daemon.mjs",
+  import.meta.url,
+).href;
+
+await import("@cueintent/fastflow/scripts/fastflow-scheduler-daemon");

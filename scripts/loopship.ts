@@ -38,8 +38,6 @@ import {
   resolveHookRoute,
   runtimeHookPayload,
   runtimeHookThreadId,
-  updateHookRoute,
-  updateHookRouteForWorkspace,
 } from "./loopship_hook_state.ts";
 
 export { nativeResumeRequest } from "./loopship_resume.ts";
@@ -497,7 +495,7 @@ export function runDoctor(argv: string[]): number {
         "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{let p={};try{p=s.trim()?JSON.parse(s):{}}catch{};process.stdout.write(JSON.stringify({version:'2',request_id:'hook-'+Date.now(),command:'hook',context:{runtime:" +
         JSON.stringify(runtime) +
         ",cwd:process.cwd()},metadata:{},payload:p}))})";
-      return `node -e ${shellQuote(wrapJs)} | ${tsShellCommand(args.hookScript, ["hook", "--json", "@-"])}`;
+      return `bun -e ${shellQuote(wrapJs)} | ${tsShellCommand(args.hookScript, ["hook", "--json", "@-"])}`;
     }
     return simpleHookCommand(globalBin, runtime);
   };
@@ -522,7 +520,7 @@ export function runDoctor(argv: string[]): number {
 }
 
 function questResponse(payload: Record<string, unknown>): void {
-  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
 function readJsonArg(json: string | null): Record<string, any> {
@@ -686,9 +684,7 @@ export async function runHook(argv: string[]): Promise<number> {
       process.stdout.write("{}");
       return 0;
     }
-    const hasResponse = ["response", "answer", "decision", "supervisorDecision"].some(
-      (field) => Object.prototype.hasOwnProperty.call(payload, field),
-    );
+    const hasResponse = Object.prototype.hasOwnProperty.call(payload, "response");
     if (!hasResponse) {
       process.stdout.write("{}");
       return 0;
@@ -697,15 +693,6 @@ export async function runHook(argv: string[]): Promise<number> {
       ...route.fastflow,
       ...(Object.prototype.hasOwnProperty.call(payload, "response")
         ? { response: payload.response }
-        : {}),
-      ...(Object.prototype.hasOwnProperty.call(payload, "answer")
-        ? { answer: payload.answer }
-        : {}),
-      ...(Object.prototype.hasOwnProperty.call(payload, "decision")
-        ? { decision: payload.decision }
-        : {}),
-      ...(Object.prototype.hasOwnProperty.call(payload, "supervisorDecision")
-        ? { supervisorDecision: payload.supervisorDecision }
         : {}),
     });
     if (!request) {
@@ -717,7 +704,6 @@ export async function runHook(argv: string[]): Promise<number> {
       workspaceRoot: route.workspace_root,
       request,
     });
-    updateHookRoute(route, result);
     questResponse(result);
     return 0;
   }
@@ -736,13 +722,6 @@ export async function runHook(argv: string[]): Promise<number> {
     repoRoot: context.repoRoot,
     request,
   });
-  if (typeof request.workspaceRoot === "string" && request.workspaceRoot.trim()) {
-    updateHookRouteForWorkspace({
-      repoRoot: context.repoRoot,
-      workspaceRoot: request.workspaceRoot,
-      result,
-    });
-  }
   questResponse(result);
   return 0;
 }
@@ -777,13 +756,6 @@ export async function runResume(argv: string[]): Promise<number> {
       repoRoot: context.repoRoot,
       request,
     });
-    if (typeof request.workspaceRoot === "string" && request.workspaceRoot.trim()) {
-      updateHookRouteForWorkspace({
-        repoRoot: context.repoRoot,
-        workspaceRoot: request.workspaceRoot,
-        result,
-      });
-    }
     questResponse(result);
     return 0;
   }
@@ -854,11 +826,11 @@ function assertInitIsNewQuest(repoRoot: string, wtree: string | null): void {
       `loopship init refused: worktree '${wtree}' is already initialized at ${tasksPath}.`,
       `Recover an interrupted inline run with: loopship resume --repo ${repoRoot} --wtree ${wtree}`,
       "Resume a handoff with the Fastflow pause response instead of starting a new init.",
-      "The resume JSON must include the pause response nextCall.args values, or flattened sessionId, nonce, and workspaceRoot fields.",
-      "Underlying Fastflow resume command: fastflow workflows resume <sessionId> --nonce <nonce> --workspace-root <workspaceRoot> --response-json @-",
+      "The resume JSON must include sessionId, nonce, workspaceRoot, and exactly one response.answer or response.decision='ok'.",
+      "Native resume command: loopship stepper step --json @-",
       `Resume handoff payloads with: loopship resume --repo ${repoRoot} --json @pause-response-with-answer.json`,
       `Resume HITL handoff payloads with: loopship hook --repo ${repoRoot} --json @pause-response-with-answer.json`,
-      `Resume superviseStep payloads with: loopship stepper step --repo ${repoRoot} --json @pause-response-with-decision.json`,
+      "Resume superviseStep payloads with: loopship stepper step --json @pause-response-with-decision.json",
       "Start a new quest with a different --wtree.",
     ].join("\n"),
   );
