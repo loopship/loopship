@@ -33,6 +33,8 @@ prefixes:
           tags: "git, commit, evidence, head"
         landing:
           tags: "landing, git, merge, apply"
+        runtime:
+          tags: "runtime, quest, manifest, commit"
         system:
           tags: "system, docs, signature, apply"
     workflow:
