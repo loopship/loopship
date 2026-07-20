@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -15,7 +16,7 @@ import {
   applySystemUpdate,
   ensureSystemScaffold,
 } from "./loopship_core.ts";
-import { validateSchemaPath } from "./loopship_schema.ts";
+import { prepareLoopshipNativeChild } from "./loopship_child_lifecycle.ts";
 import { runCommand } from "./loopship_utils.ts";
 
 type Status = "pass" | "fail";
@@ -57,7 +58,9 @@ function runGitMayFail(cwd: string, args: string[]) {
 }
 
 function createFixture(name: string): Fixture {
-  const root = mkdtempSync(join(tmpdir(), `loopship-adversarial-${name}-`));
+  const root = realpathSync(
+    mkdtempSync(join(tmpdir(), `loopship-adversarial-${name}-`)),
+  );
   const repo = join(root, "repo");
   const init = runCommand("git", ["init", "-b", "main", repo], { timeoutMs: 30_000 });
   assert(init.status === 0, init.stderr || init.stdout);
@@ -311,23 +314,43 @@ const scenarios: Array<[string, () => string]> = [
     },
   ],
   [
-    "malicious-child-payload",
+    "native-child-identity",
     () => {
-      const errors = validateSchemaPath(
-        {
-          task_id: "task-a",
-          child_wtree: "child-a",
-          status: "passed",
-          evidence: [{ type: "commit", ref: "abc123" }],
-          merge_commit: "abc123",
-          commands: [{ cmd: "git", args: ["push", "--force"] }],
-          branch_ref: "codex/task-a",
-          stage_override: "archived",
-        },
-        "schemas/steps/child-result-input.yaml",
-      );
-      assert(errors.some((error) => error.includes("/commands")) && errors.some((error) => error.includes("/stage_override")), "unexpected child payload fields were not rejected");
-      return errors.join("; ");
+      const fixture = createFixture("native-child-identity");
+      try {
+        const parent = prepareChild(fixture, "parent");
+        const rejectedFields: string[] = [];
+        for (const [field, value] of [
+          ["branch_ref", "codex/attacker-controlled"],
+          ["worktree_path", join(fixture.root, "attacker-controlled")],
+        ] as const) {
+          let message = "";
+          try {
+            prepareLoopshipNativeChild({
+              repo: fixture.repo,
+              wtree: "parent",
+              target_branch: parent.branch,
+              target_worktree: parent.worktree,
+              dry_run: true,
+              task: {
+                id: "t001",
+                title: "Verify canonical Native child identity",
+                [field]: value,
+              },
+            });
+          } catch (error) {
+            message = error instanceof Error ? error.message : String(error);
+          }
+          assert(
+            message.includes(`non-canonical ${field}`),
+            `conflicting Native child ${field} was not rejected: ${message || "no error"}`,
+          );
+          rejectedFields.push(field);
+        }
+        return `rejected conflicting ${rejectedFields.join(" and ")} identities`;
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
     },
   ],
   [

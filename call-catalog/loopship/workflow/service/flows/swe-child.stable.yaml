@@ -1,0 +1,677 @@
+# Fastflow generated release artifact; do not edit directly.
+# Edit the matching *.dev.yaml workflow and run the consumer Fastflow promotion flow.
+document:
+  dsl: 1.0.3
+  namespace: service-flows
+  name: swe-child
+  version: 0.1.0
+  summary: Execute one terminal Loopship child through implementation, validation, verification, landing, and archive.
+  metadata:
+    catalog:
+      tags:
+        - loopship
+        - flow
+        - swe
+        - child
+    inference:
+      groups:
+        loopship_child_implementation:
+          timeoutMs: 1200000
+          on:
+            - unavailable
+            - timeout
+            - transport_error
+            - invalid_json
+            - invalid_output
+            - abstain
+          try:
+            - llm.cli.codex.gpt-5.4-mini.max
+            - aitl.subagent
+input:
+  schema:
+    document:
+      type: object
+      additionalProperties: false
+      required:
+        - prepared
+      properties:
+        prepared:
+          type: object
+          additionalProperties: true
+do:
+  - resolve_child_head:
+      then: resolve_target_head
+      metadata:
+        description: Resolve the prepared child branch before implementation.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_head_resolved
+              kind: behaviour
+              statement: The child branch has a concrete commit.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.commit), evidence: { commit: action?.commit || "" } };
+      call: loopship.afn.service.git.resolve-commit
+      with:
+        body:
+          repo: ${inputs.prepared.repo || inputs.prepared.context_root || env.PWD || ''}
+          cwd: ${inputs.prepared.worktree_path || ''}
+          ref: HEAD
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - resolve_target_head:
+      then: implementation_route
+      metadata:
+        description: Resolve the parent landing branch before implementation.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_target_head_resolved
+              kind: behaviour
+              statement: The parent landing branch has a concrete commit.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.commit), evidence: { commit: action?.commit || "" } };
+      call: loopship.afn.service.git.resolve-commit
+      with:
+        body:
+          repo: ${inputs.prepared.repo || inputs.prepared.context_root || env.PWD || ''}
+          cwd: ${inputs.prepared.repo || inputs.prepared.context_root || env.PWD || ''}
+          ref: ${inputs.prepared.merge_target || inputs.prepared.parent_wtree || ''}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - implementation_route:
+      metadata:
+        description: Reuse a recovered local implementation commit or dispatch the configured child agent.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_implementation_routed
+              kind: behaviour
+              statement: The child uses an existing local commit or the configured Native inference route.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.matched_case), evidence: { matched_case: action?.matched_case || "" } };
+      switch:
+        - recovered_commit:
+            when: ${String(state.steps.resolve_child_head.action.commit || '') !== String(state.steps.resolve_target_head.action.commit || '')}
+            then: record_implementation
+        - implementation_required:
+            then: implement_child
+  - implement_child:
+      then: resolve_child_head_after
+      metadata:
+        description: Dispatch the terminal child assignment through the configured Native agent route.
+        inference: loopship_child_implementation
+        validation:
+          post:
+            kind: js
+            expression: |
+              const receipt = state?.steps?.implement_child?.action?.decision?.implementation_receipt
+                || state?.steps?.implement_child?.action?.implementation_receipt;
+              return { ok: Boolean(receipt), evidence: { implementation_receipt: Boolean(receipt) } };
+        verification:
+          assertions:
+            - id: child_implementation_receipt
+              kind: behaviour
+              statement: The configured child agent returns an implementation receipt.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.decision || action?.implementation_receipt), evidence: { has_decision: Boolean(action?.decision || action?.implementation_receipt) } };
+      call: fastflow.afn.core.request.input
+      with:
+        body:
+          timeout_ms: 1200000
+          instruction: |-
+            Complete exactly the assigned terminal Loopship child task in
+            request.worktree_path. Read request.parent_context_ref, remain
+            inside the child worktree, do not create child worktrees, and do
+            not mutate parent Loopship runtime state. Run focused checks and
+            commit the implementation. Loopship owns validation, verification,
+            landing, and archive after this response.
+          request:
+            schema:
+              type: object
+              additionalProperties: true
+            build:
+              kind: js
+              using:
+                - inputs
+                - state
+              code: |
+                return {
+                  repo: String(inputs.prepared.repo || ""),
+                  task: inputs.prepared.task || {},
+                  task_id: String(inputs.prepared.task_id || ""),
+                  worktree_path: String(inputs.prepared.worktree_path || ""),
+                  branch_ref: String(inputs.prepared.branch_ref || ""),
+                  parent_wtree: String(inputs.prepared.parent_wtree || ""),
+                  parent_context_ref: String(inputs.prepared.parent_context_ref || ""),
+                  target_head: String(state.steps.resolve_target_head?.action?.commit || "")
+                };
+          answer:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - implementation_receipt
+              properties:
+                implementation_receipt:
+                  type: object
+                  additionalProperties: true
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - resolve_child_head_after:
+      then: implementation_commit_route
+      metadata:
+        description: Resolve the child commit produced by the configured implementation route.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_head_advanced
+              kind: behaviour
+              statement: Implementation leaves a child commit distinct from the parent base.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.commit), evidence: { commit: action?.commit || "" } };
+      call: loopship.afn.service.git.resolve-commit
+      with:
+        body:
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          cwd: ${inputs.prepared.worktree_path || ''}
+          ref: HEAD
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - implementation_commit_route:
+      metadata:
+        description: Require the implementation agent to advance the child branch before lifecycle validation.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_implementation_commit_routed
+              kind: behaviour
+              statement: A no-op implementation cannot reach validation or landing.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.matched_case), evidence: { matched_case: action?.matched_case || "" } };
+      switch:
+        - advanced:
+            when: ${Boolean(state.steps.resolve_child_head_after.action.commit) && state.steps.resolve_child_head_after.action.commit !== state.steps.resolve_target_head.action.commit}
+            then: record_implementation
+        - no_commit:
+            then: fail_implementation
+  - record_implementation:
+      then: validate_child
+      metadata:
+        description: Persist the child implementation checkpoint in the child quest only.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_implementation_recorded
+              kind: behaviour
+              statement: The terminal child task is recorded with its stable commit.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: action?.status === "implemented" && Boolean(action?.merge_commit), evidence: action || {} };
+      call: loopship.afn.service.child.record-lifecycle
+      with:
+        body:
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          wtree: ${inputs.prepared.child_wtree || ''}
+          task_id: ${inputs.prepared.task_id || ''}
+          request_id: child-lifecycle:${inputs.prepared.task_id || ''}:implementation
+          status: implemented
+          merge_commit: ${state.steps.resolve_child_head_after?.action?.commit || state.steps.resolve_child_head.action.commit || ''}
+          implementation_receipt: ${state.steps.implement_child?.action?.decision?.implementation_receipt || state.steps.implement_child?.action?.implementation_receipt || {}}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - validate_child:
+      then: record_validation
+      metadata:
+        description: Run the existing Loopship validation workflow for this terminal child.
+        ref:
+          digest: sha256:d41941f303b7d3fe31c083008005581ff914005dc2d25b92f139f6d4ee32d4fd
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_validation_returned
+              kind: behaviour
+              statement: Child validation returns an explicit status and checks.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: ["passed", "failed"].includes(String(action?.status || "")) && Array.isArray(action?.checks), evidence: { status: action?.status || "" } };
+      call: loopship.workflow.service.step.validation
+      with:
+        version: 0.1.0
+        input:
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
+          wtree: ${inputs.prepared.child_wtree || ''}
+          quest_id: ${inputs.prepared.child_wtree || ''}
+          flow_id: swe-child
+          flow_version: 1
+          current_stage: validating
+          summary: Validate the assigned terminal child implementation.
+          prompt: ${inputs.prepared.request || ''}
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          repoRoot: ${inputs.prepared.repo || env.PWD || ''}
+          runtime: ${inputs.prepared.runtime || ''}
+          tasks: ${[inputs.prepared.task || {}]}
+          parent_wtree: ${inputs.prepared.parent_wtree || ''}
+          coordinator_branch: ${inputs.prepared.branch_ref || ''}
+          coordinator_worktree: ${inputs.prepared.worktree_path || ''}
+          landing_target_branch: ${inputs.prepared.merge_target || ''}
+          landing_target_worktree: ${inputs.prepared.merge_target_worktree || ''}
+          requirements: []
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action.result.output.decision || action.result.output}
+  - record_validation:
+      then: validation_route
+      metadata:
+        description: Persist the validation receipt in the child quest only.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_validation_recorded
+              kind: behaviour
+              statement: The child validation checkpoint is durable.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: String(action?.status || "").startsWith("validation_"), evidence: action || {} };
+      call: loopship.afn.service.child.record-lifecycle
+      with:
+        body:
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          wtree: ${inputs.prepared.child_wtree || ''}
+          task_id: ${inputs.prepared.task_id || ''}
+          request_id: child-lifecycle:${inputs.prepared.task_id || ''}:validation
+          status: "${state.steps.validate_child.action.status === 'passed' ? 'validation_passed' : 'validation_failed'}"
+          validation_receipt: ${state.steps.validate_child.action || {}}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - validation_route:
+      metadata:
+        description: Continue only when child validation passes.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_validation_routed
+              kind: behaviour
+              statement: Failed validation cannot reach verification or landing.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.matched_case), evidence: { matched_case: action?.matched_case || "" } };
+      switch:
+        - passed:
+            when: ${state.steps.validate_child.action.status === 'passed'}
+            then: verify_child
+        - failed:
+            then: fail_child
+  - verify_child:
+      then: record_verification
+      metadata:
+        description: Run the existing Loopship verification workflow for this terminal child.
+        ref:
+          digest: sha256:baf3bebf95258fccd04fa7405a43c2bb4b086a42a54fa755df6a1d7aa2151589
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_verification_returned
+              kind: behaviour
+              statement: Child verification returns an explicit acceptance status.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: ["passed", "failed"].includes(String(action?.status || "")), evidence: { status: action?.status || "" } };
+      call: loopship.workflow.service.step.verification
+      with:
+        version: 0.1.0
+        input:
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
+          wtree: ${inputs.prepared.child_wtree || ''}
+          quest_id: ${inputs.prepared.child_wtree || ''}
+          flow_id: swe-child
+          flow_version: 1
+          current_stage: verification_pending
+          summary: Verify the assigned terminal child acceptance evidence.
+          prompt: ${inputs.prepared.request || ''}
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          repoRoot: ${inputs.prepared.repo || env.PWD || ''}
+          runtime: ${inputs.prepared.runtime || ''}
+          tasks: ${[inputs.prepared.task || {}]}
+          validation_receipt: ${state.steps.validate_child.action || {}}
+          parent_wtree: ${inputs.prepared.parent_wtree || ''}
+          coordinator_branch: ${inputs.prepared.branch_ref || ''}
+          coordinator_worktree: ${inputs.prepared.worktree_path || ''}
+          landing_target_branch: ${inputs.prepared.merge_target || ''}
+          landing_target_worktree: ${inputs.prepared.merge_target_worktree || ''}
+          requirements: []
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action.result.output.decision || action.result.output}
+  - record_verification:
+      then: verification_route
+      metadata:
+        description: Persist the verification receipt in the child quest only.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_verification_recorded
+              kind: behaviour
+              statement: The child verification checkpoint is durable.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: String(action?.status || "").startsWith("verification_"), evidence: action || {} };
+      call: loopship.afn.service.child.record-lifecycle
+      with:
+        body:
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          wtree: ${inputs.prepared.child_wtree || ''}
+          task_id: ${inputs.prepared.task_id || ''}
+          request_id: child-lifecycle:${inputs.prepared.task_id || ''}:verification
+          status: "${state.steps.verify_child.action.status === 'passed' ? 'verification_passed' : 'verification_failed'}"
+          verification_receipt: ${state.steps.verify_child.action || {}}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action}
+  - verification_route:
+      metadata:
+        description: Continue to serialized landing only when child verification passes.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_verification_routed
+              kind: behaviour
+              statement: Failed verification cannot reach landing.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.matched_case), evidence: { matched_case: action?.matched_case || "" } };
+      switch:
+        - passed:
+            when: ${state.steps.verify_child.action.status === 'passed'}
+            then: land_child
+        - failed:
+            then: fail_child
+  - land_child:
+      then: archive_child
+      metadata:
+        description: Land the verified child through Loopship's repository-scoped serialized landing effect.
+        ref:
+          digest: sha256:2228cbd3df585bbb1a24e9a6ce355f1411a90f494b51b0bc012ba21dc327626a
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_landed
+              kind: behaviour
+              statement: The child landing returns a stable merge receipt.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: action?.status === "landed" && Boolean(action?.landed_commit), evidence: action || {} };
+      call: loopship.workflow.service.step.landing
+      with:
+        version: 0.1.0
+        input:
+          status: landed
+          summary: Native child lifecycle passed validation and verification.
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          repoRoot: ${inputs.prepared.repo || env.PWD || ''}
+          wtree: ${inputs.prepared.child_wtree || ''}
+          runtime: ${inputs.prepared.runtime || ''}
+          target_branch: ${inputs.prepared.merge_target || inputs.prepared.parent_wtree || ''}
+          target_worktree: ${inputs.prepared.merge_target_worktree || ''}
+          source_branch: ${inputs.prepared.branch_ref || ''}
+          next_stage: archived
+          request_id: child-landing:${inputs.prepared.task_id || ''}
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action.result.output}
+  - archive_child:
+      then: build_result
+      metadata:
+        description: Run the existing terminal archive reporting step after durable landing.
+        ref:
+          digest: sha256:ba809205ccddd26e5e9dd601814fe39640afbf093d513fcd9365a37a0a2c43c7
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_archived
+              kind: behaviour
+              statement: The landed child reaches its terminal archive report.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: action !== undefined, evidence: { archived: action !== undefined } };
+      call: loopship.workflow.service.step.archived
+      with:
+        version: 0.1.0
+        input:
+          schema_version: loopship.step.request/v1
+          kind: quest_step_request
+          wtree: ${inputs.prepared.child_wtree || ''}
+          quest_id: ${inputs.prepared.child_wtree || ''}
+          flow_id: swe-child
+          flow_version: 1
+          current_stage: archived
+          summary: Report the archived Native child lifecycle.
+          prompt: ${inputs.prepared.request || ''}
+          repo: ${inputs.prepared.repo || env.PWD || ''}
+          repoRoot: ${inputs.prepared.repo || env.PWD || ''}
+          runtime: ${inputs.prepared.runtime || ''}
+          tasks: ${[inputs.prepared.task || {}]}
+          validation_receipt: ${state.steps.validate_child.action || {}}
+          verification_receipt: ${state.steps.verify_child.action || {}}
+          parent_wtree: ${inputs.prepared.parent_wtree || ''}
+          coordinator_branch: ${inputs.prepared.branch_ref || ''}
+          coordinator_worktree: ${inputs.prepared.worktree_path || ''}
+          landing_target_branch: ${inputs.prepared.merge_target || ''}
+          landing_target_worktree: ${inputs.prepared.merge_target_worktree || ''}
+          requirements: []
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action.result.output}
+  - build_result:
+      then: end
+      metadata:
+        description: Return the immutable stable child result to the parent DAG without mutating parent state.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_result_complete
+              kind: behaviour
+              statement: A passed child result includes its stable landed commit and identity.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: action?.status === "child_archived" && Boolean(action?.merge_commit), evidence: action || {} };
+      run:
+        script:
+          language: js
+          code: |
+            return {
+              schema_version: "loopship.child-result/v2",
+              task_id: String(args.prepared.task_id || ""),
+              child_wtree: String(args.prepared.child_wtree || ""),
+              status: "child_archived",
+              branch_ref: String(args.prepared.branch_ref || ""),
+              worktree_path: String(args.prepared.worktree_path || ""),
+              merge_target: String(args.prepared.merge_target || ""),
+              merge_lease_id: String(args.prepared.merge_lease_id || ""),
+              merge_commit: String(state.steps.land_child?.action?.landed_commit || ""),
+              landing_strategy: String(state.steps.land_child?.action?.strategy || "")
+            };
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: ${action.value}
+  - fail_child:
+      metadata:
+        description: Fail the Native child node after its validation or verification failure is durable.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_failure_is_terminal
+              kind: behaviour
+              statement: A failed child node cannot be interpreted as a successful dependency.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: false, evidence: { expected_failure: true } };
+      run:
+        script:
+          language: js
+          code: |
+            const taskId = String(args.prepared.task_id || "unknown");
+            const validation = String(state.steps.validate_child?.action?.status || "");
+            const verification = String(state.steps.verify_child?.action?.status || "");
+            throw new Error("loopship_child_lifecycle_failed:" + taskId + ":" + (verification || validation || "unknown"));
+  - fail_implementation:
+      metadata:
+        description: Fail a child implementation that did not advance the assigned branch.
+        validation:
+          post:
+            kind: static
+            ok: true
+        verification:
+          assertions:
+            - id: child_implementation_commit_required
+              kind: behaviour
+              statement: A child cannot pass without a commit distinct from its landing target.
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: false, evidence: { expected_failure: true } };
+      run:
+        script:
+          language: js
+          code: |
+            const taskId = String(args.prepared.task_id || "unknown");
+            throw new Error("loopship_child_implementation_commit_required:" + taskId);
+output:
+  schema:
+    document:
+      type: object
+      additionalProperties: true
+  as: ${state.steps.build_result.action}

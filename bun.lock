@@ -5,10 +5,10 @@
     "": {
       "name": "@omar391/loopship",
       "dependencies": {
-        "@cueintent/fastflow": "1.0.1",
+        "@cueintent/fastflow": "git+https://github.com/cueintent/fastflow.git#4b080043509fa80fa15823816781eb5ff0a46072",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
-        "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a",
+        "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
         "yaml": "^2.8.3",
       },
       "devDependencies": {
@@ -22,12 +22,18 @@
     "cmdproto",
   ],
   "overrides": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#c0aee6b1529ccb68921f843c7dfe6089fd48dcf1",
+    "@cueintent/fastflow": "git+https://github.com/cueintent/fastflow.git#4b080043509fa80fa15823816781eb5ff0a46072",
   },
   "packages": {
-    "@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.0", "", {}, "sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA=="],
+    "@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.1", "", {}, "sha512-BvAMfS6LrgZiryOAZ4pBYucu4wG/Ei/9o9DZ9akbREnMLbPJiom2i8b9C8IsKErQoiKqVhrerzt3kOT/RrzLHg=="],
 
-    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#c0aee6b1529ccb68921f843c7dfe6089fd48dcf1", { "dependencies": { "cmdproto": "git+https://github.com/omar391/cmdproto.git#b0d9997544ef265f861ea045035b948a48bc334a" }, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "c0aee6b1529ccb68921f843c7dfe6089fd48dcf1"],
+    "@connectrpc/connect": ["@connectrpc/connect@2.1.2", "", { "peerDependencies": { "@bufbuild/protobuf": "^2.7.0" } }, "sha512-MXkBijtcX09R10Eb6sFeIetc6w6746eio6xtfuyVOH7oQAacT1X0GzMIQFux6Qy8cq3W/T5qX5Bei8YbFtmRGA=="],
+
+    "@connectrpc/connect-node": ["@connectrpc/connect-node@2.1.2", "", { "peerDependencies": { "@bufbuild/protobuf": "^2.7.0", "@connectrpc/connect": "2.1.2" } }, "sha512-+i/aAOpsI8sIx1mbYp6d99zvxaUSF6t/jP9Ux9maAmjsZPgmIQ3JuIeYi0zJIP9zlCnBlJjkpPosshCgdRuThQ=="],
+
+    "@connectrpc/connect-web": ["@connectrpc/connect-web@2.1.2", "", { "peerDependencies": { "@bufbuild/protobuf": "^2.7.0", "@connectrpc/connect": "2.1.2" } }, "sha512-1tfaK85MU+gJjwwmL31d2rzdf0XCYX99chZf63uG89SGBUd4XuZ4ZzhGo2u79TPXOE6nLIZQ2okrpyey42PYdg=="],
+
+    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#4b080043509fa80fa15823816781eb5ff0a46072", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63", "ws": "8.21.1", "yaml": "2.9.0" }, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "4b080043509fa80fa15823816781eb5ff0a46072"],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
@@ -39,7 +45,7 @@
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
-    "cmdproto": ["cmdproto@github:omar391/cmdproto#b0d9997", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "bin": { "cmdproto": "./scripts/cmdproto.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-b0d9997", "sha512-BjGY1m+Z6sFo7naoggpvnvbp7+yHIX6dRE6RPeYmE4cVnSsuxIb2iTHTJ9H1X41SQLh9qAe2URpXtfaFGSZShg=="],
+    "cmdproto": ["cmdproto@github:omar391/cmdproto#9d2b675", { "dependencies": { "@bufbuild/protobuf": "^2.11.0", "@connectrpc/connect": "^2.1.2", "@connectrpc/connect-node": "^2.1.2", "@connectrpc/connect-web": "^2.1.2" }, "bin": { "cmdproto": "./scripts/cmdproto.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-9d2b675", "sha512-SLsXAA+eXC9naexAS5P824GmvlpJwD6NoLgSgwog17hY69v545a+Skcs+7C3aT1fqSVW83Fk2l4lOaJ4RHrcCg=="],
 
     "fast-deep-equal": ["fast-deep-equal@3.1.3", "", {}, "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q=="],
 
@@ -53,8 +59,8 @@
 
     "undici-types": ["undici-types@7.21.0", "", {}, "sha512-w9IMgQrz4O0YN1LtB7K5P63vhlIOvC7opSmouCJ+ZywlPAlO9gIkJ+otk6LvGpAs2wg4econaCz3TvQ9xPoyuQ=="],
 
-    "yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
+    "ws": ["ws@8.21.1", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw=="],
 
-    "@cueintent/fastflow/cmdproto": ["cmdproto@github:omar391/cmdproto#b0d9997", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "bin": { "cmdproto": "./scripts/cmdproto.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-b0d9997", "sha512-BjGY1m+Z6sFo7naoggpvnvbp7+yHIX6dRE6RPeYmE4cVnSsuxIb2iTHTJ9H1X41SQLh9qAe2URpXtfaFGSZShg=="],
+    "yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
   }
 }

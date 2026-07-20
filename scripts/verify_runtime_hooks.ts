@@ -118,6 +118,42 @@ function pauseToken(value: Record<string, any>): PauseToken {
   };
 }
 
+async function recoverRunningResult(
+  repo: string,
+  wtree: string,
+  initial: Record<string, any>,
+): Promise<Record<string, any>> {
+  const deadline = Date.now() + 120_000;
+  let result = initial;
+  while (
+    result.schemaVersion === "fastflow/workflow-run-artifact/v1" &&
+    result.kind === "workflow_result" &&
+    result.status === "running"
+  ) {
+    if (Date.now() >= deadline) {
+      fail(`timed out recovering Fastflow pause: ${JSON.stringify(result)}`);
+    }
+    await Bun.sleep(20);
+    const recovery = runLoopship(
+      repo,
+      ["resume", "--repo", repo, "--wtree", wtree],
+      undefined,
+      { CODEX_THREAD_ID: "" },
+    );
+    if (recovery.status !== 0) fail(recovery.stderr || recovery.stdout);
+    result = parseJson(recovery.stdout, "running Fastflow recovery");
+  }
+  return result;
+}
+
+async function recoverPause(
+  repo: string,
+  wtree: string,
+  initial: Record<string, any>,
+): Promise<PauseToken> {
+  return pauseToken(await recoverRunningResult(repo, wtree, initial));
+}
+
 function assertNativeFastflowResponse(value: Record<string, any>, label: string): void {
   assertNoOldEnvelope(value, label);
   if (value.schemaVersion === "fastflow/interaction-response/v1") {
@@ -258,7 +294,7 @@ async function main(): Promise<number> {
     );
     if (start.status !== 0) fail(start.stderr || start.stdout);
     const started = parseJson(start.stdout, "stepper init");
-    const pause = pauseToken(started);
+    const pause = await recoverPause(repo, "hook-route", started);
     const bind = runLoopship(
       repo,
       ["hook", "--runtime", "codex", "--repo", repo],
@@ -711,7 +747,11 @@ async function main(): Promise<number> {
       },
     );
     if (hook.status !== 0) fail(hook.stderr || hook.stdout);
-    const output = parseJson(hook.stdout, "handed-off hook resume");
+    const output = await recoverRunningResult(
+      repo,
+      "hook-route",
+      parseJson(hook.stdout, "handed-off hook resume"),
+    );
     assertNativeFastflowResponse(output, "handed-off hook resume");
     const updatedHookState = parseJson(
       readFileSync(
@@ -750,7 +790,11 @@ async function main(): Promise<number> {
         `@${resumePath}`,
       ]);
       if (directHook.status !== 0) fail(directHook.stderr || directHook.stdout);
-      const directOutput = parseJson(directHook.stdout, "direct Fastflow hook resume");
+      const directOutput = await recoverRunningResult(
+        repo,
+        "hook-route",
+        parseJson(directHook.stdout, "direct Fastflow hook resume"),
+      );
       assertNativeFastflowResponse(directOutput, "direct Fastflow hook resume");
       const directlyUpdatedState = parseJson(
         readFileSync(

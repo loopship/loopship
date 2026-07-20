@@ -4,20 +4,21 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 64
-      digest: "sha256:1b6ab050a9ff5f91d4c861049fad9591854be9dc3e00343af28afa12beaaf331"
-      summary: "Repin request-input step releases with bounded builder launch budgets."
+      release: 74
+      digest: "sha256:108ed8f465d1a9b8a7a515c09abc2482aecd32a8d1d91f851f158eb3358c4f0d"
+      summary: "Pin the terminal Native child result contract."
       inputs:
         required: []
         optional: []
       requires:
+        - loopship.afn.service.child.build-dag-reconciliation
+        - loopship.afn.service.child.prepare-worktree
+        - loopship.afn.service.child.validate-dag
         - loopship.afn.service.flow.compose-transition-result
-        - loopship.afn.service.git.resolve-commit
         - loopship.afn.service.landing.cleanup-landed-worktrees
         - loopship.afn.service.runtime.commit-quest-state
+        - loopship.workflow.service.flows.swe-child
         - loopship.workflow.service.step.archived
-        - loopship.workflow.service.step.child-result
-        - loopship.workflow.service.step.executing
         - loopship.workflow.service.step.landing
         - loopship.workflow.service.step.plan
         - loopship.workflow.service.step.questions
@@ -25,13 +26,29 @@ workflows:
         - loopship.workflow.service.step.task-graph
         - loopship.workflow.service.step.validation
         - loopship.workflow.service.step.verification
+  swe-child:
+    stable:
+      release: 7
+      digest: "sha256:45855d66c1d31ee4ebab26ef6f8073c450e1a05053a99e79d2ec53f9457b3daf"
+      summary: "Terminate the successful child result and preserve explicit failure errors."
+      inputs:
+        required:
+          - prepared
+        optional: []
+      requires:
+        - loopship.afn.service.child.record-lifecycle
+        - loopship.afn.service.git.resolve-commit
+        - loopship.workflow.service.step.archived
+        - loopship.workflow.service.step.landing
+        - loopship.workflow.service.step.validation
+        - loopship.workflow.service.step.verification
 stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaly5MxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGthFwEAmoXxl2Nbtz4goPfhCT6I
-    CBM0SN8qATVTVXqox5m1xDABALD5C4+bvtRllNcENVRsKTnKIbHeC2msOB52f1yz
-    3HMJ
-    =ccHR
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCal3R0xsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsozAEAnG4Q1UK+OWQyjgXGJJnQ
+    pylEwit5OTVZrEuBTRuulxEA/1BEJImBL6WrrHxbf/oDJbOpfuUw1S6d9NibY2w3
+    7mgE
+    =9kfR
     -----END PGP SIGNATURE-----

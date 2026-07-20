@@ -26,6 +26,7 @@ import {
   writeJson,
   writeText,
 } from "./loopship_utils.ts";
+import { loopshipChildDagTaskAliasErrors } from "./loopship_child_dag.ts";
 import { validateSchemaPath } from "./loopship_schema.ts";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
@@ -186,7 +187,7 @@ export type QuestVerificationReceipt = {
 };
 
 export type QuestState = {
-  schema_version: 4;
+  schema_version: 5;
   wtree: string;
   quest_id: string;
   flow_id: string;
@@ -1530,12 +1531,15 @@ function normalizeQuestChildResults(value: unknown): QuestChildResult[] {
     .filter((entry): entry is QuestChildResult => Boolean(entry));
 }
 
-function normalizeTaskList(value: unknown): QuestTask[] {
+function normalizeTaskList(
+  value: unknown,
+  state: Partial<QuestState>,
+): QuestTask[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((item, index) =>
       normalizePlanTask(
-        {},
+        state,
         typeof item === "object" && item ? (item as Record<string, unknown>) : {},
         index,
       ),
@@ -1547,7 +1551,7 @@ export function renderTasksYaml(state: QuestState): string {
   const wtree = String(state.wtree ?? "").trim();
   return stringifyYaml(
     {
-      schema_version: 4,
+      schema_version: 5,
       wtree,
       quest_id: String(state.quest_id ?? wtree),
       flow_id: String(state.flow_id ?? ""),
@@ -1594,18 +1598,34 @@ export function renderTasksYaml(state: QuestState): string {
 export function parseTasksYaml(text: string): Partial<QuestState> {
   const parsed = parseYaml(text) as Record<string, unknown> | null;
   const raw = parsed && typeof parsed === "object" ? parsed : {};
+  if (raw.schema_version !== 5) {
+    throw legacyQuestStateUnsupported(
+      `quest task state schema ${String(raw.schema_version ?? "<missing>")} is unsupported; resubmit it as a new Native v1 execution`,
+    );
+  }
   if (LEGACY_WTREE_KEY in raw || LEGACY_PARENT_WTREE_KEY in raw) {
-    throw new Error(
-      "legacy quest state keys are unsupported; recreate or manually update the quest state to use wtree-only fields",
+    throw legacyQuestStateUnsupported(
+      "legacy quest state keys are unsupported; resubmit the quest as a new Native v1 execution",
     );
   }
   if ("answers" in raw) {
-    throw new Error(
-      "legacy top-level answers are unsupported; store answers inside question_rounds[].questions[]",
+    throw legacyQuestStateUnsupported(
+      "legacy top-level answers are unsupported; resubmit the quest as a new Native v1 execution",
     );
   }
+  const taskState: Partial<QuestState> = {
+    wtree: String(raw.wtree ?? "").trim(),
+    prompt: String(raw.prompt ?? ""),
+    context_root: String(raw.context_root ?? ""),
+    coordinator_branch: String(raw.coordinator_branch ?? "main"),
+    coordinator_worktree: String(raw.coordinator_worktree ?? ""),
+    parent_wtree: String(raw.parent_wtree ?? ""),
+    parent_task_id: String(raw.parent_task_id ?? ""),
+    parent_context_ref: String(raw.parent_context_ref ?? ""),
+    landing_target_branch: String(raw.landing_target_branch ?? "main"),
+  };
   const result: Partial<QuestState> = {
-    schema_version: 4,
+    schema_version: 5,
     wtree: String(raw.wtree ?? "").trim(),
     quest_id: String(raw.quest_id ?? raw.wtree ?? "").trim(),
     flow_id: String(raw.flow_id ?? "").trim(),
@@ -1706,10 +1726,17 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
       ? { local_work_receipt: raw.local_work_receipt as Record<string, unknown> }
       : {}),
     child_results: normalizeQuestChildResults(raw.child_results),
-    tasks: normalizeTaskList(raw.tasks),
+    tasks: normalizeTaskList(raw.tasks, taskState),
   };
   if (!result.quest_id && result.wtree) result.quest_id = result.wtree;
   return result;
+}
+
+function legacyQuestStateUnsupported(message: string): Error {
+  return Object.assign(
+    new Error(`legacy_execution_unsupported: ${message}`),
+    { code: "legacy_execution_unsupported" },
+  );
 }
 
 export function appendJsonl(
@@ -1815,11 +1842,20 @@ export function verifyQuestManifest(files: QuestFiles): {
   return { ok: errors.length === 0, errors };
 }
 
+function assertPlanTaskAliasesAgree(
+  input: Record<string, unknown>,
+  index: number,
+): void {
+  const errors = loopshipChildDagTaskAliasErrors(input, index);
+  if (errors.length) throw new Error(errors.join("; "));
+}
+
 function normalizePlanTask(
   state: Partial<QuestState>,
   input: Record<string, unknown>,
   index: number,
 ): QuestTask {
+  assertPlanTaskAliasesAgree(input, index);
   const wtree = String(state.wtree ?? "quest");
   const rawId = String(input.id ?? input.task_id ?? `task-${index + 1}`);
   const id = normalizeName(rawId);
@@ -1841,18 +1877,18 @@ function normalizePlanTask(
     context_refs: asStringList(input.context_refs ?? input.context),
     branch_ref: terminalChild
       ? coordinatorBranch
-      : String(input.branch_ref ?? taskAssignmentBranchRef(wtree, id)),
+      : taskAssignmentBranchRef(wtree, id),
     worktree_path: terminalChild
       ? coordinatorWorktree
-      : String(input.worktree_path ?? taskAssignmentWorktreePath(contextRoot, wtree, id)),
+      : taskAssignmentWorktreePath(contextRoot, wtree, id),
     child_wtree: terminalChild
       ? ""
-      : String(input.child_wtree ?? taskAssignmentChildWtree(wtree, id)),
+      : taskAssignmentChildWtree(wtree, id),
     concurrency_group: String(input.concurrency_group ?? ""),
-    merge_target: String(input.merge_target ?? (terminalChild ? landingTargetBranch : coordinatorBranch)),
+    merge_target: terminalChild ? landingTargetBranch : coordinatorBranch,
     merge_lease_id: terminalChild
       ? ""
-      : String(input.merge_lease_id ?? taskAssignmentMergeLeaseId(wtree, id)),
+      : taskAssignmentMergeLeaseId(wtree, id),
     merge_commit: String(input.merge_commit ?? ""),
     system_impact_ref: String(input.system_impact_ref ?? ""),
     acceptance: planTaskAcceptance(
@@ -1861,7 +1897,7 @@ function normalizePlanTask(
   };
 }
 
-export function applyQuestPlanToTasks(
+export function buildQuestPlanState(
   files: QuestFiles,
   state: Partial<QuestState>,
   plan: Record<string, unknown> | null,
@@ -1870,7 +1906,7 @@ export function applyQuestPlanToTasks(
     ? (plan!.tasks as Array<Record<string, unknown>>)
     : [];
   const nextState: QuestState = {
-    schema_version: 4,
+    schema_version: 5,
     wtree: files.wtree,
     quest_id: String(state.quest_id ?? files.wtree),
     flow_id: String(state.flow_id ?? ""),
@@ -1917,6 +1953,15 @@ export function applyQuestPlanToTasks(
       normalizePlanTask(state, task, index),
     ),
   };
+  return nextState;
+}
+
+export function applyQuestPlanToTasks(
+  files: QuestFiles,
+  state: Partial<QuestState>,
+  plan: Record<string, unknown> | null,
+): QuestState {
+  const nextState = buildQuestPlanState(files, state, plan);
   writeText(files.tasks, renderTasksYaml(nextState));
   return nextState;
 }
@@ -1938,7 +1983,7 @@ export function applyChildStatusToTasks(
   }
   const taskId = normalizeName(update.id);
   const nextState: QuestState = {
-    schema_version: 4,
+    schema_version: 5,
     wtree: files.wtree,
     quest_id: String(state.quest_id ?? files.wtree),
     flow_id: String(state.flow_id ?? ""),
@@ -2016,7 +2061,7 @@ export function applyLandingReceipt(
   >,
 ): QuestState {
   const nextState: QuestState = {
-    schema_version: 4,
+    schema_version: 5,
     wtree: files.wtree,
     quest_id: String(state.quest_id ?? files.wtree),
     flow_id: String(state.flow_id ?? ""),
@@ -2102,7 +2147,7 @@ export function createQuestInitialState(input: CreateQuestInput): QuestState {
   );
   if (input.parentWtree) assertCanonicalWtreeName(input.parentWtree, "parent_wtree");
   return {
-    schema_version: 4,
+    schema_version: 5,
     wtree: input.wtree,
     quest_id: input.wtree,
     flow_id: input.flowId,
@@ -2395,14 +2440,19 @@ function ensureNamedWorkspace(
     (entry) => resolve(entry.worktree) === desiredPath,
   );
   if (existingByPath) {
+    if (existingByPath.branch !== branchRef) {
+      throw new Error(
+        `task worktree ${desiredPath} is registered to ${existingByPath.branch || "a detached HEAD"}, not ${branchRef}`,
+      );
+    }
     syncWorkspaceToBaseIfSafe(
       repoRoot,
       existingByPath.worktree,
-      existingByPath.branch ?? branchRef,
+      branchRef,
       baseRef,
     );
     return {
-      branch_ref: existingByPath.branch ?? branchRef,
+      branch_ref: branchRef,
       worktree_path: existingByPath.worktree,
       mode: "git",
     };
@@ -2412,6 +2462,11 @@ function ensureNamedWorkspace(
     (entry) => entry.branch === branchRef,
   );
   if (existingByBranch) {
+    if (resolve(existingByBranch.worktree) !== desiredPath) {
+      throw new Error(
+        `task branch ${branchRef} is registered at ${existingByBranch.worktree}, not ${desiredPath}`,
+      );
+    }
     syncWorkspaceToBaseIfSafe(
       repoRoot,
       existingByBranch.worktree,
@@ -2628,7 +2683,7 @@ export function ensureQuestFiles(
   const files = questFiles(repoRoot, wtree);
   if (!existsSync(files.tasks)) {
     const initial: QuestState = {
-      schema_version: 4,
+      schema_version: 5,
       wtree,
       quest_id: wtree,
       flow_id: flowId,

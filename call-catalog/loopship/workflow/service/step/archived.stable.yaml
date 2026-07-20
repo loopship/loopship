@@ -337,20 +337,20 @@ do:
           language: js
           code: |-
             const array = (value) => Array.isArray(value) ? value : [];
-            const tasks = array(inputs.tasks);
+            const tasks = array(args.tasks);
             const done = new Set(["child_merged", "child_archived", "done", "merged"]);
             const doneTaskCount = tasks.filter((task) => done.has(String((task || {}).status || ""))).length;
-            const wtree = String(inputs.wtree || inputs.quest_id || "");
+            const wtree = String(args.wtree || args.quest_id || "");
             return {
               status: "archived",
               stage: "archived",
               archived: true,
-              summary: String(inputs.summary || "Quest archived."),
+              summary: String(args.summary || "Quest archived."),
               wtree,
               task_count: tasks.length,
               done_task_count: doneTaskCount,
-              parent_wtree: String(inputs.parent_wtree || ""),
-              landing_target_branch: String(inputs.landing_target_branch || "")
+              parent_wtree: String(args.parent_wtree || ""),
+              landing_target_branch: String(args.landing_target_branch || "")
             };
       output:
         schema:

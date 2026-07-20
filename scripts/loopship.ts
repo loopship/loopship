@@ -28,6 +28,8 @@ import {
 import { runHandbook } from "./loopship_handbook.ts";
 import { runStepperCli } from "./loopship_stepper.ts";
 import {
+  LOOPSHIP_DEFAULT_CHILD_MAX_CONCURRENCY,
+  LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
   recoverLoopshipFastflowWorkflow,
   resolveLoopshipFlowId,
   resumeLoopshipFastflowWorkflow,
@@ -63,11 +65,11 @@ function usage(): void {
   console.log(`loopship
 
 Usage:
-  loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow <id>] [--wtree <name>]
+  loopship init "loopship: <request>" --runtime <codex|gemini|copilot|all> [--flow <id>] [--wtree <name>] [--max-concurrency <1-32>]
   loopship resume --repo <path> --wtree <name>
   loopship resume --repo <path> --json <fastflow-resume-json|@file|@->
   loopship hook --runtime <runtime> [--wtree <name>]
-  loopship stepper init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]
+  loopship stepper init "loopship: <request>" [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>] [--max-concurrency <1-32>]
   loopship stepper step --json <fastflow-resume-json|@file|@->
   loopship stepper hook [--json <fastflow-resume-json|@file|@->]
   loopship doctor [--repo <path>] [--runtime <codex|gemini|copilot|all>] [--fix]
@@ -199,6 +201,7 @@ function parseInitArgs(argv: string[]): {
   parentContextRef: string | null;
   targetBranch: string | null;
   targetWorktree: string | null;
+  maxConcurrency: number;
 } {
   let repo: string | null = null;
   let wtree: string | null = null;
@@ -211,6 +214,7 @@ function parseInitArgs(argv: string[]): {
   let parentContextRef: string | null = null;
   let targetBranch: string | null = null;
   let targetWorktree: string | null = null;
+  let maxConcurrency = LOOPSHIP_DEFAULT_CHILD_MAX_CONCURRENCY;
   const objectiveParts: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -246,6 +250,10 @@ function parseInitArgs(argv: string[]): {
       targetWorktree = requiredOptionValue(argv, ++i, "--target-worktree");
     else if (arg?.startsWith("--target-worktree="))
       targetWorktree = inlineOptionValue(arg, "--target-worktree");
+    else if (arg === "--max-concurrency")
+      maxConcurrency = Number(requiredOptionValue(argv, ++i, "--max-concurrency"));
+    else if (arg?.startsWith("--max-concurrency="))
+      maxConcurrency = Number(inlineOptionValue(arg, "--max-concurrency"));
     else if (arg === "--flow") flowId = requiredOptionValue(argv, ++i, "--flow");
     else if (arg?.startsWith("--flow=")) flowId = inlineOptionValue(arg, "--flow");
     else if (arg === "--runtime")
@@ -262,6 +270,15 @@ function parseInitArgs(argv: string[]): {
   if (!["codex", "gemini", "copilot", "all"].includes(runtime)) {
     throw new Error("--runtime must be codex, gemini, copilot, or all");
   }
+  if (
+    !Number.isInteger(maxConcurrency) ||
+    maxConcurrency < 1 ||
+    maxConcurrency > LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY
+  ) {
+    throw new Error(
+      `--max-concurrency must be an integer from 1 to ${LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY}`,
+    );
+  }
   const objective = objectiveParts.join(" ").trim();
   const context = resolveRepoContext({ repo });
   return {
@@ -277,6 +294,7 @@ function parseInitArgs(argv: string[]): {
     parentContextRef: parentContextRef?.trim() || null,
     targetBranch: targetBranch?.trim() || null,
     targetWorktree: targetWorktree?.trim() || null,
+    maxConcurrency,
   };
 }
 
@@ -609,14 +627,12 @@ function parseQuestRepoArg(argv: string[]): {
   wtree: string | null;
   runtime: Runtime | null;
   json: string | null;
-  full: boolean;
   rest: string[];
 } {
   let repo: string | null = null;
   let wtree: string | null = null;
   let runtime: Runtime | null = null;
   let json: string | null = null;
-  let full = false;
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -634,10 +650,9 @@ function parseQuestRepoArg(argv: string[]): {
       runtime = inlineOptionValue(arg, "--runtime") as Runtime;
     else if (arg === "--json") json = requiredOptionValue(argv, ++i, "--json");
     else if (arg?.startsWith("--json=")) json = inlineOptionValue(arg, "--json");
-    else if (arg === "--full") full = true;
     else rest.push(arg);
   }
-  return { repo, wtree, runtime, json, full, rest };
+  return { repo, wtree, runtime, json, rest };
 }
 
 export async function runHook(argv: string[]): Promise<number> {
@@ -789,6 +804,7 @@ export async function runInit(argv: string[]): Promise<number> {
         request: args.objective,
         runtime: args.runtime,
         repoRoot: args.repo,
+        maxConcurrency: args.maxConcurrency,
         ...(args.wtree ? { wtree: args.wtree } : {}),
         ...(args.sourceBranch ? { sourceBranch: args.sourceBranch } : {}),
         ...(args.parentWtree ? { parentWtree: args.parentWtree } : {}),
@@ -882,6 +898,14 @@ async function maybeRunSelfWrapper(argv: string[]): Promise<number> {
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   try {
+    if (!process.versions.bun) {
+      throw Object.assign(
+        new Error(
+          "loopship_bun_runtime_required: Loopship application commands require Bun; Node 26.x is reserved for the workflow-script security worker.",
+        ),
+        { code: "loopship_bun_runtime_required" },
+      );
+    }
     return await maybeRunSelfWrapper(argv);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

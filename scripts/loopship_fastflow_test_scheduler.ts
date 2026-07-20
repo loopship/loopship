@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -16,25 +16,32 @@ export type LoopshipTestScheduler = {
 export async function startLoopshipTestScheduler(input: {
   dbPath: string;
   home: string;
+  loopshipRoot?: string;
 }): Promise<LoopshipTestScheduler> {
   const fastflowRoot = resolveFastflowRoot();
-  const daemonPath = join(LOOPSHIP_ROOT, "bin", "loopship-fastflow-daemon");
+  const loopshipRoot = realpathSync(input.loopshipRoot || LOOPSHIP_ROOT);
+  const daemonPath = join(loopshipRoot, "bin", "loopship-fastflow-daemon");
   mkdirSync(dirname(input.dbPath), { recursive: true });
+  mkdirSync(input.home, { recursive: true });
+  const home = realpathSync(input.home);
   const {
     FASTFLOW_APP_MODULE: _ambientAppModule,
     FASTFLOW_SCHEDULER_DB: _ambientSchedulerDb,
     FASTFLOW_SCHEDULER_MODE: _ambientSchedulerMode,
+    LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT: _ambientDevRootOptIn,
     LOOPSHIP_FASTFLOW_ROOT: _ambientFastflowRoot,
     ...baseEnv
   } = process.env;
 
   const child = spawn("bun", ["--no-install", daemonPath], {
-    cwd: LOOPSHIP_ROOT,
+    cwd: loopshipRoot,
     env: {
       ...baseEnv,
-      HOME: input.home,
+      HOME: home,
+      LOOPSHIP_HOME: home,
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: input.dbPath,
+      LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT: "1",
       LOOPSHIP_FASTFLOW_ROOT: fastflowRoot,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -51,14 +58,18 @@ export async function startLoopshipTestScheduler(input: {
     env: {
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: input.dbPath,
+      LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT: "1",
       LOOPSHIP_FASTFLOW_ROOT: fastflowRoot,
+      LOOPSHIP_HOME: home,
     },
     stop: () => stopScheduler(child),
   };
 }
 
 function resolveFastflowRoot(): string {
-  const root = join(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow");
+  const root = process.env.LOOPSHIP_FASTFLOW_ROOT
+    ? resolve(process.env.LOOPSHIP_FASTFLOW_ROOT)
+    : join(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow");
   if (
     !existsSync(join(root, "package.json")) ||
     !existsSync(join(root, "scripts", "fastflow-scheduler-daemon.mjs"))

@@ -40,6 +40,6 @@ prefixes:
     workflow:
       service:
         flows:
-          tags: "flow, swe, flows"
+          tags: "flow, swe, child, flows, swe-child"
         step:
-          tags: "step, archived, child_result, executing, landing, plan, questions, system_update, task_graph, validation, verification, child-result, child, result, system-update, system, update, task-graph, task, graph"
+          tags: "step, archived, landing, plan, questions, system_update, task_graph, validation, verification, system-update, system, update, task-graph, task, graph"

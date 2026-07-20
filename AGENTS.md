@@ -53,8 +53,8 @@
 - Keep changes aligned with the schema-backed workflow files in `schemas/**`, `assets/**`, and `scripts/**`.
 - When changing lifecycle logic, update or run the relevant verification scripts before finishing.
 - Treat `tasks.md` as the repo's lifecycle coverage ledger, not as a transient task checklist, unless the user explicitly asks to repurpose it.
-- Treat `.loopship/quests/*/tasks.yaml`, quest JSONL files, emitted child commands, and git worktree state as canonical evidence when prose and state disagree.
-- Keep parent/root sessions coordinator-only during child execution; child CLI agents own implementation work in dedicated worktrees.
+- Treat `.loopship/quests/*/tasks.yaml`, quest JSONL files, Native execution ledgers, pinned child-DAG decisions and receipts, and git worktree state as canonical evidence when prose and state disagree. Emitted child commands and callback payloads are unsupported legacy state.
+- Keep parent/root sessions coordinator-only during child execution; pinned Native child-workflow instances own implementation work in dedicated worktrees.
 - Keep edits ASCII unless a file already uses non-ASCII characters.
 - Avoid destructive git commands and do not revert unrelated user changes.
 

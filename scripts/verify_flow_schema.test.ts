@@ -34,9 +34,13 @@ function fastflowImport(path: string): string {
   return pathToFileURL(join(resolveFastflowRoot([path]), path)).href;
 }
 
-function runNodeCheck(source: string, args: string[] = []): string {
+function runNodeCheck(
+  source: string,
+  args: string[] = [],
+  scriptName = "check.mjs",
+): string {
   const dir = mkdtempSync(join(tmpdir(), "loopship-flow-schema-"));
-  const script = join(dir, "check.mjs");
+  const script = join(dir, scriptName);
   writeFileSync(script, source, "utf8");
   try {
     return execFileSync("node", [script, ...args], {
@@ -115,6 +119,18 @@ function collectWorkflowFiles(): string[] {
 }
 
 describe("Loopship declarative Fastflow catalog", () => {
+  it("imports Fastflow cmdproto from a consumer app without auto-running its CLI", () => {
+    const output = runNodeCheck(
+      `
+        await import(${JSON.stringify(fastflowImport("src/cmdproto/app.mjs"))});
+        console.log("loopship-consumer-import-ok");
+      `,
+      [],
+      "app.mjs",
+    );
+    expect(output).toBe("loopship-consumer-import-ok\n");
+  });
+
   it("keeps workflow scope indexes resolved to stable YAML files", () => {
     for (const scopeRoot of workflowScopeRoots()) {
       const ids = workflowIds(scopeRoot);

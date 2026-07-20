@@ -17,15 +17,15 @@ import {
   assertLocalDurableFilesystem,
   completedDecision,
   createAfnDispatchPort,
-  createRuntimeOffer,
-  deriveFastflowAppConfig,
   digestCallContract,
   digestNativeContract,
   failedDecision,
-  resolveNativeSchedulerDbPath,
+  type AfnDispatchPort,
+  type AfnInvocation,
   type CallDescriptor,
   type ExecutionDecision,
   type JsonValue,
+  type NativeRef,
 } from "@cueintent/fastflow";
 import { parse as parseYaml } from "yaml";
 import {
@@ -39,20 +39,31 @@ import {
   createQuestInitialState,
   ensureCoordinatorWorkspace,
   ensureTaskWorkspace,
-  isTerminalChildQuestState,
   landingTargetWorktreePath,
   parseGitWorktrees,
   parseTasksYaml,
   questFiles,
-  taskAssignmentBranchRef,
-  taskAssignmentChildWtree,
-  taskAssignmentWorktreePath,
   updateQuestStage,
   verifyQuestManifest,
   verifyRootManifest,
   writeQuestManifest,
 } from "./loopship_core.ts";
-import type { CreateQuestInput, QuestState } from "./loopship_core.ts";
+import type { CreateQuestInput } from "./loopship_core.ts";
+import {
+  LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
+  buildLoopshipChildDagReconciliation,
+  validateLoopshipChildDag,
+} from "./loopship_child_dag.ts";
+export {
+  LOOPSHIP_DEFAULT_CHILD_MAX_CONCURRENCY,
+  LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
+  buildLoopshipChildDagReconciliation,
+  validateLoopshipChildDag,
+} from "./loopship_child_dag.ts";
+import {
+  prepareLoopshipNativeChild,
+  recordLoopshipNativeChildLifecycle,
+} from "./loopship_child_lifecycle.ts";
 import {
   readHookRouteForWorkspace,
   recordHookRoute,
@@ -84,6 +95,7 @@ const LOOPSHIP_WORKFLOW_REGISTRY = "loopship";
 const LOOPSHIP_WORKFLOW_TARGET = "service";
 const LOOPSHIP_STEP_SCOPE = "step";
 const LOOPSHIP_FLOW_SCOPE = "flows";
+const LOOPSHIP_PUBLIC_FLOW_IDS = ["swe"] as const;
 const LOOPSHIP_FLOW_INDEX = resolve(
   LOOPSHIP_CALL_CATALOG_ROOT,
   LOOPSHIP_WORKFLOW_REGISTRY,
@@ -96,7 +108,7 @@ export const LOOPSHIP_SUPERVISOR_GUIDANCE = Object.freeze({
   id: "loopship-supervisor",
   version: PACKAGE_JSON.version || "0.0.0",
   summary:
-    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; run emitted child commands for real when the flow delegates work; route terminal-child implementation gaps through configured native CLI routes with AITL fallback implementation receipts instead of supervisor inline edits; and require canonical Loopship runtime, worktree, task, validation, verification, explicit system_update, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor; when upfront scoping misses material clarification, reject or re-run scoping instead of inventing replacement planner clarification payloads. Improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
+    "Judge each Loopship flow before every native Fastflow decision: require the current step to match its declared lifecycle purpose; root/coordinator quests may decompose, but terminal child quests identified by parent_wtree, parent_task_id, parent_context_ref, or an execute child task prompt must stay local and never prepare child worktrees; require delegated work to run only through the pinned Native child DAG and child-lifecycle workflow; route terminal-child implementation gaps through configured native CLI routes with AITL fallback implementation receipts instead of supervisor inline edits; and require canonical Loopship runtime, worktree, task, validation, verification, explicit system_update, landing, or archive evidence before approving completion. Answer safe clarification prompts as the human supervisor; when upfront scoping misses material clarification, reject or re-run scoping instead of inventing replacement planner clarification payloads. Improve weak Loopship prompts, schemas, bindings, transitions, or verification rules within scope.",
   ref: "README.md#mocked-runtime-lifecycle-stepping",
 });
 export const LOOPSHIP_WORKFLOW_RESUME_COMMAND =
@@ -248,6 +260,9 @@ const STAGE_RESULT_BUILD_SCHEMA = {
 
 export const LOOPSHIP_AFN_CALLS = Object.freeze({
   childPrepareWorktree: "loopship.afn.service.child.prepare-worktree",
+  childValidateDag: "loopship.afn.service.child.validate-dag",
+  childRecordLifecycle: "loopship.afn.service.child.record-lifecycle",
+  childBuildDagReconciliation: "loopship.afn.service.child.build-dag-reconciliation",
   flowComposeTransitionResult: "loopship.afn.service.flow.compose-transition-result",
   runtimeCommitQuestState: "loopship.afn.service.runtime.commit-quest-state",
   gitResolveCommit: "loopship.afn.service.git.resolve-commit",
@@ -267,52 +282,140 @@ export const LOOPSHIP_DATA_CALLS = Object.freeze({
 export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
   {
     call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
-    summary: "Prepare Loopship child quest/worktree launch context without running the child agent.",
+    summary: "Prepare one Native DAG child quest and worktree at node dispatch time.",
     inputs: {
-      required: ["repo", "wtree"],
+      required: ["repo", "wtree", "task"],
       optional: [
-        "task_id",
-        "task",
-        "children",
         "quest",
         "parent",
         "runtime",
-        "branch",
-        "base_branch",
-        "child_wtree",
-        "worktree_path",
+        "target_branch",
+        "target_worktree",
+        "supervise_step",
         "dry_run",
       ],
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["repo", "wtree"],
+        required: ["repo", "wtree", "task"],
         properties: {
           repo: { type: "string", minLength: 1 },
           wtree: { type: "string", minLength: 1 },
-          child_wtree: { type: "string" },
-          task_id: { type: "string" },
-          task: TASK_PAYLOAD_SCHEMA,
-          children: {
-            type: "array",
-            items: TASK_PAYLOAD_SCHEMA,
-          },
+          task: clone(TASK_PAYLOAD_SCHEMA),
           quest: QUEST_CHILD_PREPARE_GUARD_SCHEMA,
           parent: PARENT_PAYLOAD_SCHEMA,
           runtime: { type: "string" },
-          branch: { type: "string" },
-          base_branch: { type: "string" },
-          worktree_path: { type: "string" },
+          target_branch: { type: "string" },
+          target_worktree: { type: "string" },
+          supervise_step: { type: "boolean" },
           dry_run: { type: "boolean" },
         },
       },
     },
     tags: ["loopship", "child", "worktree", "quest"],
-    preferWhen: ["A Loopship workflow needs to prepare child quest/worktree launch metadata."],
+    preferWhen: ["A Native Loopship DAG node becomes ready and needs its child quest/worktree."],
     avoidWhen: ["The workflow only needs reasoning, validation, verification, or model output."],
     metadata: {
       allowed_phases: ["action"],
       effects: ["worktree.prepare", "quest.prepare"],
+    },
+  },
+  {
+    call: LOOPSHIP_AFN_CALLS.childValidateDag,
+    summary: "Normalize a finite Loopship child DAG and reject unordered resource conflicts.",
+    inputs: {
+      required: ["tasks"],
+      optional: ["max_concurrency", "supervise_step"],
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["tasks"],
+        properties: {
+          tasks: { type: "array", minItems: 1, items: clone(TASK_PAYLOAD_SCHEMA) },
+          max_concurrency: {
+            type: "integer",
+            minimum: 1,
+            maximum: LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
+          },
+          supervise_step: { type: "boolean" },
+        },
+      },
+    },
+    tags: ["loopship", "child", "dag", "validation"],
+    preferWhen: ["A Loopship coordinator is about to bind its approved child task graph."],
+    avoidWhen: ["A terminal child quest is executing its local assignment."],
+    metadata: {
+      allowed_phases: ["action"],
+      effects: ["dag.read"],
+    },
+  },
+  {
+    call: LOOPSHIP_AFN_CALLS.childRecordLifecycle,
+    summary: "Persist one child quest lifecycle checkpoint without mutating its parent quest.",
+    inputs: {
+      required: ["repo", "wtree", "task_id", "status", "request_id"],
+      optional: [
+        "merge_commit",
+        "implementation_receipt",
+        "validation_receipt",
+        "verification_receipt",
+      ],
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["repo", "wtree", "task_id", "status", "request_id"],
+        properties: {
+          repo: { type: "string", minLength: 1 },
+          wtree: { type: "string", minLength: 1 },
+          task_id: { type: "string", minLength: 1 },
+          status: {
+            enum: [
+              "implemented",
+              "validation_passed",
+              "validation_failed",
+              "verification_passed",
+              "verification_failed",
+            ],
+          },
+          request_id: { type: "string", minLength: 1 },
+          merge_commit: { type: "string" },
+          implementation_receipt: { type: "object", additionalProperties: true },
+          validation_receipt: { type: "object", additionalProperties: true },
+          verification_receipt: { type: "object", additionalProperties: true },
+        },
+      },
+    },
+    tags: ["loopship", "child", "quest", "lifecycle"],
+    preferWhen: ["A Native child-lifecycle workflow has a durable local checkpoint to record."],
+    avoidWhen: ["A coordinator needs to reconcile the parent task graph."],
+    metadata: {
+      allowed_phases: ["action"],
+      effects: ["quest.child.write"],
+    },
+  },
+  {
+    call: LOOPSHIP_AFN_CALLS.childBuildDagReconciliation,
+    summary: "Build one input-ordered parent reconciliation from a settled Native child DAG.",
+    inputs: {
+      required: ["tasks", "dag_result"],
+      optional: ["runtime"],
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["tasks", "dag_result"],
+        properties: {
+          tasks: { type: "array", minItems: 1, items: clone(TASK_PAYLOAD_SCHEMA) },
+          dag_result: { type: "object", additionalProperties: true },
+          runtime: { type: "object", additionalProperties: true },
+        },
+      },
+    },
+    tags: ["loopship", "child", "dag", "reconciliation"],
+    preferWhen: ["A Native all-settled child DAG has reached its single parent reconciliation point."],
+    avoidWhen: ["A child node is still running or awaiting input."],
+    metadata: {
+      allowed_phases: ["action"],
+      effects: ["dag.read"],
     },
   },
   {
@@ -496,6 +599,11 @@ const DESCRIPTOR_BY_CALL = new Map(
   LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => [descriptor.call, descriptor]),
 );
 
+export const LOOPSHIP_AFN_HOST_ID = `loopship/host/${createHash("sha256")
+  .update(`${PACKAGE_JSON.name || "@omar391/loopship"}:native-v1`)
+  .digest("hex")
+  .slice(0, 24)}`;
+
 const LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS = 3_600_000;
 
 export type LoopshipFastflowRunInput = {
@@ -611,7 +719,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function loopshipApplicationRuntimeRef(): string {
   if (!process.versions.bun) {
     throw new Error(
-      "Loopship application adapters require Bun; Node 26 is reserved for the workflow-script security worker.",
+      "Loopship application adapters require Bun; Node 26.x is reserved for the workflow-script security worker.",
     );
   }
   return `bun:${process.versions.bun}`;
@@ -669,6 +777,12 @@ const RUN_INPUT_ALIAS_PAIRS = [
 
 function normalizeRunInputAliases(inputs: Record<string, unknown>): void {
   for (const [preferred, alias] of RUN_INPUT_ALIAS_PAIRS) {
+    for (const field of [preferred, alias]) {
+      const value = inputs[field];
+      if (value !== undefined && (typeof value !== "string" || !value.trim())) {
+        throw new Error(`Native execution inputs.${field} must be a non-empty string`);
+      }
+    }
     const preferredValue = optionalString(inputs[preferred]);
     const aliasValue = optionalString(inputs[alias]);
     if (preferredValue && aliasValue && preferredValue !== aliasValue) {
@@ -684,18 +798,18 @@ function normalizeRunInputAliases(inputs: Record<string, unknown>): void {
 }
 
 function defaultLoopshipFlowIdFromCatalog(): string {
-  const workflowIds = catalogWorkflowIds(LOOPSHIP_FLOW_INDEX);
-  const [first] = workflowIds.sort();
-  if (!first) {
-    throw new Error(`Loopship flow catalog is empty: ${LOOPSHIP_FLOW_INDEX}`);
+  const workflowIds = new Set(catalogWorkflowIds(LOOPSHIP_FLOW_INDEX));
+  const defaultFlow = LOOPSHIP_PUBLIC_FLOW_IDS[0];
+  if (!workflowIds.has(defaultFlow)) {
+    throw new Error(`Loopship public flow is missing from the catalog: ${defaultFlow}`);
   }
-  return first;
+  return defaultFlow;
 }
 
 export function resolveLoopshipFlowId(flowId?: string | null): string {
   const explicit = String(flowId ?? "").trim();
   if (!explicit) return defaultLoopshipFlowIdFromCatalog();
-  const available = catalogWorkflowIds(LOOPSHIP_FLOW_INDEX);
+  const available: string[] = [...LOOPSHIP_PUBLIC_FLOW_IDS];
   if (!available.includes(explicit)) {
     throw new Error(`Unknown Loopship flow '${explicit}'. Available flows: ${available.sort().join(", ")}`);
   }
@@ -1114,26 +1228,38 @@ function validateBodyAgainstDescriptor(
   }
 }
 
-function resolveFastflowRoot(requiredFiles = ["src/index.mjs", "src/catalog.mjs"]): string {
-  const overrideRoot = process.env.LOOPSHIP_FASTFLOW_ROOT
-    ? resolve(process.env.LOOPSHIP_FASTFLOW_ROOT)
-    : "";
-  const candidates = [
-    overrideRoot,
-    resolve(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow"),
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    if (
-      existsSync(resolve(candidate, "package.json")) &&
-      requiredFiles.every((file) => existsSync(resolve(candidate, file)))
-    ) {
-      return candidate;
-    }
+export function resolveLoopshipFastflowRoot(
+  requiredFiles = ["src/index.mjs", "src/catalog.mjs"],
+): string {
+  const configuredDevRoot = String(process.env.LOOPSHIP_FASTFLOW_ROOT || "").trim();
+  if (
+    configuredDevRoot &&
+    String(process.env.LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT || "").trim() !== "1"
+  ) {
+    throw Object.assign(
+      new Error(
+        "loopship_fastflow_dev_root_disabled: LOOPSHIP_FASTFLOW_ROOT is a development/test-only source override; set LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT=1 explicitly or use the packaged @cueintent/fastflow runtime.",
+      ),
+      { code: "loopship_fastflow_dev_root_disabled" },
+    );
   }
-  throw new Error("could not resolve @cueintent/fastflow runtime");
+  const fastflowRoot = configuredDevRoot
+    ? resolve(configuredDevRoot)
+    : resolve(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow");
+  if (
+    existsSync(resolve(fastflowRoot, "package.json")) &&
+    requiredFiles.every((file) => existsSync(resolve(fastflowRoot, file)))
+  ) {
+    return fastflowRoot;
+  }
+  throw new Error(
+    configuredDevRoot
+      ? `configured LOOPSHIP_FASTFLOW_ROOT is not a complete Fastflow runtime: ${fastflowRoot}`
+      : "could not resolve packaged @cueintent/fastflow runtime",
+  );
 }
 
-function assertAbsoluteSchedulerDatabase(): void {
+function assertLoopshipSchedulerRuntime(): void {
   assertAbsoluteLoopshipHome();
   const schedulerDb = optionalString(process.env.FASTFLOW_SCHEDULER_DB);
   if (schedulerDb && !isAbsolute(schedulerDb)) {
@@ -1141,16 +1267,7 @@ function assertAbsoluteSchedulerDatabase(): void {
   }
   if (schedulerDb) process.env.FASTFLOW_SCHEDULER_DB = schedulerDb;
   else delete process.env.FASTFLOW_SCHEDULER_DB;
-  if (!usesLocalDurableScheduler()) return;
-  const config = deriveFastflowAppConfig("loopship") as { globalStateRoot: string };
-  const dbPath = resolveNativeSchedulerDbPath({
-    schedulerDbPath: schedulerDb || resolve(
-      config.globalStateRoot,
-      "scheduler",
-      "native-v1.sqlite",
-    ),
-  });
-  assertLocalDurableFilesystem(dbPath);
+  usesLocalDurableScheduler();
 }
 
 function assertAbsoluteLoopshipHome(): void {
@@ -1237,7 +1354,7 @@ function loopshipFlowIdFromWorkflowRef(workflowRef: string): string {
   if (!workflowRef.startsWith(prefix)) {
     throw new Error(`Loopship workflow request must target ${prefix}<flow-id>.`);
   }
-  return resolveLoopshipFlowId(workflowRef.slice(prefix.length).replace(/-/g, "_"));
+  return resolveLoopshipFlowId(workflowRef.slice(prefix.length));
 }
 
 export async function ensureLoopshipFastflowWorkflowCatalog(
@@ -1256,14 +1373,14 @@ function runFastflowSession(input: {
   operation: "run" | "recover" | "resume";
   request: Record<string, unknown>;
 }): Record<string, unknown> {
-  assertAbsoluteSchedulerDatabase();
+  assertLoopshipSchedulerRuntime();
   if (!process.versions.bun) {
     throw new Error("Loopship Native application sessions require the Bun runtime.");
   }
   const tempDir = mkdtempSync(join(tmpdir(), "loopship-fastflow-session-"));
   const requestPath = join(tempDir, "request.json");
   const scriptPath = join(tempDir, "run.mjs");
-  const fastflowRoot = resolveFastflowRoot();
+  const fastflowRoot = resolveLoopshipFastflowRoot();
   const workspaceRoot = resolve(input.workspaceRoot || input.repoRoot);
   writeFileSync(requestPath, JSON.stringify(input.request), "utf8");
   writeFileSync(
@@ -1385,7 +1502,9 @@ function fastflowChildError(
       : "<unknown>";
   const guidance = failure.code === "FASTFLOW_PLAN_INCOMPATIBLE"
     ? ` ${executionId} is pinned to a different runtime closure. Restore the exact prior Loopship/Fastflow release to finish or cancel it, then deploy this release and resubmit as a new Native execution.`
-    : "";
+    : failure.code === "legacy_execution_unsupported"
+      ? " Legacy executions are unsupported and must be resubmitted as new Native v1 executions."
+      : "";
   return Object.assign(new Error(`${failure.message}${guidance}`), {
     code: failure.code,
     retryable: failure.retryable,
@@ -1447,29 +1566,6 @@ function throwIfNativeExecutionFailed(
   );
 }
 
-function throwIfNativeExecutionUnsettled(
-  result: Record<string, unknown>,
-  executionId: string,
-): void {
-  const publicRunning =
-    result.schemaVersion === "fastflow/workflow-run-artifact/v1" &&
-    result.kind === "workflow_result" &&
-    result.status === "running";
-  const rawRunning =
-    result.executionId !== executionId ||
-    result.ok !== false ||
-    !["queued", "running"].includes(String(result.status));
-  if (!publicRunning && rawRunning) {
-    return;
-  }
-  throw Object.assign(
-    new Error(
-      `Native execution ${executionId} is still ${String(result.status)}; retry canonical recovery after the durable scheduler settles it`,
-    ),
-    { code: "FASTFLOW_NATIVE_EXECUTION_RUNNING", retryable: true },
-  );
-}
-
 function syncLoopshipHookRoute(input: {
   repoRoot: string;
   workspaceRoot: string;
@@ -1478,6 +1574,9 @@ function syncLoopshipHookRoute(input: {
   result: Record<string, unknown>;
   expectedRoute?: { sessionId: string; nonce: string };
 }): void {
+  if (["pending", "queued", "running"].includes(String(input.result.status))) {
+    return;
+  }
   let route = null;
   if (input.runtime) {
     const identity = runtimeIdentityFromEnv(input.runtime);
@@ -1505,7 +1604,7 @@ export async function resolveLoopshipFastflowCommandBinding(
   bindings: Array<Record<string, unknown>>,
   context: Record<string, unknown> = {},
 ): Promise<Record<string, unknown> | null> {
-  const fastflowRoot = resolveFastflowRoot();
+  const fastflowRoot = resolveLoopshipFastflowRoot();
   const { resolveFastflowCommandBinding } = await import(
     pathToFileURL(resolve(fastflowRoot, "src", "command-bindings.mjs")).href
   );
@@ -1515,7 +1614,7 @@ export async function resolveLoopshipFastflowCommandBinding(
 export async function runLoopshipFastflowWorkflowRequest(
   input: LoopshipFastflowWorkflowRequestInput,
 ): Promise<Record<string, unknown>> {
-  assertAbsoluteSchedulerDatabase();
+  assertLoopshipSchedulerRuntime();
   const catalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
   const workflowRef = requireString(input.request.workflowRef, "workflowRef");
   const requestInputs = isPlainObject(input.request.inputs)
@@ -1529,6 +1628,10 @@ export async function runLoopshipFastflowWorkflowRequest(
     inputs: requestInputs,
   });
   const superviseStep = input.request.superviseStep === true || input.request.supervision === "step";
+  const tasksPath = resolve(workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE, "tasks.yaml");
+  if (existsSync(tasksPath)) {
+    readNativeExecutionRequest(workspaceRoot);
+  }
   ensureLoopshipRuntimeDocument({
     repoRoot,
     workspaceRoot,
@@ -1560,7 +1663,6 @@ export async function runLoopshipFastflowWorkflowRequest(
     operation: "run",
     request: nativeExecution.request,
   });
-  throwIfNativeExecutionUnsettled(result, nativeExecution.executionId);
   finalizeLoopshipNativeExecution({
     repoRoot,
     workspaceRoot,
@@ -1582,7 +1684,7 @@ export async function runLoopshipFastflowWorkflowRequest(
 export async function runLoopshipFastflowWorkflow(
   input: LoopshipFastflowRunInput,
 ): Promise<Record<string, unknown>> {
-  assertAbsoluteSchedulerDatabase();
+  assertLoopshipSchedulerRuntime();
   const flowId = resolveLoopshipFlowId(input.flowId);
   const prepared = resolveRunWorkspace({
     ...input,
@@ -1622,6 +1724,7 @@ function requireCanonicalNativeWorkspace(input: {
     operation: "Native recovery",
   });
   const { wtree, branch: registeredBranch } = canonical;
+  const execution = readNativeExecutionRequest(workspaceRoot);
   const tasksPath = resolve(workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE, "tasks.yaml");
   let tasks: Record<string, unknown> | null = null;
   if (existsSync(tasksPath)) {
@@ -1642,7 +1745,6 @@ function requireCanonicalNativeWorkspace(input: {
       );
     }
   }
-  const execution = readNativeExecutionRequest(workspaceRoot);
   const requestInputs = isPlainObject(execution.request.inputs)
     ? { ...execution.request.inputs }
     : {};
@@ -1708,7 +1810,7 @@ function requireCanonicalNativeWorkspace(input: {
 export async function recoverLoopshipFastflowWorkflow(
   input: LoopshipFastflowRecoverInput,
 ): Promise<Record<string, unknown>> {
-  assertAbsoluteSchedulerDatabase();
+  assertLoopshipSchedulerRuntime();
   const requestedWtree = assertCanonicalWtreeName(requireString(input.wtree, "wtree"));
   const canonical = requireCanonicalNativeWorkspace({
     repoRoot: input.repoRoot,
@@ -1783,7 +1885,6 @@ export async function recoverLoopshipFastflowWorkflow(
     operation: stored.status === "pending" ? "recover" : "run",
     request: nativeExecution.request,
   });
-  throwIfNativeExecutionUnsettled(result, nativeExecution.executionId);
   assertNativeExecutionWorkspaceDurable(workspaceRoot);
   finalizeLoopshipNativeExecution({
     repoRoot,
@@ -1806,7 +1907,7 @@ export async function recoverLoopshipFastflowWorkflow(
 export async function resumeLoopshipFastflowWorkflow(
   input: LoopshipFastflowResumeInput,
 ): Promise<Record<string, unknown>> {
-  assertAbsoluteSchedulerDatabase();
+  assertLoopshipSchedulerRuntime();
   const explicitWorkspaceRoot = optionalString(input.workspaceRoot);
   const requestWorkspaceRoot = optionalString(input.request.workspaceRoot);
   if (
@@ -1847,7 +1948,6 @@ export async function resumeLoopshipFastflowWorkflow(
     operation: "resume",
     request: input.request,
   });
-  throwIfNativeExecutionUnsettled(result, executionId);
   assertNativeExecutionWorkspaceDurable(canonical.workspaceRoot);
   finalizeLoopshipNativeExecution({
     repoRoot: canonical.repoRoot,
@@ -1870,200 +1970,12 @@ export async function resumeLoopshipFastflowWorkflow(
   return result;
 }
 
-function command(cmd: string, args: string[]): Record<string, unknown> {
-  return { cmd, args };
-}
-
 const CHILD_DONE_STATUSES = new Set([
   "child_merged",
   "child_archived",
   "done",
   "merged",
 ]);
-const CHILD_PREPARE_QUEUED_STATUSES = new Set([
-  "child_received",
-  "pending",
-  "queued",
-]);
-
-function prepareChildLaunch(
-  body: Record<string, unknown>,
-  task: Record<string, unknown>,
-): Record<string, unknown> {
-  const repo = requireString(body.repo, "repo");
-  const parentWtree = assertCanonicalWtreeName(requireString(body.wtree, "wtree"));
-  const parent = isPlainObject(body.parent) ? body.parent : {};
-  const taskId =
-    optionalString(body.task_id) ||
-    optionalString(task.id) ||
-    optionalString(task.task_id) ||
-    optionalString(parent.task_id) ||
-    "task";
-  const childWtree =
-    optionalString(body.child_wtree) ||
-    optionalString(task.child_wtree) ||
-    taskAssignmentChildWtree(parentWtree, taskId);
-  assertCanonicalWtreeName(childWtree, "child_wtree");
-  const branchRef =
-    optionalString(body.branch) ||
-    optionalString(task.branch_ref) ||
-    taskAssignmentBranchRef(parentWtree, taskId);
-  assertValidGitBranchRef(branchRef, "child branch");
-  const worktreePath =
-    optionalString(body.worktree_path) ||
-    optionalString(task.worktree_path) ||
-    taskAssignmentWorktreePath(repo, parentWtree, taskId);
-  const baseBranch =
-    optionalString(body.base_branch) ||
-    optionalString(body.target_branch) ||
-    parentWtree;
-  if (branchRef === baseBranch) {
-    throw new Error(`child branch must differ from its base branch: ${branchRef}`);
-  }
-  const workspace = body.dry_run === true
-    ? { branch_ref: branchRef, worktree_path: worktreePath, mode: "dry-run" }
-    : ensureTaskWorkspace(repo, branchRef, worktreePath, baseBranch);
-  const runtime = optionalString(body.runtime) || "codex";
-  const superviseStep = childPrepareWorktreeUsesSuperviseStep(body);
-  const parentContextRef = `${repo}/worktrees/${parentWtree}/${LOOPSHIP_RUNTIME_NAMESPACE}/tasks.yaml`;
-  const request = `loopship: execute child task ${taskId}: ${optionalString(task.title) || taskId}. Read parent context at ${parentContextRef}. Implement only this assigned task. Do not split into child worktrees. Land into ${parentWtree} and return the merge_commit.`;
-  const initArgs = [
-    ...(superviseStep ? ["stepper", "init"] : ["init"]),
-    request,
-    "--repo",
-    repo,
-    "--wtree",
-    childWtree,
-    "--source-branch",
-    workspace.branch_ref,
-    "--parent-wtree",
-    parentWtree,
-    "--parent-task-id",
-    taskId,
-    "--parent-context-ref",
-    parentContextRef,
-    "--target-branch",
-    parentWtree,
-    "--target-worktree",
-    `${repo}/worktrees/${parentWtree}`,
-    "--runtime",
-    runtime,
-  ];
-  return {
-    schema_version: "loopship.child.prepare/v1",
-    task_id: taskId,
-    child_wtree: childWtree,
-    parent_wtree: parentWtree,
-    parent_context_ref: parentContextRef,
-    branch_ref: workspace.branch_ref,
-    worktree_path: workspace.worktree_path,
-    runtime,
-    supervise_step: superviseStep,
-    actions: {
-      init: command("loopship", initArgs),
-    },
-  };
-}
-
-function childPrepareWorktreeQuestState(
-  body: Record<string, unknown>,
-): Partial<
-  Pick<
-    QuestState,
-    "prompt" | "parent_wtree" | "parent_task_id" | "parent_context_ref" | "supervise_step"
-  >
-> {
-  const quest = isPlainObject(body.quest) ? body.quest : {};
-  const parent = isPlainObject(body.parent) ? body.parent : {};
-  return {
-    prompt: optionalString(body.prompt) || optionalString(quest.prompt),
-    parent_wtree:
-      optionalString((parent as Record<string, unknown>).parent_wtree) ||
-      optionalString(quest.parent_wtree),
-    parent_task_id:
-      optionalString((parent as Record<string, unknown>).task_id) ||
-      optionalString(quest.parent_task_id),
-    parent_context_ref:
-      optionalString((parent as Record<string, unknown>).parent_context_ref) ||
-      optionalString(quest.parent_context_ref),
-    supervise_step:
-      body.supervise_step === true ||
-      body.superviseStep === true ||
-      quest.supervise_step === true ||
-      quest.superviseStep === true,
-  };
-}
-
-function childPrepareWorktreeUsesSuperviseStep(body: Record<string, unknown>): boolean {
-  return childPrepareWorktreeQuestState(body).supervise_step === true;
-}
-
-function isQueuedChildTask(task: Record<string, unknown>): boolean {
-  const status = optionalString(task.status) || "child_received";
-  return CHILD_PREPARE_QUEUED_STATUSES.has(status);
-}
-
-function childTaskId(task: Record<string, unknown>): string {
-  return optionalString(task.task_id) || optionalString(task.id) || "";
-}
-
-function childTaskDependencies(task: Record<string, unknown>): string[] {
-  const rawDependencies = Array.isArray(task.dependencies)
-    ? task.dependencies
-    : Array.isArray(task.depends_on)
-      ? task.depends_on
-      : [];
-  return rawDependencies
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
-    .filter(Boolean);
-}
-
-function isReadyChildTask(
-  task: Record<string, unknown>,
-  statusById: Map<string, string>,
-): boolean {
-  if (!isQueuedChildTask(task)) return false;
-  return childTaskDependencies(task).every((dependencyId) => {
-    const dependencyStatus = statusById.get(dependencyId);
-    return typeof dependencyStatus === "string" && CHILD_DONE_STATUSES.has(dependencyStatus);
-  });
-}
-
-function executeChildPrepare(body: Record<string, unknown>): Record<string, unknown> {
-  const childInputs = Array.isArray(body.children)
-    ? body.children.filter(isPlainObject)
-    : [isPlainObject(body.task) ? body.task : {}];
-  if (isTerminalChildQuestState(childPrepareWorktreeQuestState(body))) {
-    const childIds = childInputs
-      .map((task) =>
-        optionalString(task.task_id) || optionalString(task.id) || optionalString(task.title),
-      )
-      .filter(Boolean);
-    throw new Error(
-      `terminal child quests must not prepare child worktrees${
-        childIds.length ? ` (${childIds.join(", ")})` : ""
-      }; keep the assigned work local in the current child worktree and continue workflow edits through *.dev.yaml plus Fastflow promotion`,
-    );
-  }
-  const statusById = new Map<string, string>();
-  for (const task of childInputs) {
-    const taskId = childTaskId(task);
-    if (!taskId) continue;
-    statusById.set(taskId, optionalString(task.status) || "child_received");
-  }
-  const selectedInputs = childPrepareWorktreeUsesSuperviseStep(body)
-    ? childInputs.filter((task) => isReadyChildTask(task, statusById)).slice(0, 1)
-    : childInputs.filter((task) => isReadyChildTask(task, statusById));
-  const preparedChildren = selectedInputs.map((task) => prepareChildLaunch(body, task));
-  const first = preparedChildren[0] || {};
-  return {
-    schema_version: "loopship.child.prepare/v1",
-    ...first,
-    prepared_children: preparedChildren,
-    children: preparedChildren,
-    count: preparedChildren.length,
-  };
-}
 
 function executeSystemApplyUpdate(body: Record<string, unknown>): Record<string, unknown> {
   const repo = requireString(body.repo, "repo");
@@ -2530,33 +2442,58 @@ function assertLandingPreflight(input: {
   assertNoTrackedWorktreePaths(input.repo);
 }
 
-function gitMergeIntoTarget(input: {
+type LoopshipLandingRecoverySnapshot = {
+  schemaVersion: "loopship.landing-recovery-snapshot/v1";
+  mode: "already-up-to-date" | "fast-forward" | "merge-commit" | "recorded";
+  repo: string;
+  wtree: string;
+  sourceBranch: string;
+  targetBranch: string;
+  targetWorktree: string;
+  sourceCommit: string;
+  targetCommit: string;
+  landedCommit: string;
+  strategy: string;
+};
+
+type GitMergePreparation = {
   repo: string;
   sourceBranch: string;
   targetBranch: string;
   targetWorktree: string;
-}): Record<string, unknown> {
-  input.sourceBranch = assertValidGitBranchRef(input.sourceBranch, "source branch");
-  input.targetBranch = assertValidGitBranchRef(input.targetBranch, "target branch");
-  const sourceWorktree = parseGitWorktrees(input.repo).find(
-    (entry) => entry.branch === input.sourceBranch,
+  sourceCommit: string;
+  targetCommit: string;
+  mode: "already-up-to-date" | "fast-forward" | "merge-commit";
+};
+
+function prepareGitMergeIntoTarget(input: {
+  repo: string;
+  sourceBranch: string;
+  targetBranch: string;
+  targetWorktree: string;
+}): GitMergePreparation {
+  const repo = canonicalRepositoryRoot(input.repo, "repo");
+  const sourceBranch = assertValidGitBranchRef(input.sourceBranch, "source branch");
+  const targetBranch = assertValidGitBranchRef(input.targetBranch, "target branch");
+  const sourceWorktree = parseGitWorktrees(repo).find(
+    (entry) => entry.branch === sourceBranch,
   )?.worktree;
   if (sourceWorktree) {
     commitDurableLoopshipState(
       sourceWorktree,
-      `chore(loopship): record ${input.sourceBranch} durable state`,
+      `chore(loopship): record ${sourceBranch} durable state`,
     );
   }
-  const existingTargetWorktree = parseGitWorktrees(input.repo).find(
-    (entry) => entry.branch === input.targetBranch,
+  const existingTargetWorktree = parseGitWorktrees(repo).find(
+    (entry) => entry.branch === targetBranch,
   );
   if (existingTargetWorktree) {
     const existingPath = resolve(existingTargetWorktree.worktree);
     const requestedPath = resolve(input.targetWorktree);
-    const defaultPath = landingTargetWorktreePath(input.repo, input.targetBranch);
+    const defaultPath = landingTargetWorktreePath(repo, targetBranch);
     if (
-      existingPath !== resolve(input.repo) &&
-      !isInsideRepoWorktrees(input.repo, existingPath)
+      existingPath !== repo &&
+      !isInsideRepoWorktrees(repo, existingPath)
     ) {
       throw new Error(
         `landing target branch is checked out outside the repository worktrees: ${existingPath}`,
@@ -2570,19 +2507,19 @@ function gitMergeIntoTarget(input: {
   }
   const workspace = existingTargetWorktree
     ? {
-        branch_ref: input.targetBranch,
+        branch_ref: targetBranch,
         worktree_path: existingTargetWorktree.worktree,
         mode: "git",
       }
     : ensureTaskWorkspace(
-        input.repo,
-        input.targetBranch,
+        repo,
+        targetBranch,
         input.targetWorktree,
       );
   const currentBranch = gitCurrentBranch(workspace.worktree_path);
-  if (currentBranch !== input.targetBranch) {
+  if (currentBranch !== targetBranch) {
     throw new Error(
-      `landing target worktree ${workspace.worktree_path} is on ${currentBranch || "unknown"} instead of ${input.targetBranch}`,
+      `landing target worktree ${workspace.worktree_path} is on ${currentBranch || "unknown"} instead of ${targetBranch}`,
     );
   }
   const dirtyTargetEntries = landingTargetDirtyEntries(workspace.worktree_path);
@@ -2591,48 +2528,112 @@ function gitMergeIntoTarget(input: {
       `cannot merge into dirty landing target worktree ${workspace.worktree_path}: ${dirtyTargetEntries.slice(0, 5).join(", ")}`,
     );
   }
-  const sourceCommit = gitRevParse(input.repo, input.sourceBranch);
-  const targetCommit = gitRevParse(input.repo, input.targetBranch);
-  if (sourceCommit === targetCommit) {
+  const sourceCommit = gitRevParse(repo, sourceBranch);
+  const targetCommit = gitRevParse(repo, targetBranch);
+  const mode = sourceCommit === targetCommit || gitIsAncestor(repo, sourceCommit, targetCommit)
+    ? "already-up-to-date"
+    : gitIsAncestor(repo, targetCommit, sourceCommit)
+      ? "fast-forward"
+      : "merge-commit";
+  return {
+    repo,
+    sourceBranch,
+    targetBranch,
+    targetWorktree: resolve(workspace.worktree_path),
+    sourceCommit,
+    targetCommit,
+    mode,
+  };
+}
+
+function gitCommitParents(repo: string, commit: string): string[] {
+  const result = runCommand(
+    "git",
+    ["show", "-s", "--format=%P", "--end-of-options", commit],
+    { cwd: repo, timeoutMs: 15_000 },
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || `failed to inspect commit ${commit}`);
+  }
+  return result.stdout.trim().split(/\s+/u).filter(Boolean);
+}
+
+function assertMergePreparationMatchesSnapshot(
+  prepared: GitMergePreparation,
+  snapshot: LoopshipLandingRecoverySnapshot,
+): void {
+  const expected = {
+    repo: snapshot.repo,
+    sourceBranch: snapshot.sourceBranch,
+    targetBranch: snapshot.targetBranch,
+    targetWorktree: snapshot.targetWorktree,
+    sourceCommit: snapshot.sourceCommit,
+    targetCommit: snapshot.targetCommit,
+    mode: snapshot.mode,
+  };
+  if (snapshot.mode === "recorded" || !nativeValuesMatch(prepared, expected)) {
+    throw new Error("landing recovery snapshot no longer matches the exact pre-merge state");
+  }
+}
+
+function gitMergeIntoTarget(input: {
+  repo: string;
+  sourceBranch: string;
+  targetBranch: string;
+  targetWorktree: string;
+}, snapshot?: LoopshipLandingRecoverySnapshot): Record<string, unknown> {
+  const prepared = prepareGitMergeIntoTarget(input);
+  if (snapshot) assertMergePreparationMatchesSnapshot(prepared, snapshot);
+  if (prepared.mode === "already-up-to-date") {
     return {
-      source_branch: input.sourceBranch,
-      target_branch: input.targetBranch,
-      target_worktree: workspace.worktree_path,
-      landed_commit: sourceCommit,
+      source_branch: prepared.sourceBranch,
+      target_branch: prepared.targetBranch,
+      target_worktree: prepared.targetWorktree,
+      landed_commit: prepared.targetCommit,
       strategy: "already-up-to-date",
     };
   }
-  const ffOnly = gitIsAncestor(input.repo, targetCommit, sourceCommit);
   removeUntrackedLoopshipGitignoreConflict(
-    workspace.worktree_path,
-    input.sourceBranch,
+    prepared.targetWorktree,
+    prepared.sourceBranch,
   );
-  const mergeArgs = ffOnly
-    ? ["merge", "--ff-only", input.sourceBranch]
-    : ["merge", "--no-ff", "--no-edit", input.sourceBranch];
+  const mergeArgs = prepared.mode === "fast-forward"
+    ? ["merge", "--ff-only", prepared.sourceBranch]
+    : ["merge", "--no-ff", "--no-edit", prepared.sourceBranch];
   const merge = runCommand("git", mergeArgs, {
-    cwd: workspace.worktree_path,
+    cwd: prepared.targetWorktree,
     timeoutMs: 60_000,
   });
   if (merge.status !== 0) {
     throw new Error(
       merge.stderr ||
         merge.stdout ||
-        `failed to merge ${input.sourceBranch} into ${input.targetBranch}`,
+        `failed to merge ${prepared.sourceBranch} into ${prepared.targetBranch}`,
     );
   }
-  const dirtyAfterMerge = landingTargetDirtyEntries(workspace.worktree_path);
+  const dirtyAfterMerge = landingTargetDirtyEntries(prepared.targetWorktree);
   if (dirtyAfterMerge.length) {
     throw new Error(
-      `landing target worktree ${workspace.worktree_path} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
+      `landing target worktree ${prepared.targetWorktree} is dirty after merge: ${dirtyAfterMerge.slice(0, 5).join(", ")}`,
     );
   }
+  const landedCommit = gitRevParse(prepared.targetWorktree, "HEAD");
+  if (
+    (prepared.mode === "fast-forward" && landedCommit !== prepared.sourceCommit) ||
+    (prepared.mode === "merge-commit" &&
+      !nativeValuesMatch(
+        gitCommitParents(prepared.repo, landedCommit),
+        [prepared.targetCommit, prepared.sourceCommit],
+      ))
+  ) {
+    throw new Error("landing merge did not produce the exact prepared commit transition");
+  }
   return {
-    source_branch: input.sourceBranch,
-    target_branch: input.targetBranch,
-    target_worktree: workspace.worktree_path,
-    landed_commit: gitRevParse(workspace.worktree_path, "HEAD"),
-    strategy: ffOnly ? "fast-forward" : "merge-commit",
+    source_branch: prepared.sourceBranch,
+    target_branch: prepared.targetBranch,
+    target_worktree: prepared.targetWorktree,
+    landed_commit: landedCommit,
+    strategy: prepared.mode,
   };
 }
 
@@ -3032,11 +3033,29 @@ function persistLandingMergeReceipt(
   return receipt;
 }
 
-function executeLandingApplyOutcome(body: Record<string, unknown>): Record<string, unknown> {
-  const repo = requireString(body.repo, "repo");
-  const wtree = requireString(body.wtree, "wtree");
+type LoopshipLandingOperation = {
+  repo: string;
+  wtree: string;
+  files: ReturnType<typeof questFiles>;
+  state: Record<string, unknown>;
+  sourceBranch: string;
+  targetBranch: string;
+  targetWorktree: string;
+  receipt: Record<string, unknown>;
+  status: "landed" | "blocked";
+  nextStage: string;
+};
+
+type LoopshipAfnEffectContext = {
+  landingRecoverySnapshot?: LoopshipLandingRecoverySnapshot;
+};
+
+function resolveLoopshipLandingOperation(
+  body: Record<string, unknown>,
+): LoopshipLandingOperation {
+  const repo = canonicalRepositoryRoot(body.repo, "repo");
+  const wtree = assertCanonicalWtreeName(requireString(body.wtree, "wtree"));
   const files = questFiles(repo, wtree);
-  const requestId = optionalString(body.request_id) || `fastflow-landing-${Date.now().toString(36)}`;
   if (!existsSync(files.tasks)) {
     const legacyTasks = resolve(repo, LOOPSHIP_RUNTIME_NAMESPACE, "tasks.yaml");
     if (existsSync(legacyTasks)) {
@@ -3059,6 +3078,209 @@ function executeLandingApplyOutcome(body: Record<string, unknown>): Record<strin
   if (!["landed", "blocked"].includes(status)) {
     throw new Error("landing.apply-outcome status must be landed or blocked");
   }
+  return {
+    repo,
+    wtree,
+    files,
+    state,
+    sourceBranch,
+    targetBranch,
+    targetWorktree,
+    receipt,
+    status: status as "landed" | "blocked",
+    nextStage,
+  };
+}
+
+function createLoopshipLandingRecoverySnapshot(
+  body: Record<string, unknown>,
+): LoopshipLandingRecoverySnapshot | null {
+  if (body.dry_run === true) return null;
+  const operation = resolveLoopshipLandingOperation(body);
+  if (operation.status === "blocked") return null;
+  if (!operation.nextStage) {
+    throw new Error("landing.apply-outcome landed status requires next_stage");
+  }
+  assertLandingPreflight({ repo: operation.repo, state: operation.state });
+  if (!operation.sourceBranch) {
+    throw new Error("landing.apply-outcome requires source_branch or state.coordinator_branch");
+  }
+  if (optionalString(operation.receipt.landed_commit)) {
+    const recorded = verifiedRecordedReceipt({
+      repo: operation.repo,
+      sourceBranch: operation.sourceBranch,
+      targetBranch: operation.targetBranch,
+      targetWorktree: operation.targetWorktree,
+      receipt: operation.receipt,
+    });
+    return {
+      schemaVersion: "loopship.landing-recovery-snapshot/v1",
+      mode: "recorded",
+      repo: operation.repo,
+      wtree: operation.wtree,
+      sourceBranch: operation.sourceBranch,
+      targetBranch: operation.targetBranch,
+      targetWorktree: resolve(String(recorded.target_worktree)),
+      sourceCommit: gitRevParse(operation.repo, operation.sourceBranch),
+      targetCommit: gitRevParse(operation.repo, operation.targetBranch),
+      landedCommit: String(recorded.landed_commit),
+      strategy: String(recorded.strategy),
+    };
+  }
+  const prepared = prepareGitMergeIntoTarget({
+    repo: operation.repo,
+    sourceBranch: operation.sourceBranch,
+    targetBranch: operation.targetBranch,
+    targetWorktree: operation.targetWorktree,
+  });
+  return {
+    schemaVersion: "loopship.landing-recovery-snapshot/v1",
+    mode: prepared.mode,
+    repo: operation.repo,
+    wtree: operation.wtree,
+    sourceBranch: prepared.sourceBranch,
+    targetBranch: prepared.targetBranch,
+    targetWorktree: prepared.targetWorktree,
+    sourceCommit: prepared.sourceCommit,
+    targetCommit: prepared.targetCommit,
+    landedCommit: prepared.mode === "already-up-to-date" ? prepared.targetCommit : "",
+    strategy: prepared.mode,
+  };
+}
+
+function assertLandingRecoverySnapshotIdentity(input: {
+  operation: LoopshipLandingOperation;
+  snapshot: LoopshipLandingRecoverySnapshot;
+}): { currentSourceCommit: string; currentTargetCommit: string } {
+  const { operation, snapshot } = input;
+  const registeredTarget = parseGitWorktrees(operation.repo).find(
+    (entry) => entry.branch === operation.targetBranch,
+  );
+  const targetIdentity = resolve(
+    registeredTarget?.worktree || operation.targetWorktree,
+  );
+  const identity = {
+    repo: operation.repo,
+    wtree: operation.wtree,
+    sourceBranch: operation.sourceBranch,
+    targetBranch: operation.targetBranch,
+    targetWorktree: targetIdentity,
+  };
+  const expectedIdentity = {
+    repo: snapshot.repo,
+    wtree: snapshot.wtree,
+    sourceBranch: snapshot.sourceBranch,
+    targetBranch: snapshot.targetBranch,
+    targetWorktree: resolve(snapshot.targetWorktree),
+  };
+  if (!nativeValuesMatch(identity, expectedIdentity)) {
+    throw new Error("landing recovery snapshot conflicts with the current repository or branch identity");
+  }
+  const currentSourceCommit = gitRevParse(operation.repo, operation.sourceBranch);
+  const currentTargetCommit = gitRevParse(operation.repo, operation.targetBranch);
+  if (currentSourceCommit !== snapshot.sourceCommit) {
+    throw new Error("landing recovery snapshot source branch moved after the prepared merge");
+  }
+  return { currentSourceCommit, currentTargetCommit };
+}
+
+function recoverLandingReceiptFromSnapshot(
+  body: Record<string, unknown>,
+  snapshot: LoopshipLandingRecoverySnapshot,
+): Record<string, unknown> | null {
+  const operation = resolveLoopshipLandingOperation(body);
+  if (operation.status !== "landed") {
+    throw new Error("landing recovery snapshot cannot be used for a blocked outcome");
+  }
+  assertLandingPreflight({ repo: operation.repo, state: operation.state });
+  const { currentSourceCommit, currentTargetCommit } =
+    assertLandingRecoverySnapshotIdentity({ operation, snapshot });
+  let landedCommit = snapshot.landedCommit;
+  if (snapshot.mode === "fast-forward") {
+    if (
+      snapshot.targetCommit === snapshot.sourceCommit ||
+      !gitIsAncestor(operation.repo, snapshot.targetCommit, snapshot.sourceCommit)
+    ) {
+      throw new Error("landing recovery snapshot has an invalid fast-forward transition");
+    }
+    if (currentTargetCommit === snapshot.targetCommit) return null;
+    if (currentTargetCommit !== snapshot.sourceCommit) {
+      throw new Error("landing recovery snapshot target branch moved outside the prepared fast-forward");
+    }
+    landedCommit = snapshot.sourceCommit;
+  } else if (snapshot.mode === "merge-commit") {
+    if (
+      gitIsAncestor(operation.repo, snapshot.targetCommit, snapshot.sourceCommit) ||
+      gitIsAncestor(operation.repo, snapshot.sourceCommit, snapshot.targetCommit)
+    ) {
+      throw new Error("landing recovery snapshot has an invalid merge-commit transition");
+    }
+    if (currentTargetCommit === snapshot.targetCommit) return null;
+    if (
+      !nativeValuesMatch(
+        gitCommitParents(operation.repo, currentTargetCommit),
+        [snapshot.targetCommit, snapshot.sourceCommit],
+      )
+    ) {
+      throw new Error("landing recovery snapshot target branch is not the exact prepared merge commit");
+    }
+    landedCommit = currentTargetCommit;
+  } else if (snapshot.mode === "already-up-to-date") {
+    if (
+      currentTargetCommit !== snapshot.targetCommit ||
+      snapshot.landedCommit !== snapshot.targetCommit ||
+      !gitIsAncestor(operation.repo, currentSourceCommit, currentTargetCommit)
+    ) {
+      throw new Error("landing recovery snapshot no longer matches the already-landed commits");
+    }
+  } else {
+    const recorded = verifiedRecordedReceipt({
+      repo: operation.repo,
+      sourceBranch: operation.sourceBranch,
+      targetBranch: operation.targetBranch,
+      targetWorktree: operation.targetWorktree,
+      receipt: operation.receipt,
+    });
+    if (
+      currentTargetCommit !== snapshot.targetCommit ||
+      !optionalString(snapshot.landedCommit) ||
+      !nativeValuesMatch(recorded, {
+        source_branch: snapshot.sourceBranch,
+        target_branch: snapshot.targetBranch,
+        target_worktree: snapshot.targetWorktree,
+        landed_commit: snapshot.landedCommit,
+        strategy: snapshot.strategy,
+      })
+    ) {
+      throw new Error("landing recovery snapshot no longer matches the recorded landing receipt");
+    }
+  }
+  return {
+    source_branch: snapshot.sourceBranch,
+    target_branch: snapshot.targetBranch,
+    target_worktree: snapshot.targetWorktree,
+    landed_commit: landedCommit,
+    strategy: snapshot.strategy,
+  };
+}
+
+function executeLandingApplyOutcome(
+  body: Record<string, unknown>,
+  context: LoopshipAfnEffectContext = {},
+): Record<string, unknown> {
+  const operation = resolveLoopshipLandingOperation(body);
+  const {
+    repo,
+    files,
+    state,
+    sourceBranch,
+    targetBranch,
+    targetWorktree,
+    receipt,
+    status,
+    nextStage,
+  } = operation;
+  const requestId = optionalString(body.request_id) || `fastflow-landing-${Date.now().toString(36)}`;
   if (body.dry_run === true) {
     return {
       schema_version: "loopship.landing.apply/v1",
@@ -3114,7 +3336,16 @@ function executeLandingApplyOutcome(body: Record<string, unknown>): Record<strin
         sourceBranch,
         targetBranch,
         targetWorktree,
-      });
+      }, context.landingRecoverySnapshot);
+  if (context.landingRecoverySnapshot && optionalString(receipt.landed_commit)) {
+    const expected = recoverLandingReceiptFromSnapshot(
+      body,
+      context.landingRecoverySnapshot,
+    );
+    if (!expected || !nativeValuesMatch(expected, landingReceipt)) {
+      throw new Error("landing receipt does not match the immutable recovery snapshot");
+    }
+  }
   persistLandingMergeReceipt(files, requestId, landingReceipt);
   applyLandingReceipt(files, state, {
     parent_wtree: String(state.parent_wtree || ""),
@@ -3151,16 +3382,21 @@ function executeLandingCleanupLandedWorktrees(body: Record<string, unknown>): Re
 
 type LoopshipAfnHandler = (
   body: Record<string, unknown>,
+  context?: LoopshipAfnEffectContext,
 ) => Record<string, unknown> | Promise<Record<string, unknown>>;
 
+const LOOPSHIP_AFN_EFFECT_RECEIPT_SCHEMA =
+  "loopship.afn-effect-receipt/v2" as const;
+
 type LoopshipAfnEffectReceipt = {
-  schemaVersion: "loopship.afn-effect-receipt/v1";
+  schemaVersion: typeof LOOPSHIP_AFN_EFFECT_RECEIPT_SCHEMA;
   status: "started" | "completed";
   callId: string;
   effectKey: string;
   inputDigest: string;
   requestId: string | null;
   preparedOutput?: Record<string, unknown>;
+  recoverySnapshot?: LoopshipLandingRecoverySnapshot;
   output?: Record<string, unknown>;
 };
 
@@ -3249,17 +3485,113 @@ function descriptorHasDurableEffects(descriptor: CallDescriptor): boolean {
   );
 }
 
+function parseLoopshipLandingRecoverySnapshot(
+  value: unknown,
+): LoopshipLandingRecoverySnapshot {
+  if (!isPlainObject(value)) {
+    throw new Error("landing recovery snapshot must be an object");
+  }
+  const modes = new Set([
+    "already-up-to-date",
+    "fast-forward",
+    "merge-commit",
+    "recorded",
+  ]);
+  const commit = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/iu;
+  const requiredStrings = [
+    "repo",
+    "wtree",
+    "sourceBranch",
+    "targetBranch",
+    "targetWorktree",
+    "sourceCommit",
+    "targetCommit",
+    "strategy",
+  ] as const;
+  const expectedKeys = new Set([
+    "schemaVersion",
+    "mode",
+    ...requiredStrings,
+    "landedCommit",
+  ]);
+  const mode = String(value.mode);
+  const landedCommit = optionalString(value.landedCommit);
+  const strategy = optionalString(value.strategy);
+  if (
+    value.schemaVersion !== "loopship.landing-recovery-snapshot/v1" ||
+    Object.keys(value).some((key) => !expectedKeys.has(key)) ||
+    !modes.has(mode) ||
+    requiredStrings.some((field) => !optionalString(value[field])) ||
+    !commit.test(optionalString(value.sourceCommit)) ||
+    !commit.test(optionalString(value.targetCommit)) ||
+    typeof value.landedCommit !== "string" ||
+    (landedCommit && !commit.test(landedCommit)) ||
+    (mode !== "recorded" && strategy !== mode) ||
+    (mode === "already-up-to-date" && landedCommit !== optionalString(value.targetCommit)) ||
+    (["fast-forward", "merge-commit"].includes(mode) && Boolean(landedCommit)) ||
+    (mode === "recorded" && !landedCommit)
+  ) {
+    throw new Error("invalid Loopship landing recovery snapshot");
+  }
+  return value as LoopshipLandingRecoverySnapshot;
+}
+
 function readLoopshipAfnEffectReceipt(path: string): LoopshipAfnEffectReceipt | null {
   if (!existsSync(path)) return null;
-  const parsed = JSON.parse(readFileSync(path, "utf8"));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error(`invalid Loopship AFN effect receipt: ${path}`);
+  }
+  if (!isPlainObject(parsed)) {
+    throw new Error(`invalid Loopship AFN effect receipt: ${path}`);
+  }
+  if (parsed.schemaVersion === "loopship.afn-effect-receipt/v1") {
+    throw legacyExecutionUnsupported(
+      `AFN effect receipt v1 at ${path} cannot be interpreted; resubmit it as a new Native v1 execution`,
+    );
+  }
+  if (parsed.schemaVersion !== LOOPSHIP_AFN_EFFECT_RECEIPT_SCHEMA) {
+    throw new Error(
+      `unsupported Loopship AFN effect receipt schema ${String(parsed.schemaVersion ?? "<missing>")} at ${path}`,
+    );
+  }
+  const status = String(parsed.status);
+  const callId = optionalString(parsed.callId);
+  const isCleanup = callId === LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees;
+  const isLanding = callId === LOOPSHIP_AFN_CALLS.landingApplyOutcome;
+  const allowedKeys = new Set([
+    "schemaVersion",
+    "status",
+    "callId",
+    "effectKey",
+    "inputDigest",
+    "requestId",
+    ...(isCleanup ? ["preparedOutput"] : []),
+    ...(isLanding ? ["recoverySnapshot"] : []),
+    ...(status === "completed" ? ["output"] : []),
+  ]);
   if (
-    !isPlainObject(parsed) ||
-    parsed.schemaVersion !== "loopship.afn-effect-receipt/v1" ||
-    !["started", "completed"].includes(String(parsed.status)) ||
-    (parsed.preparedOutput !== undefined && !isPlainObject(parsed.preparedOutput)) ||
-    (parsed.output !== undefined && !isPlainObject(parsed.output))
+    Object.keys(parsed).some((key) => !allowedKeys.has(key)) ||
+    !["started", "completed"].includes(status) ||
+    !callId ||
+    !optionalString(parsed.effectKey) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(optionalString(parsed.inputDigest)) ||
+    !(
+      parsed.requestId === null ||
+      (typeof parsed.requestId === "string" && Boolean(parsed.requestId.trim()))
+    ) ||
+    (isCleanup && !isPlainObject(parsed.preparedOutput)) ||
+    (!isCleanup && parsed.preparedOutput !== undefined) ||
+    (!isLanding && parsed.recoverySnapshot !== undefined) ||
+    (status === "started" && parsed.output !== undefined) ||
+    (status === "completed" && !isPlainObject(parsed.output))
   ) {
     throw new Error(`invalid Loopship AFN effect receipt: ${path}`);
+  }
+  if (parsed.recoverySnapshot !== undefined) {
+    parseLoopshipLandingRecoverySnapshot(parsed.recoverySnapshot);
   }
   return parsed as LoopshipAfnEffectReceipt;
 }
@@ -3525,6 +3857,7 @@ function readJsonlRecords(path: string): Array<Record<string, unknown>> {
 function recoverRecordedLandingOutcome(input: {
   body: Record<string, unknown>;
   requestId: string;
+  recoverySnapshot?: LoopshipLandingRecoverySnapshot;
 }): Record<string, unknown> | null {
   const repo = resolve(requireString(input.body.repo, "repo"));
   const wtree = assertCanonicalWtreeName(requireString(input.body.wtree, "wtree"));
@@ -3561,6 +3894,17 @@ function recoverRecordedLandingOutcome(input: {
         ...input.body,
         receipt: mergeRecord.payload,
       });
+    }
+    if (input.recoverySnapshot) {
+      const recoveredReceipt = recoverLandingReceiptFromSnapshot(
+        input.body,
+        input.recoverySnapshot,
+      );
+      if (!recoveredReceipt) return null;
+      return executeLandingApplyOutcome(
+        { ...input.body, receipt: recoveredReceipt },
+        { landingRecoverySnapshot: input.recoverySnapshot },
+      );
     }
     const state = parseTasksYaml(readText(tasksPath)) as Record<string, unknown>;
     const sourceBranch =
@@ -3745,7 +4089,13 @@ function recoverStartedLoopshipAfnEffect(input: {
   }
   if (input.receipt.callId === LOOPSHIP_AFN_CALLS.landingApplyOutcome) {
     const requestId = requireString(input.receipt.requestId, "landing effect requestId");
-    return recoverRecordedLandingOutcome({ body: input.body, requestId });
+    return recoverRecordedLandingOutcome({
+      body: input.body,
+      requestId,
+      ...(input.receipt.recoverySnapshot
+        ? { recoverySnapshot: input.receipt.recoverySnapshot }
+        : {}),
+    });
   }
   if (input.receipt.callId === LOOPSHIP_AFN_CALLS.landingCleanupLandedWorktrees) {
     if (!input.receipt.preparedOutput) {
@@ -3779,6 +4129,7 @@ async function executeLoopshipAfnEffect(input: {
     "afn-effects",
     `${sha256(input.invocation.effectKey).slice("sha256:".length)}.json`,
   );
+  if (existsSync(receiptPath)) readLoopshipAfnEffectReceipt(receiptPath);
   return withLoopshipAfnEffectLock(receiptPath, async () => {
     const executeEffect = async (): Promise<Record<string, unknown>> => {
       const inputDigest = digestNativeContract({
@@ -3800,22 +4151,8 @@ async function executeLoopshipAfnEffect(input: {
         throw new Error(`Loopship AFN effect receipt conflicts with ${input.invocation.effectKey}`);
       }
       if (existing?.status === "completed") return clone(existing.output || {});
-      if (existing?.status === "started") {
-        const recovered = recoverStartedLoopshipAfnEffect({
-          receipt: existing,
-          body: input.body,
-        });
-        if (recovered) {
-          writeLoopshipAfnEffectReceipt(receiptPath, {
-            ...existing,
-            status: "completed",
-            output: recovered,
-          });
-          return recovered;
-        }
-      }
-      const started: LoopshipAfnEffectReceipt = existing || {
-        schemaVersion: "loopship.afn-effect-receipt/v1",
+      let started: LoopshipAfnEffectReceipt = existing || {
+        schemaVersion: LOOPSHIP_AFN_EFFECT_RECEIPT_SCHEMA,
         status: "started",
         ...expected,
         requestId: optionalString(input.body.request_id) || null,
@@ -3824,7 +4161,38 @@ async function executeLoopshipAfnEffect(input: {
           : {}),
       };
       if (!existing) writeLoopshipAfnEffectReceipt(receiptPath, started);
-      const output = await input.handler(input.body);
+      // No landing handler can run until the same durable started receipt carries
+      // its exact Git transition snapshot. A snapshot-free retry may therefore
+      // repeat only idempotent preparation, never interpret a partial merge.
+      if (
+        input.invocation.call.callId === LOOPSHIP_AFN_CALLS.landingApplyOutcome &&
+        !started.recoverySnapshot
+      ) {
+        const recoverySnapshot = createLoopshipLandingRecoverySnapshot(input.body);
+        if (recoverySnapshot) {
+          started = { ...started, recoverySnapshot };
+          writeLoopshipAfnEffectReceipt(receiptPath, started);
+        }
+      }
+      if (existing?.status === "started") {
+        const recovered = recoverStartedLoopshipAfnEffect({
+          receipt: started,
+          body: input.body,
+        });
+        if (recovered) {
+          writeLoopshipAfnEffectReceipt(receiptPath, {
+            ...started,
+            status: "completed",
+            output: recovered,
+          });
+          return recovered;
+        }
+      }
+      const output = await input.handler(input.body, {
+        ...(started.recoverySnapshot
+          ? { landingRecoverySnapshot: started.recoverySnapshot }
+          : {}),
+      });
       writeLoopshipAfnEffectReceipt(receiptPath, {
         ...started,
         status: "completed",
@@ -3840,7 +4208,10 @@ async function executeLoopshipAfnEffect(input: {
 
 function createLoopshipAfnHandlerRegistry(): ReadonlyMap<string, LoopshipAfnHandler> {
   return new Map<string, LoopshipAfnHandler>([
-    [LOOPSHIP_AFN_CALLS.childPrepareWorktree, executeChildPrepare],
+    [LOOPSHIP_AFN_CALLS.childPrepareWorktree, prepareLoopshipNativeChild],
+    [LOOPSHIP_AFN_CALLS.childValidateDag, validateLoopshipChildDag],
+    [LOOPSHIP_AFN_CALLS.childRecordLifecycle, recordLoopshipNativeChildLifecycle],
+    [LOOPSHIP_AFN_CALLS.childBuildDagReconciliation, buildLoopshipChildDagReconciliation],
     [LOOPSHIP_AFN_CALLS.flowComposeTransitionResult, executeFlowComposeTransitionResult],
     [LOOPSHIP_AFN_CALLS.runtimeCommitQuestState, executeRuntimeCommitQuestState],
     [LOOPSHIP_AFN_CALLS.gitResolveCommit, executeGitResolveCommit],
@@ -3850,82 +4221,214 @@ function createLoopshipAfnHandlerRegistry(): ReadonlyMap<string, LoopshipAfnHand
   ]);
 }
 
-export function createLoopshipFastflowAdapters(): Record<string, unknown> {
-  const adapterIdentity = PACKAGE_JSON.name || "@omar391/loopship";
-  const adapterVersion = PACKAGE_JSON.version || "0.0.0";
-  const handlers = createLoopshipAfnHandlerRegistry();
-  const implementationDigest = String(
-    loopshipAfnImplementationEvidence(LOOPSHIP_AFN_DESCRIPTORS[0]?.call || "loopship.afn.service.step.unknown")
-      .implementation_digest,
+function loopshipAfnHostRef(): NativeRef {
+  return { kind: "afn-host", ref: LOOPSHIP_AFN_HOST_ID };
+}
+
+function prepareLoopshipAfnInvocation(
+  invocation: AfnInvocation,
+  handlers: ReadonlyMap<string, LoopshipAfnHandler>,
+): {
+  descriptor: CallDescriptor;
+  handler: LoopshipAfnHandler;
+  body: Record<string, unknown>;
+} {
+  const handler = handlers.get(invocation.call.callId);
+  const descriptor = DESCRIPTOR_BY_CALL.get(invocation.call.callId);
+  if (!handler || !descriptor) {
+    throw new Error(`Loopship AFN '${invocation.call.callId}' has no normal handler.`);
+  }
+  if (!isPlainObject(invocation.input)) {
+    throw new Error(`Loopship call '${invocation.call.callId}' requires object input.`);
+  }
+  const body = bindNativeEffectRequestId(
+    descriptor,
+    invocation.input,
+    invocation.effectKey,
   );
-  const afnDispatch = createAfnDispatchPort({
+  validateBodyAgainstDescriptor(descriptor, body);
+  return { descriptor, handler, body };
+}
+
+function createLoopshipAfnDispatchPort(): AfnDispatchPort {
+  const handlers = createLoopshipAfnHandlerRegistry();
+  const activeInvocations = new Map<string, AfnInvocation>();
+  const implementationDigest = String(
+    loopshipAfnImplementationEvidence(
+      LOOPSHIP_AFN_DESCRIPTORS[0]?.call || "loopship.afn.service.step.unknown",
+    ).implementation_digest,
+  );
+  const port = createAfnDispatchPort({
+    bind: async () => ({ affinityRefs: [loopshipAfnHostRef()] }),
     routes: LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => ({
       callId: descriptor.call,
       contractDigest: digestCallContract(descriptor as unknown as JsonValue),
       implementationDigest,
-      routeId: `loopship:local:${descriptor.call}`,
+      routeId: `loopship:host:${descriptor.call}`,
       async handler(invocation): Promise<ExecutionDecision> {
-        try {
-          const handler = handlers.get(invocation.call.callId);
-          const descriptor = DESCRIPTOR_BY_CALL.get(invocation.call.callId);
-          if (!handler || !descriptor) {
-            throw new Error(`Loopship AFN '${invocation.call.callId}' has no normal handler.`);
-          }
-          if (!isPlainObject(invocation.input)) {
-            throw new Error(`Loopship call '${invocation.call.callId}' requires object input.`);
-          }
-          const body = bindNativeEffectRequestId(
-            descriptor,
-            invocation.input,
-            invocation.effectKey,
+        const active = activeInvocations.get(invocation.invocationId);
+        if (active) {
+          const equivalent = nativeValuesMatch(active, invocation);
+          throw Object.assign(
+            new Error(
+              equivalent
+                ? `Loopship AFN invocation ${invocation.invocationId} is already active`
+                : `Loopship AFN invocation ${invocation.invocationId} conflicts with an active delivery`,
+            ),
+            {
+              code: equivalent
+                ? LOOPSHIP_AFN_EFFECT_BUSY
+                : "loopship-afn-invocation-conflict",
+              retryable: equivalent,
+            },
           );
-          validateBodyAgainstDescriptor(descriptor, body);
+        }
+        activeInvocations.set(invocation.invocationId, invocation);
+        try {
+          const prepared = prepareLoopshipAfnInvocation(invocation, handlers);
           const output = await executeLoopshipAfnEffect({
-            descriptor,
+            descriptor: prepared.descriptor,
             invocation,
-            body,
-            handler,
+            body: prepared.body,
+            handler: prepared.handler,
           });
           return completedDecision({
             invocationId: invocation.invocationId,
             output: output as unknown as JsonValue,
           });
         } catch (error) {
+          const errorCode =
+            error instanceof Error
+              ? (error as Error & { code?: string }).code
+              : undefined;
           const retryable =
-            error instanceof Error &&
-            (error as Error & { code?: string }).code === LOOPSHIP_AFN_EFFECT_BUSY;
+            errorCode === LOOPSHIP_AFN_EFFECT_BUSY;
           return failedDecision({
             invocationId: invocation.invocationId,
             error: {
-              code: retryable ? LOOPSHIP_AFN_EFFECT_BUSY : "loopship-afn-failed",
+              code:
+                retryable || errorCode === "legacy_execution_unsupported"
+                  ? String(errorCode)
+                  : "loopship-afn-failed",
               message: error instanceof Error ? error.message : String(error),
               retryable,
             },
           });
+        } finally {
+          if (activeInvocations.get(invocation.invocationId) === invocation) {
+            activeInvocations.delete(invocation.invocationId);
+          }
         }
       },
     })),
+    async cancel(request) {
+      const cancellation = request as typeof request & { attempt?: number };
+      const active = activeInvocations.get(request.invocationId);
+      if (!active) {
+        return {
+          accepted: false,
+          reason: "Loopship AFN invocation is not active on this host.",
+        };
+      }
+      const exactIdentity =
+        request.executionId === active.executionId &&
+        request.nodeId === active.nodeId &&
+        cancellation.attempt === active.attempt &&
+        request.effectKey === active.effectKey &&
+        nativeValuesMatch(request.call, active.call) &&
+        nativeValuesMatch(request.bindingRefs, active.bindingRefs) &&
+        nativeValuesMatch(request.affinityRefs, active.affinityRefs);
+      if (!exactIdentity) {
+        return {
+          accepted: false,
+          reason: "Loopship AFN cancellation identity does not match the active invocation.",
+        };
+      }
+      return {
+        accepted: false,
+        reason:
+          "Loopship AFN filesystem and Git effects are non-cancellable after dispatch; scheduler cancellation remains authoritative and any completion is a late result.",
+      };
+    },
   });
+  return Object.freeze({
+    listRoutes: () => port.listRoutes(),
+    bind: (input: Parameters<AfnDispatchPort["bind"]>[0]) => port.bind(input),
+    preflight(invocation: AfnInvocation) {
+      prepareLoopshipAfnInvocation(invocation, handlers);
+      return invocation;
+    },
+    dispatch: (invocation: AfnInvocation) => port.dispatch(invocation),
+    cancel: (request: Parameters<AfnDispatchPort["cancel"]>[0]) => port.cancel(request),
+  });
+}
+
+function createLoopshipAfnBindingPort(dispatchPort: AfnDispatchPort): Pick<
+  AfnDispatchPort,
+  "listRoutes" | "bind"
+> {
+  return Object.freeze({
+    listRoutes: () => dispatchPort.listRoutes(),
+    bind: (input: Parameters<AfnDispatchPort["bind"]>[0]) => dispatchPort.bind(input),
+  });
+}
+
+function resolveLoopshipExecutionBinding(
+  request: Record<string, unknown> = {},
+): Record<string, unknown> | null {
+  const inputs = isPlainObject(request.inputs) ? request.inputs : {};
+  const repoValue = inputs.repoRoot ?? inputs.repo;
+  const wtreeValue = inputs.wtree;
+  if (!repoValue || !wtreeValue) return null;
+  const repoRoot = canonicalRepositoryRoot(repoValue, "execution binding repoRoot");
+  const wtree = assertCanonicalWtreeName(
+    requireString(wtreeValue, "execution binding wtree"),
+    "execution binding wtree",
+  );
+  const repositoryRef = `loopship/repository/${sha256(repoRoot).slice(7, 39)}`;
+  const worktreeRef = `loopship/worktree/${sha256(`${repoRoot}\n${wtree}`).slice(
+    7,
+    39,
+  )}`;
+  return {
+    schemaVersion: "loopship.execution-binding/v1",
+    repositoryRef,
+    worktreeRef,
+    bindingRefs: [{ kind: "git-worktree", ref: worktreeRef }],
+    affinityRefs: [
+      loopshipAfnHostRef(),
+      { kind: "git-worktree", ref: worktreeRef },
+    ],
+  };
+}
+
+export function createLoopshipFastflowAdapters(): Record<string, unknown> {
+  const adapterIdentity = PACKAGE_JSON.name || "@omar391/loopship";
+  const adapterVersion = PACKAGE_JSON.version || "0.0.0";
+  const dispatchPort = createLoopshipAfnDispatchPort();
   return {
     adapterIdentity,
     adapterVersion,
     validatorIdentity: `${adapterIdentity}.fastflow-native`,
     validatorVersion: adapterVersion,
     adapterRoot: LOOPSHIP_ROOT,
-    afnDispatch,
-    runtimeOffer: createRuntimeOffer({
-      endpointId: `${adapterIdentity}:local`,
-      dispatchPort: afnDispatch,
+    afnBindingPort: createLoopshipAfnBindingPort(dispatchPort),
+    afnHost: Object.freeze({
+      hostId: LOOPSHIP_AFN_HOST_ID,
+      dispatchPort,
       hostFacts: [
         {
           name: "runtime",
           value: loopshipApplicationRuntimeRef(),
         },
         { name: "platform", value: process.platform },
+        { name: "security-worker", value: "node:26" },
       ],
-      affinity: [{ kind: "git-worktree", resolution: "host-local" }],
-      invocationGrantKinds: ["filesystem", "git", "process"],
+      affinity: [{ kind: "git-worktree", refs: ["*"] }],
+      acceptedGrantKinds: ["filesystem", "git", "process"],
+      maxInFlight: LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
     }),
+    resolveExecutionBinding: resolveLoopshipExecutionBinding,
     registeredCalls: clone(LOOPSHIP_AFN_DESCRIPTORS),
     resolveCallDescriptor({ call }: { call?: string } = {}) {
       const descriptor = DESCRIPTOR_BY_CALL.get(String(call || ""));
@@ -3996,7 +4499,10 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
 export async function configureFastflowForLoopship(
   _repoRoot: string = LOOPSHIP_ROOT,
 ): Promise<Record<string, unknown>> {
-  const { configureFastflowApp } = await import("@cueintent/fastflow");
+  const fastflowRoot = resolveLoopshipFastflowRoot(["src/index.mjs"]);
+  const { configureFastflowApp } = await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href
+  );
   const workflowCatalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
   return configureFastflowApp({
     appName: "loopship",
@@ -4009,6 +4515,9 @@ export async function configureFastflowForLoopship(
 }
 
 export async function getLoopshipFastflowAdapters(): Promise<Record<string, unknown>> {
-  const { getFastflowAdapters } = await import("@cueintent/fastflow");
+  const fastflowRoot = resolveLoopshipFastflowRoot(["src/index.mjs"]);
+  const { getFastflowAdapters } = await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href
+  );
   return getFastflowAdapters();
 }

@@ -43,6 +43,9 @@ input:
           type: string
         actor:
           type: string
+        request_id:
+          type: string
+          minLength: 1
         target_branch:
           type: string
         target_worktree:
@@ -230,6 +233,9 @@ do:
                 type: string
               actor:
                 type: string
+              request_id:
+                type: string
+                minLength: 1
               target_branch:
                 type: string
               target_worktree:
@@ -411,6 +417,7 @@ do:
           wtree: "${inputs.wtree || inputs.quest?.wtree || ''}"
           status: "${inputs.status || 'landed'}"
           summary: "${inputs.summary || ''}"
+          request_id: "${inputs.request_id || ''}"
           target_branch: "${inputs.target_branch || ''}"
           target_worktree: "${inputs.target_worktree || ''}"
           source_branch: "${inputs.source_branch || ''}"

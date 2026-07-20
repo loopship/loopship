@@ -1,16 +1,16 @@
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   LOOPSHIP_CALL_CATALOG_ROOT,
   LOOPSHIP_SUPERVISOR_GUIDANCE,
   createLoopshipFastflowAdapters,
+  resolveLoopshipFastflowRoot,
 } from "./loopship_fastflow.ts";
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const LOOPSHIP_ROOT = resolve(SCRIPT_DIR, "..");
-const FASTFLOW_ROOT = process.env.LOOPSHIP_FASTFLOW_ROOT
-  ? resolve(process.env.LOOPSHIP_FASTFLOW_ROOT)
-  : resolve(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow");
+const FASTFLOW_ROOT = resolveLoopshipFastflowRoot([
+  "src/index.mjs",
+  "scripts/fastflow-internal-lifecycle.mjs",
+]);
 const FASTFLOW_INDEX = resolve(FASTFLOW_ROOT, "src", "index.mjs");
 const FASTFLOW_LIFECYCLE_SCRIPT = resolve(FASTFLOW_ROOT, "scripts", "fastflow-internal-lifecycle.mjs");
 

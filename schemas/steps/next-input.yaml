@@ -20,7 +20,6 @@ oneOf:
   - $ref: plan-input.yaml
   - $ref: questions-input.yaml
   - $ref: task-graph-input.yaml
-  - $ref: child-result-input.yaml
   - $ref: validation-input.yaml
   - $ref: verification-input.yaml
   - $ref: system-update-input.yaml

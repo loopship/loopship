@@ -114,6 +114,11 @@ function assertNoLegacySystemDocs(): void {
     "schemas/docs/data-card.yaml",
     "schemas/docs/organization-model.yaml",
     "schemas/docs/artifact-card.yaml",
+    "schemas/steps/child-dispatch-request.yaml",
+    "schemas/steps/child-dispatch-output.yaml",
+    "schemas/steps/child-result-input.yaml",
+    "call-catalog/loopship/workflow/service/step/child-result.stable.yaml",
+    "call-catalog/loopship/workflow/service/step/executing.stable.yaml",
   ];
   for (const relativePath of legacyPaths) {
     if (existsSync(resolve(PACKAGE_ROOT, relativePath))) {
@@ -218,10 +223,10 @@ function assertWorkflowSpecTerminalChildRules(): void {
   const text = readText(resolve(PACKAGE_ROOT, ".loopship", "docs", "workflow", "spec.yaml"));
   const scope = ".loopship/docs/workflow/spec.yaml";
   for (const needle of [
-    "terminal child quests",
-    "Only root/coordinator quests may decompose into child worktrees",
-    "launch one child at a time",
-    "Unsupervised runs may still dispatch multiple children in parallel",
+    "pinned internal swe-child workflow",
+    "default to 4",
+    "1 through 32",
+    "superviseStep",
     "Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files",
     "promotion-managed release artifacts",
     "Workflow validation rejects stable workflow digest drift",
@@ -235,9 +240,11 @@ function assertAgentSystemCardTerminalChildRules(): void {
   const text = readText(resolve(PACKAGE_ROOT, ".loopship", "docs", "agent", "system-card.yaml"));
   const scope = ".loopship/docs/agent/system-card.yaml";
   for (const needle of [
-    "terminal child agents stay local",
-    "coordinators launch one child at a time",
-    "`loopship stepper init`",
+    "terminal child agents stay",
+    "local and finish the assigned work without nested dispatch",
+    "default concurrency ceiling",
+    "callers may select 1 through 32",
+    "superviseStep forces 1",
     "promotion-managed release artifacts",
     "Do not hand-edit Fastflow `*.stable.yaml` workflow files or call-catalog `index.yaml`",
     "Do not let a terminal child quest dispatch child worktrees",
@@ -294,7 +301,6 @@ function assertStepPromptLifecycleCoherency(): void {
   for (const [name, title, contractPhrase] of [
     ["questions", "# Loopship Questions Step", "do not include command strings, successor-state scaffolding"],
     ["task-graph", "# Loopship Task Graph Step", "do not include command strings, successor-state scaffolding"],
-    ["child-result", "# Loopship Child Result Step", "do not include command strings, successor-state scaffolding"],
     ["validation", "# Loopship Validation Step", "do not include command strings, successor-state scaffolding"],
     ["verification", "# Loopship Verification Step", "do not include command strings, successor-state scaffolding"],
     ["system-update", "# Loopship System Update Step", "do not emit command strings"],
@@ -307,10 +313,6 @@ function assertStepPromptLifecycleCoherency(): void {
     assertContains(text, "Return exactly one JSON payload", scope);
     assertContains(text, contractPhrase, scope);
   }
-
-  const executing = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "executing.stable.yaml"));
-  assertContains(executing, "Prepare ready child worktrees for coordinator quests only", "executing step workflow");
-  assertContains(executing, "terminal child quests must not dispatch nested child worktrees", "executing step workflow");
 
   const landing = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "landing.stable.yaml"));
   assertContains(landing, "loopship.afn.service.landing.apply-outcome", "landing step workflow");
@@ -336,13 +338,14 @@ function assertSweFlowLifecycleGuards(): void {
     "const emptyApproved = !rejected && payload.approved === true && array(tasks.tasks).length === 0",
     "approved task graph is empty; replan with at least one concrete local or child task before execution",
     "const targetStage = effectiveRejected ? \"replanning\"",
-    "task_graph_ready_leaf",
-    "isTerminalChild(tasks) ? \"executing\" : \"task_graph_ready\"",
-    "merge_commit: String(mergeCommit || row.merge_commit || \"\")",
-    "stage_leaf_git_head",
-    "stage_result_leaf_executing",
-    "childResultsAfterChildResult",
-    "evidence: array(payload.evidence)",
+    "then: validate_child_dag",
+    "- validate_child_dag:",
+    "schemaVersion: fastflow.task/v2",
+    "join: all_settled",
+    "call: loopship.workflow.service.flows.swe-child",
+    "- stage_result_task_graph_ready:",
+    "call: loopship.afn.service.child.build-dag-reconciliation",
+    "legacy_execution_unsupported",
     "stage_result_landing_ready",
     "landed_commit",
     "landing_strategy",
@@ -366,6 +369,16 @@ function assertSweFlowLifecycleGuards(): void {
   ]) {
     assertContains(text, needle, scope);
   }
+  for (const removed of [
+    "task_graph_ready_leaf",
+    "executing_leaf",
+    "stage_planning_terminal_child",
+    "stage_leaf_git_head",
+    "stage_result_leaf_executing",
+    "childResultsAfterChildResult",
+  ]) {
+    assertNotContains(text, removed, scope);
+  }
   if (text.indexOf("- cleanup_landed_worktrees:") <= text.indexOf("- append_stage_event:")) {
     throw new Error("SWE flow cleanup must run after append_stage_event.");
   }
@@ -384,9 +397,9 @@ function assertSweFlowLifecycleGuards(): void {
   );
 
   const scriptCount = (text.match(/\bscript:/g) ?? []).length;
-  if (scriptCount > 45) {
+  if (scriptCount > 51) {
     throw new Error(
-      `SWE flow script count grew from the audited baseline: expected <=45 script blocks, found ${scriptCount}`,
+      `SWE flow script count grew from the audited Native DAG baseline: expected <=51 script blocks, found ${scriptCount}`,
     );
   }
 }
@@ -432,7 +445,9 @@ function assertReadmeCommandSurface(): void {
     "bun index.ts handbook --fix-duplicates --json",
     "bun index.ts cmdproto execjson handbook",
     "Bun is the canonical application and daemon runtime",
-    "Node 26 or newer is required only as Fastflow's",
+    "Node 26.x is required only as Fastflow's",
+    "Node's permission model does not isolate arbitrary hostile code",
+    "Bun may replace it only after matching this tested boundary",
     "`loopship handbook` renders a standalone generated Markdown handbook",
     "`loopship handbook --duplicates` reports exact normalized duplicate prose",
     "recoverable system temp path",

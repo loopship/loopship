@@ -4,42 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   archived:
     stable:
-      release: 5
-      digest: "sha256:275abbce2405b8530f32e2fa7d02339c27ce4d71295e90fc94a8f6c0c23e5b95"
-      summary: "Keep archived step report-only; cleanup is flow-owned."
-      inputs:
-        required: []
-        optional:
-          - schema_version
-          - kind
-          - wtree
-          - quest_id
-          - flow_id
-          - flow_version
-          - current_stage
-          - summary
-          - prompt
-          - repo
-          - repoRoot
-          - runtime
-          - tasks
-          - question_rounds
-          - plan_detail
-          - validation_receipt
-          - verification_receipt
-          - events
-          - parent_wtree
-          - coordinator_branch
-          - coordinator_worktree
-          - landing_target_branch
-          - landing_target_worktree
-          - requirements
-      requires: []
-  child-result:
-    stable:
       release: 6
-      digest: "sha256:8e14ae7ae30e24fae1527eb4a40589dd6ed44021b912f3b14a3cf3405985ebd0"
-      summary: "Give Node-backed request builders a bounded five-second launch budget."
+      digest: "sha256:ba809205ccddd26e5e9dd601814fe39640afbf093d513fcd9365a37a0a2c43c7"
+      summary: "Use the Fastflow run-script args ABI for archived reports."
       inputs:
         required: []
         optional:
@@ -68,42 +35,11 @@ workflows:
           - landing_target_worktree
           - requirements
       requires: []
-  executing:
-    stable:
-      release: 3
-      digest: "sha256:2aaccc0a7fec622d5bc63f81f5d4cd5b19733cff821e8fa5609d28f75cfc8a75"
-      summary: "Rename child worktree preparation AFN call."
-      inputs:
-        required:
-          - children
-        optional:
-          - schema_version
-          - kind
-          - wtree
-          - quest_id
-          - flow_id
-          - flow_version
-          - current_stage
-          - summary
-          - prompt
-          - repo
-          - repoRoot
-          - runtime
-          - quest
-          - actor
-          - target_branch
-          - target_worktree
-          - source_branch
-          - receipt
-          - task
-          - update
-      requires:
-        - loopship.afn.service.child.prepare-worktree
   landing:
     stable:
-      release: 3
-      digest: "sha256:800592a79353e41df2b27fe814ed6479091e6eecfcf1856a81291488057d82c9"
-      summary: "Rename landing outcome AFN call."
+      release: 6
+      digest: "sha256:2228cbd3df585bbb1a24e9a6ce355f1411a90f494b51b0bc012ba21dc327626a"
+      summary: "Forward the caller's stable landing request identity."
       inputs:
         required:
           - status
@@ -115,6 +51,7 @@ workflows:
           - quest
           - runtime
           - actor
+          - request_id
           - target_branch
           - target_worktree
           - source_branch
@@ -306,9 +243,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCaly4HhsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtE9gD8DF29xHUv1vDua6ISwfGa
-    bumtLLIPFiyTd+8j17DcVXIA/i6QpXIG5QWNyqen0d+jx/qlFJOfBCClShj8QL+p
-    D9IH
-    =6t9Q
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCal3LhxsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtBqwD9GEVBkItZA5XgXgJpTR5Q
+    YnKFhcMv5kCi8QqS9f45TDQA/A0WrIdte2snlIFfSQZW5NsITQDQEGKfj0X1izzx
+    J40D
+    =6ITR
     -----END PGP SIGNATURE-----

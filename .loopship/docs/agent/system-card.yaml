@@ -16,7 +16,7 @@ standard_alignment:
     prompt-injection risk, excessive agency, memory boundaries, and handoffs.
 purpose: |-
   Loopship agents coordinate quest planning, execution supervision, verification, durable
-  system updates, hook continuation review, and child result handling while preserving
+  system updates, hook continuation review, and Native child lifecycle handling while preserving
   worktree isolation.
 actors:
   root-agent:
@@ -37,8 +37,10 @@ actors:
   loopship-runtime:
     kind: system
     text: |-
-      The Loopship runtime validates payloads, persists quest state, emits commands, and enforces
-      lifecycle transitions for agent actions.
+      The Loopship runtime validates payloads, persists quest state, binds consumer orchestration
+      to Fastflow Native v1, hosts exact handlers behind the authenticated local-durable
+      fastflow.afn.v1 session, and enforces lifecycle transitions for agent actions. Local
+      LoopshipService commands are never remotely exposed.
 responsibilities:
   scout-root-first: |-
     Agents read .loopship/system.yaml first, then traverse relevant canonical resource links
@@ -47,10 +49,10 @@ responsibilities:
     Agents only update durable system knowledge after evidence-backed verification and
     schema validation pass.
   coordinate-child-work: |-
-    Root agents coordinate child execution through emitted commands and canonical
-    child_result payloads rather than silently doing child work inline, while terminal child agents stay local and finish the assigned work without nested dispatch. In superviseStep
-    mode, coordinators launch one child at a time and supervised child launches use
-    `loopship stepper init` so each child pauses through its own lifecycle steps.
+    Root agents supervise one immutable Native DAG rather than silently doing child work inline.
+    Every ready node runs the pinned internal swe-child workflow, and terminal child agents stay
+    local and finish the assigned work without nested dispatch. The default concurrency ceiling
+    is 4, callers may select 1 through 32, and superviseStep forces 1.
   respect-fastflow-release-authoring: |-
     Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files are
     promotion-managed release artifacts. Agents author workflow changes in `.dev.yaml` and
@@ -58,8 +60,9 @@ responsibilities:
     intended change into the matching `.dev.yaml`, restore the stable artifact, and continue
     via promotion.
   preserve-canonical-truth: |-
-    Agents trust tasks.yaml, events.jsonl, emitted child commands, git worktree state,
-    manifests, and signatures before terminal chatter or narrative summaries.
+    Agents trust tasks.yaml, events.jsonl, Native scheduler events, immutable child execution
+    identities, git worktree state, manifests, and signatures before terminal chatter or
+    narrative summaries.
 autonomy:
   level: bounded
   text: |-
@@ -94,7 +97,7 @@ tools:
   child-cli-session:
     text: |-
       Dedicated child CLI sessions perform bounded work in isolated worktrees and report final
-      evidence through canonical child_result payloads.
+      evidence through immutable internal child lifecycle receipts.
     permissions:
       - isolated-worktree-execution
 memory:
@@ -128,17 +131,17 @@ inputs_outputs:
       agents must scout.
     quest-dossier: |-
       Worktree-local tasks.yaml and events.jsonl provide canonical lifecycle state, evidence,
-      receipts, and child command records.
+      receipts, and Native child execution identities.
   outputs:
     step-payload: |-
       Step payloads report schema-backed lifecycle state, task graphs, verification evidence,
-      child commands, and update proposals.
+      internal child receipts, and update proposals.
     canonical-update: |-
       Canonical updates replace root data and concrete external documents through system_update
       after verification.
-    child-result: |-
-      Child result payloads return passed, blocked, or failed status plus evidence and landed
-      merge information to the parent quest.
+    child-lifecycle-receipt: |-
+      The pinned child workflow returns terminal status, stable execution identity, evidence,
+      and landed merge information for one parent reconciliation. It is not a public callback.
 safety:
   risks:
     prompt-injection: |-
@@ -159,8 +162,9 @@ safety:
       Worktree isolation and root coordinator rules keep child implementation work bounded and
       auditable.
     canonical-artifact-review: |-
-      Reviewers compare agent claims against tasks.yaml, events.jsonl, emitted child commands,
-      git worktree state, verification receipts, and landed receipts.
+      Reviewers compare agent claims against tasks.yaml, events.jsonl, Native scheduler events,
+      immutable child execution identities, git worktree state, verification receipts, and
+      landed receipts.
 human_oversight:
   clarification: |-
     Planning asks focused questions when missing information would materially change
@@ -190,8 +194,8 @@ evaluation:
         - resource:software-architecture#/quality/scenarios/lifecycle-matrix
 monitoring:
   trace-review: |-
-    Quest traces are reviewed through canonical tasks.yaml, event JSONL, child command
-    payloads, verification receipts, and landing receipts.
+    Quest traces are reviewed through canonical tasks.yaml, event JSONL, Native scheduler
+    events, child lifecycle receipts, verification receipts, and landing receipts.
   hook-decisions: |-
     Hook decisions are monitored through explicit selector handling, stop reasons, duplicate
     suppression, drift detection, and continuation budgets.
@@ -207,8 +211,8 @@ handoffs:
     Questions and answers remain colocated in task records so later agents can continue without
     joining separate arrays.
   child-to-root: |-
-    Child agents hand off final status, evidence, and merge information through child_result
-    payloads rather than relying on prose summaries.
+    The pinned child workflow returns final status, evidence, and merge information as one
+    immutable internal receipt rather than relying on prose summaries or a callback API.
   root-to-system-update: |-
     Root agents hand off verified durable implications to system_update only after validation
     and verification receipts justify canonical changes.
@@ -227,8 +231,8 @@ diagrams:
         participant Verifier
         participant SystemUpdate
         RootAgent->>Loopship: approve task graph
-        Loopship->>ChildAgent: emitted child init command
-        ChildAgent-->>Loopship: child_result with evidence
+        Loopship->>ChildAgent: Native scheduler runs pinned child workflow
+        ChildAgent-->>Loopship: immutable child lifecycle receipt
         Loopship->>Verifier: validate acceptance and receipts
         Verifier-->>SystemUpdate: verified durable implications
         SystemUpdate-->>RootAgent: canonical YAML and signature refreshed
