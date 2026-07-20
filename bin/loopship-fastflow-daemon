@@ -1,6 +1,16 @@
 #!/usr/bin/env bun
 
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+if (!process.versions.bun) {
+  throw Object.assign(
+    new Error(
+      "loopship_bun_runtime_required: The Loopship Fastflow daemon requires Bun; Node 26.x is reserved for the workflow-script security worker.",
+    ),
+    { code: "loopship_bun_runtime_required" },
+  );
+}
 
 const loopshipHome = String(process.env.LOOPSHIP_HOME || "").trim();
 if (loopshipHome && !isAbsolute(loopshipHome)) {
@@ -21,4 +31,20 @@ process.env.FASTFLOW_APP_MODULE = new URL(
   import.meta.url,
 ).href;
 
-await import("@cueintent/fastflow/scripts/fastflow-scheduler-daemon");
+const fastflowRoot = String(process.env.LOOPSHIP_FASTFLOW_ROOT || "").trim();
+if (
+  fastflowRoot &&
+  String(process.env.LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT || "").trim() !== "1"
+) {
+  throw Object.assign(
+    new Error(
+      "loopship_fastflow_dev_root_disabled: LOOPSHIP_FASTFLOW_ROOT is a development/test-only source override; set LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT=1 explicitly or use the packaged @cueintent/fastflow runtime.",
+    ),
+    { code: "loopship_fastflow_dev_root_disabled" },
+  );
+}
+await import(
+  fastflowRoot
+    ? pathToFileURL(resolve(fastflowRoot, "scripts", "fastflow-scheduler-daemon.mjs")).href
+    : "@cueintent/fastflow/scripts/fastflow-scheduler-daemon"
+);

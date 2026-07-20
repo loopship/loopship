@@ -2,6 +2,8 @@
 
 import { dirname, resolve } from "node:path";
 import {
+  LOOPSHIP_DEFAULT_CHILD_MAX_CONCURRENCY,
+  LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
   loopshipFlowWorkflowRef,
   resolveLoopshipFastflowCommandBinding,
   resolveLoopshipFlowId,
@@ -35,7 +37,7 @@ const STEPPER_INIT_BINDING: Record<string, unknown> = {
   supervision: "step",
   progressMode: "compact",
   usage: {
-    args: '"loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
+    args: '"loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>] [--max-concurrency <1-32>]',
   },
   flags: {
     repo: { valueName: "path", description: "Repository root." },
@@ -48,7 +50,7 @@ const STEPPER_INIT_BINDING: Record<string, unknown> = {
     "parent-context-ref": { valueName: "path", description: "Parent runtime task state path." },
     "target-branch": { valueName: "branch", description: "Landing target branch." },
     "target-worktree": { valueName: "path", description: "Landing target worktree." },
-    full: { type: "boolean", description: "Compatibility no-op." },
+    "max-concurrency": { valueName: "count", description: "Maximum active Native child DAG nodes." },
   },
   inputs: {
     request: { positional: 0, required: true, transform: "ensurePrefix:loopship:" },
@@ -65,13 +67,30 @@ const STEPPER_INIT_BINDING: Record<string, unknown> = {
     parentContextRef: { flag: "parent-context-ref" },
     targetBranch: { flag: "target-branch" },
     targetWorktree: { flag: "target-worktree" },
+    maxConcurrency: {
+      flag: "max-concurrency",
+      default: LOOPSHIP_DEFAULT_CHILD_MAX_CONCURRENCY,
+      transform(value: unknown): number {
+        const parsed = Number(value);
+        if (
+          !Number.isInteger(parsed) ||
+          parsed < 1 ||
+          parsed > LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY
+        ) {
+          throw new Error(
+            `--max-concurrency must be an integer from 1 to ${LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY}`,
+          );
+        }
+        return parsed;
+      },
+    },
   },
 };
 
 function usage(exitCode = 1): number {
   const text = [
     "Usage:",
-    '  loopship stepper init "loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>]',
+    '  loopship stepper init "loopship: <request>" [--repo <path>] [--runtime <codex|gemini|copilot>] [--flow <id>] [--wtree <name>] [--max-concurrency <1-32>]',
     "  loopship stepper step [--repo <path>] --json <json|@file|@->",
     "  loopship stepper hook [--repo <path>] [--json <json|@file|@->]",
   ].join("\n");
@@ -105,6 +124,7 @@ const STEPPER_INIT_VALUE_OPTIONS = new Set([
   "--parent-context-ref",
   "--target-branch",
   "--target-worktree",
+  "--max-concurrency",
 ]);
 
 function validateInitOptionValues(argv: string[]): void {

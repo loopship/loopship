@@ -15,9 +15,9 @@ standard_alignment:
 purpose: |-
   Loopship coordinates quest work from initial request through planning, clarification, task
   graph approval, child execution, verification, durable system update, landing, and
-  archive. Root/coordinator quests may decompose into child worktrees; terminal child quests
-  stay local in their assigned worktree and run plan, execute, validate, verify, report, and
-  land without nested dispatch.
+  archive. Root/coordinator quests bind one immutable Native child DAG. Each ready node runs
+  the pinned internal swe-child workflow in its assigned worktree through implementation,
+  validation, verification, landing, and archive without nested dispatch.
 participants:
   user:
     kind: human
@@ -27,13 +27,17 @@ participants:
   root-agent:
     kind: agent
     text: |-
-      The root agent coordinates planning, task graph creation, child dispatch, verification,
+      The root agent coordinates planning, task graph creation, Native child supervision, verification,
       and system-update review without impersonating leaf child workers.
   loopship-runtime:
     kind: system
     text: |-
-      The Loopship runtime stores task state, validates step payloads, emits child commands, and
-      controls lifecycle transitions.
+      The Loopship runtime stores task state, validates step payloads, integrates Fastflow Native
+      v1, runs every exact AFN handler behind the authenticated local-durable fastflow.afn.v1
+      host session, and controls consumer lifecycle transitions. Its LoopshipService cmdproto
+      methods remain local and default-deny. Scheduler operations use only Fastflow's six
+      descriptor-derived finite unary Connect methods, including the ticket method used for
+      AFN-session bootstrap.
 triggers:
   task-intake: |-
     A quest starts from a schema-backed task payload submitted through loopship init. Fastflow
@@ -56,8 +60,8 @@ outputs:
   step-result:
     schema_ref: loopship://schemas/steps/step-output.yaml
     text: |-
-      Step outputs report status, next command shape, generated child commands, receipts, and
-      follow-up needs through strict schemas.
+      Step outputs report status, durable handoff shape, internal child receipts, and follow-up
+      needs through strict schemas.
   signature:
     schema_ref: loopship://schemas/signature.yaml
     text: |-
@@ -73,10 +77,10 @@ processes:
         User lane owns clarification answers and serious approval decisions that cannot be
         inferred safely by the agent.
       agent: |-
-        Agent lane owns scouting, planning, dispatch coordination, evidence review, and durable
+        Agent lane owns scouting, planning, Native DAG supervision, evidence review, and durable
         update proposal.
       runtime: |-
-        Runtime lane owns schema validation, quest state persistence, command emission, and
+        Runtime lane owns schema validation, quest state persistence, Native child invocation, and
         lifecycle transition enforcement.
     steps:
       plan:
@@ -87,12 +91,11 @@ processes:
       execute:
         lane: agent
         text: |-
-          Root/coordinator execution dispatches leaf child tasks into dedicated worktrees and
-          records their returned evidence in canonical quest state, while terminal child quests
-          execute assigned local work in the current worktree and skip nested child dispatch.
-          When Fastflow superviseStep mode is active, coordinators launch at most one child at
-          a time and each launched child enters its own supervised stepper lifecycle before the
-          next child starts.
+          Root/coordinator execution binds an immutable dependency DAG whose ready nodes run the
+          pinned swe-child workflow in dedicated worktrees. The Native scheduler owns dispatch;
+          Loopship performs one input-ordered parent reconciliation after all nodes settle. The
+          default concurrency ceiling is 4, callers may select 1 through 32, and superviseStep
+          forces 1.
       validate:
         lane: runtime
         text: |-
@@ -151,12 +154,11 @@ invariants:
     Child quests created for task execution are leaf workers and must not recursively create
     child quests unless explicitly planned.
   coordinator-only-decomposition: |-
-    Only root/coordinator quests may decompose into child worktrees. Terminal child quests are
-    local workers identified by parent_wtree, parent_task_id, parent_context_ref, or an
-    execute child task prompt and must not dispatch child worktrees.
+    Only the root/coordinator workflow may bind child nodes. The pinned swe-child workflow is an
+    internal local worker and must not prepare nested child worktrees.
   supervised-child-serialization: |-
-    In Fastflow superviseStep mode, coordinator quests launch one child at a time and resume
-    the next child only after the current child reports back. Unsupervised runs may still dispatch multiple children in parallel.
+    Fastflow superviseStep mode forces the Native child concurrency ceiling to 1. Ordinary runs
+    default to 4 and may explicitly select a finite ceiling from 1 through 32.
   one-task-one-child: |-
     Each task row maps to exactly one child CLI-agent flow and one child worktree, so hidden
     task splitting is rejected.

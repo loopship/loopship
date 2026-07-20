@@ -1,5 +1,11 @@
 #!/usr/bin/env bun
 
-import { main } from "../scripts/loopship.ts";
+if (!process.versions.bun) {
+  console.error(
+    "loopship_bun_runtime_required: Loopship application commands require Bun; Node 26.x is reserved for the workflow-script security worker.",
+  );
+  process.exit(1);
+}
 
+const { main } = await import("../scripts/loopship.ts");
 process.exit(await main(process.argv.slice(2)));

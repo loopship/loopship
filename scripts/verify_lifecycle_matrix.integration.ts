@@ -24,6 +24,8 @@ describe("loopship lifecycle matrix", () => {
         expect(result.unique_branches).toBe(true);
         expect(result.merge_commits_recorded).toBe(true);
         expect(result.loopship_routed).toBe(true);
+        expect(result.independent_overlap_proven).toBe(true);
+        expect(result.dependency_base_proven).toBe(true);
 
         if (scenario.id === "bugfix") {
           expect(result.classification).toBe("bugfix");
@@ -74,6 +76,8 @@ describe("loopship lifecycle matrix", () => {
       unique_branches: true,
       merge_commits_recorded: true,
       loopship_routed: true,
+      independent_overlap_proven: true,
+      dependency_base_proven: true,
       general_task_present: scenario.tasks.some(
         (task) => String(task.type) === "general",
       ),

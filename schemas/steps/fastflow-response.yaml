@@ -1,7 +1,7 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: schemas/steps/fastflow-response.yaml
 title: Loopship Fastflow Response
-description: Native Fastflow interaction or terminal workflow result returned by Loopship init and hook commands.
+description: Native Fastflow interaction or finite workflow result returned by Loopship init and hook commands.
 oneOf:
   - $ref: "#/$defs/inlineAnswer"
   - $ref: "#/$defs/handoffAnswer"
@@ -229,6 +229,13 @@ $defs:
           - running
           - completed
           - failed
+      executionId:
+        type: string
+        minLength: 1
+      accepted:
+        const: true
+      queued:
+        const: true
       workflow:
         $ref: "#/$defs/workflowIdentity"
       artifactRef:
@@ -247,3 +254,14 @@ $defs:
         type: object
         additionalProperties: true
       runtimeIdentities: {}
+    allOf:
+      - if:
+          properties:
+            status:
+              const: running
+          required: [status]
+        then:
+          required:
+            - executionId
+            - accepted
+            - queued

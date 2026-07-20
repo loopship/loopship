@@ -13,9 +13,13 @@ import {
 
 const LOOPSHIP_RUNTIME_NAMESPACE = ".loopship/runtime";
 const NATIVE_EXECUTION_LOCK_WAIT_MS = 5_000;
+const LOOPSHIP_NATIVE_EXECUTION_REQUEST_SCHEMA =
+  "loopship.native-execution-request/v2" as const;
+const LOOPSHIP_NATIVE_EXECUTION_IDENTITY_SCHEMA =
+  "loopship.native-execution-identity/v2" as const;
 
 export type LoopshipNativeExecutionRequest = {
-  schemaVersion: "loopship.native-execution-request/v1";
+  schemaVersion: typeof LOOPSHIP_NATIVE_EXECUTION_REQUEST_SCHEMA;
   status: "pending" | "completed";
   questInstanceId: string;
   ordinal: number;
@@ -83,7 +87,7 @@ export function resolveLoopshipNativeExecutionRequest(
     });
     const nativeRequest = { ...normalized, ...identity };
     const envelope: LoopshipNativeExecutionRequest = {
-      schemaVersion: "loopship.native-execution-request/v1",
+      schemaVersion: LOOPSHIP_NATIVE_EXECUTION_REQUEST_SCHEMA,
       status: "pending",
       questInstanceId,
       ordinal,
@@ -177,7 +181,7 @@ function createExecutionIdentity(input: {
   canonicalRequestDigest: string;
 }): { executionId: string; idempotencyKey: string } {
   const identity = sha256(JSON.stringify({
-    schemaVersion: "loopship.native-execution-identity/v1",
+    schemaVersion: LOOPSHIP_NATIVE_EXECUTION_IDENTITY_SCHEMA,
     ...input,
   })).slice("sha256:".length);
   const executionId = `loopship-${identity}`;
@@ -253,7 +257,7 @@ function parseRequest(path: string): LoopshipNativeExecutionRequest {
   const parsed = JSON.parse(readFileSync(path, "utf8"));
   if (
     !isPlainObject(parsed) ||
-    parsed.schemaVersion !== "loopship.native-execution-request/v1" ||
+    parsed.schemaVersion !== LOOPSHIP_NATIVE_EXECUTION_REQUEST_SCHEMA ||
     !["pending", "completed"].includes(String(parsed.status)) ||
     !Number.isInteger(parsed.ordinal) ||
     !isPlainObject(parsed.request)

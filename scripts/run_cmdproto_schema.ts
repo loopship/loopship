@@ -8,7 +8,7 @@ import { runCommand } from "./loopship_utils.ts";
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const shimDir = resolve(PACKAGE_ROOT, "tmp", "cmdproto-bin");
 const shimPath = resolve(shimDir, "loopship");
-const cmdprotoBin = resolve(PACKAGE_ROOT, "node_modules", ".bin", "cmdproto");
+const cmdprotoBin = resolve(PACKAGE_ROOT, ".cmdproto-deps", "bin", "cmdproto");
 
 mkdirSync(shimDir, { recursive: true });
 writeFileSync(

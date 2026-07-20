@@ -37,7 +37,7 @@ stakeholders:
       monitoring, escalation, and system update.
     concerns:
       - The coordinator needs .loopship/system.yaml to stay small enough for first-read scouting while linking to complete canonical architecture, decision, workflow, and agent docs.
-      - The coordinator must launch dedicated child CLI sessions and normally must not merge child code or implement child work inline.
+      - The Native scheduler must dispatch exactly one dedicated child agent session for each ready terminal task; the coordinator normally must not merge child code or implement child work inline.
   child-agent:
     role: leaf implementation agent
     text: |-
@@ -67,20 +67,31 @@ context:
     Bun is the canonical application and daemon runtime for the TypeScript CLI, workflow runner,
     simulation commands, schema validators, and verification scripts. Shared modules use
     portable Node-standard APIs, and runtime-specific SQLite access stays behind a small
-    Bun/Node adapter. Node 26 is an explicit hardened workflow-script security worker only
-    until Bun provides equivalent verified permission isolation; it is not a second supported
-    Loopship application host. Git worktrees isolate child implementation state from root
-    coordination and protect the main branch from direct agent edits.
+    Bun/Node adapter. Node 26 is a separate workflow-script security worker for pinned,
+    operator-approved scripts. Its process boundary and verified permission-model probe are
+    defense in depth for trusted code; Node's permission model does not isolate arbitrary
+    hostile code. Bun may replace it only after matching this tested boundary. Node is not a
+    second supported Loopship application host. Git worktrees isolate child implementation
+    state from root coordination and protect the main branch from direct agent edits.
+
+    Fastflow contains the complete executable proof of concept and is Loopship's sole workflow
+    engine. CueIntent is architecture/spec-only today; any future extraction moves non-engine
+    facilities to CueIntent while workflow execution remains in Fastflow.
 
     Built-in hook installers cover Codex CLI, Codex Desktop, Gemini CLI, Copilot CLI, and
     Copilot in VS Code. The runtime-neutral hook route also accepts manually configured Claude,
     Antigravity, and other integrations through their native JSON thread identifiers. Cmdproto
     execjson mirrors the public CLI as a machine interface without replacing the lifecycle.
+    Every LoopshipService method remains local and default-deny. Loopship is a client only of
+    Fastflow's six descriptor-derived, allowlisted SchedulerControlService unary Connect methods.
+    AFN-host bootstrap uses CreateAfnSessionTicket, then runs exact handlers through the
+    authenticated binary fastflow.afn.v1 host session.
 solution_strategy: |-
-  Loopship treats workflow steps, task payloads, child dispatches, system updates, and route
-  outputs as schema-backed contracts rather than loose prose conventions. Runtime
-  decisions trust task YAML, event JSONL, emitted child commands, git worktree state,
-  signatures, and runtime receipts before agent summaries or terminal chatter. Canonical
+  Loopship treats workflow steps, task payloads, Native child invocations, system updates,
+  and route outputs as schema-backed contracts rather than loose prose conventions. Runtime
+  decisions trust task YAML, event JSONL, Native scheduler events, immutable child execution
+  identities, git worktree state, signatures, and runtime receipts before agent summaries or
+  terminal chatter. Canonical
   external docs use concrete industry-profile schemas instead of one generic profile
   framework. The architecture YAML is now the canonical source for controller, lifecycle,
   runtime hook, operations, and supervisor contracts that were previously maintained in
@@ -116,10 +127,16 @@ structure:
     cli-routing: |-
       Init starts or resumes native Fastflow workflows in canonical task worktrees. Hook and
       stepper continuation paths validate native response payloads, mutate canonical quest state,
-      and return compact Fastflow interaction or terminal result objects.
-    workflow-runner: |-
-      The legacy workflow runner loads flow and step YAML for validation and migration
-      checks only; package consumers should use the Fastflow facade and CLI contracts.
+      and return compact Fastflow interaction, running, or terminal result objects. Finite
+      production controls may return running while the daemon continues durably; canonical
+      recovery inspects later without polling or opening scheduler SQLite.
+    native-runtime: |-
+      The Fastflow facade binds promoted workflow and step contracts to Native v1 through a
+      route-metadata-only binding port. The supervised Bun daemon alone owns scheduler SQLite,
+      publishes the private runtime descriptor, and supervises Loopship's package-identity-derived
+      logical host over an authenticated local-durable AFN session. Loopship rejects incompatible
+      persisted execution state without interpreting or migrating it. No AFN invocation or
+      cancellation uses a raw newline-JSON or process-local production transport.
     system-update: |-
       The system_update component validates replacement root data and external docs, writes
       canonical files, and refreshes root signature coverage.
@@ -140,9 +157,11 @@ structure:
     loopship-core: |-
       scripts/loopship_core.ts owns quest state IO, task normalization, system scaffold
       generation, signature writing, and system_update application logic.
-    flow-runtime: |-
-      scripts/loopship_flow.ts and scripts/loopship_workflow_runner.ts load flow definitions,
-      resolve step schemas, and validate step workflow records for migration tooling.
+    native-flow-runtime: |-
+      scripts/loopship_fastflow.ts loads promoted workflow contracts, resolves their pinned
+      dependencies and schemas, and registers the Loopship adapters used by Native v1.
+      scripts/loopship_native_execution.ts owns durable execution receipts and rejects legacy
+      execution state.
     system-verifier: |-
       scripts/verify_system_model.ts validates root semantics, concrete document schemas,
       typed links, global record ids, signature coverage, and anti-shell rules.
@@ -160,14 +179,16 @@ runtime:
       avoid oversized embedded schemas.
     swe-lifecycle: |-
       Planning scouts `.loopship/system.yaml` and relevant canonical docs before deciding whether
-      questions or autonomous execution are appropriate. Task graph approval emits child
-      commands and accepts child result payloads. Validation records checks, verification
+      questions or autonomous execution are appropriate. Task graph approval binds one finite,
+      immutable Native DAG whose ready nodes run the pinned child lifecycle and return durable
+      child result receipts. Validation records checks, verification
       reviews acceptance traces and risks, system_update writes durable knowledge, landing
       records the real merge, and archive reports landed commit plus merge strategy.
     child-flow: |-
-      Child tasks start from parent-emitted children[].commands.init, execute in dedicated
-      worktrees, land into their merge target, and return via child_result. Each task YAML row
-      maps to exactly one child CLI-agent flow and one child worktree.
+      After dependencies become ready, the Native scheduler prepares each child worktree and
+      runs the pinned swe-child workflow through implementation, validation, verification,
+      serialized landing, and archive. Each task YAML row maps to exactly one child execution
+      identity, one child agent flow, and one child worktree.
     hook-continuation: |-
       Hook continuation normalizes each agent runtime's thread identifier and keeps it separate
       from the Fastflow session identifier. Paused Fastflow resume handles and soft runtime-thread
@@ -209,9 +230,10 @@ deployment:
       .loopship/runtime.
   nodes:
     developer-machine: |-
-      The developer machine hosts the canonical Bun application runtime, the Node 26 hardened
-      workflow-script worker, Git, schema files, workflow assets, runtime hook shims, optional
-      external CLI runtimes, and verification commands.
+      The developer machine hosts the canonical Bun application runtime, the separate Node 26
+      defense-in-depth worker for pinned operator-approved workflow scripts, Git, schema files,
+      workflow assets, runtime hook shims, optional external CLI runtimes, and verification
+      commands.
     runtime-hook-host: |-
       Built-in runtime hook hosts include Codex CLI/Desktop, Gemini CLI, Copilot CLI, and Copilot
       in VS Code. Manually configured Claude, Antigravity, and other hosts use the generic hook
@@ -247,7 +269,11 @@ interfaces:
     kind: api
     text: |-
       loopship cmdproto execjson <path> <payload> mirrors the current public CLI as a machine
-      wrapper and introspection surface without replacing the V3 lifecycle.
+      wrapper and introspection surface without replacing the V3 lifecycle. Init, resume, hook,
+      doctor, and handbook remain local and are never placed on a remote allowlist. Scheduler
+      commands use Fastflow's six descriptor-derived, allowlisted SchedulerControlService unary
+      Connect methods; AFN-host bootstrap specifically uses CreateAfnSessionTicket. Loopship
+      does not implement REST aliases.
   task-yaml:
     kind: file
     text: |-
@@ -259,11 +285,12 @@ interfaces:
       Minimal task rows carry id, title, type, status, acceptance, dependencies, scope_files,
       spec_refs, context_refs, branch_ref, worktree_path, child_wtree, concurrency_group,
       merge_target, merge_lease_id, merge_commit, and system_impact_ref.
-  child-result:
+  child-lifecycle-receipt:
     kind: schema
     text: |-
-      Runtime child_result payloads accept child status passed, blocked, or failed and append
-      child evidence to the parent quest evidence log.
+      Each pinned Native child workflow returns one immutable internal receipt with its task,
+      worktree, branch, landing identity, terminal status, and landed commit. The parent performs
+      one input-ordered reconciliation after the DAG settles; no public child callback exists.
   runtime-events:
     kind: event
     text: |-
@@ -277,9 +304,10 @@ interfaces:
   execution-prompt:
     kind: prompt
     text: |-
-      Executing prompts must include the instruction to launch dedicated child CLI agent
-      sessions for independent tasks so the root coordinator supervises rather than doing
-      child work.
+      The approved task graph must bind explicit dependency edges and a bounded concurrency
+      ceiling. The default ceiling is 4, callers may select 1 through 32, and superviseStep
+      forces 1. Native ready nodes request dedicated terminal child agent sessions while the
+      root coordinator supervises the immutable DAG rather than doing child work.
 data:
   stores:
     system-yaml: |-
@@ -292,21 +320,22 @@ data:
       `.loopship/signature.yaml` stores canonicalized digests for the root, schema files, and
       canonical resources without adding integrity fields to the root.
     quest-runtime-state: |-
-      Worktree-local runtime state includes tasks.yaml, events.jsonl, manifest.yaml,
-      hook-state.json, lock.json, native-execution.json, immutable native-executions/*.json
-      receipts, and SQLite transaction-lock databases. Together these files define quest truth,
-      audit history, managed-file hashes, stable Native execution identity, duplicate suppression
-      state, and crash-released concurrency guards.
+      Worktree-local runtime state includes tasks.yaml schema v5, events.jsonl, manifest.yaml,
+      hook-state.json, lock.json, native-execution.json ledger/identity schema v2, immutable
+      native-executions/*.json receipts, and SQLite transaction-lock databases. Together these
+      files define quest truth, audit history, managed-file hashes, stable Native execution
+      identity, duplicate suppression state, and crash-released concurrency guards. Earlier
+      task or ledger schemas fail with legacy_execution_unsupported and are never migrated.
     task-qa: |-
-      Quest dossiers use tasks.yaml schema v4 with answers co-located inside
+      Quest dossiers use tasks.yaml schema v5 with answers co-located inside
       question_rounds[].questions[] rather than a top-level answers array.
   flows:
     init-flow: |-
       Init requests flow into route output, candidate ranking, new quest creation input, and a
       schema-backed next command.
-    child-result-flow: |-
-      Child summaries flow through bin storage, root prompts, child_result payloads, parent
-      validation, and verification receipts.
+    child-lifecycle-flow: |-
+      Ready DAG nodes run the pinned swe-child workflow and return immutable internal receipts.
+      The parent reconciles those receipts once in input order before validation and verification.
     system-update-flow: |-
       System update payloads validate root and external documents, write canonical YAML, and
       regenerate the signature sidecar.
@@ -337,7 +366,8 @@ quality:
       outcomes unless canonical quest state proves Loopship failed.
     canonical-artifact-truth: |-
       When agent narration, terminal chatter, and Loopship state disagree, reviewers trust
-      canonical tasks.yaml, events.jsonl, emitted child commands, and git worktree state
+      canonical tasks.yaml, events.jsonl, Native scheduler events, child execution identities,
+      and git worktree state
       first.
     live-smoke: |-
       Live runtime smoke tests use concrete no-clarification fixtures, consume the native init
@@ -378,9 +408,9 @@ risks:
       not prove, especially after clarification, failed runtime availability, or partial child
       work.
     mitigation: |-
-      Supervisors compare claims against tasks.yaml, events.jsonl, emitted child commands, git
-      worktree state, verification receipts, and landed receipts before changing Loopship
-      behavior.
+      Supervisors compare claims against tasks.yaml, events.jsonl, Native scheduler events,
+      immutable child execution identities, git worktree state, verification receipts, and
+      landed receipts before changing Loopship behavior.
 technical_debt:
   generated-markdown-renderer: |-
     Generated Markdown renderers for full human-readable architecture documents are not yet
@@ -418,8 +448,8 @@ diagrams:
         participant SystemUpdate
         User->>Loopship: loopship init request
         Loopship->>RootAgent: plan with system context
-        RootAgent->>ChildAgent: launch child worktree task
-        ChildAgent-->>Loopship: child_result evidence
+        Loopship->>ChildAgent: Native scheduler runs pinned child workflow
+        ChildAgent-->>Loopship: immutable child lifecycle receipt
         Loopship->>SystemUpdate: validated durable update
         SystemUpdate-->>Loopship: canonical docs and signature refreshed
         Loopship-->>User: archived landed receipt

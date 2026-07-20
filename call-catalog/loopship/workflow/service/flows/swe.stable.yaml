@@ -181,9 +181,6 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
       switch:
-        - planning_terminal_child:
-            when: "${state.steps.resolve_stage.action.current_stage === \"planning\" && (String(state.steps.read_tasks.action.parent_wtree || \"\").trim() || String(state.steps.read_tasks.action.parent_task_id || \"\").trim() || String(state.steps.read_tasks.action.parent_context_ref || \"\").trim() || String(state.steps.read_tasks.action.prompt || \"\").replace(/^loopship:\\s*/i, \"\").trim().toLowerCase().startsWith(\"execute child task \")) && (!Array.isArray(state.steps.read_tasks.action.tasks) || state.steps.read_tasks.action.tasks.length === 0)}"
-            then: stage_planning_terminal_child
         - planning:
             when: "${state.steps.resolve_stage.action.current_stage === \"planning\"}"
             then: stage_planning
@@ -193,15 +190,9 @@ do:
         - plan_review:
             when: "${state.steps.resolve_stage.action.current_stage === \"plan_review\"}"
             then: stage_plan_review
-        - task_graph_ready_leaf:
-            when: "${state.steps.resolve_stage.action.current_stage === \"task_graph_ready\" && (String(state.steps.read_tasks.action.parent_wtree || \"\").trim() || String(state.steps.read_tasks.action.parent_task_id || \"\").trim() || String(state.steps.read_tasks.action.parent_context_ref || \"\").trim() || String(state.steps.read_tasks.action.prompt || \"\").replace(/^loopship:\\s*/i, \"\").trim().toLowerCase().startsWith(\"execute child task \")) && Array.isArray(state.steps.read_tasks.action.tasks) && state.steps.read_tasks.action.tasks.length > 0 && state.steps.read_tasks.action.tasks.every((task) => !String((task || {}).child_wtree || \"\").trim())}"
-            then: stage_leaf_git_head
         - task_graph_ready:
             when: "${state.steps.resolve_stage.action.current_stage === \"task_graph_ready\"}"
-            then: stage_task_graph_ready
-        - executing_leaf:
-            when: "${state.steps.resolve_stage.action.current_stage === \"executing\" && Array.isArray(state.steps.read_tasks.action.tasks) && state.steps.read_tasks.action.tasks.length > 0 && state.steps.read_tasks.action.tasks.every((task) => !String((task || {}).child_wtree || \"\").trim())}"
-            then: stage_leaf_git_head
+            then: validate_child_dag
         - executing:
             when: "${state.steps.resolve_stage.action.current_stage === \"executing\"}"
             then: stage_executing
@@ -223,92 +214,6 @@ do:
         - archived:
             when: "${state.steps.resolve_stage.action.current_stage === \"archived\"}"
             then: stage_archived
-  - stage_planning_terminal_child:
-      then: stage_result_planning
-      metadata:
-        description: "Build a deterministic local leaf plan for terminal child quests without invoking broad coordinator planning."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                call: loopship.afn.service.flow.compose-transition-result
-                with:
-                  body:
-                    schema_version: loopship.stage-result.build/v1
-                    flow_id: swe
-                    stage_before: planning
-                    stage_after: plan_review
-                    transition: planned
-                    step: plan
-                    step_workflow_task: stage_planning_terminal_child
-                    step_payload: {}
-                    step_action: {}
-                    state_patch:
-                      stage: plan_review
-                    events:
-                      - event: terminal_child_planning_static_check
-                    runtime: {}
-                    as_check: true
-      set:
-        classification: terminal_child
-        scope: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
-        summary: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
-        assumptions:
-          - "Parent coordinator planning already defined the task boundary."
-          - "The child quest must stay local and must not create nested child worktrees."
-        constraints:
-          - "Implement only the assigned parent task in the current child worktree."
-          - "Do not edit Loopship runtime state directly."
-          - "Land into the configured parent worktree and return the merge commit."
-        defaulted_unknowns:
-          - "Terminal child planning is derived from parent task metadata instead of re-asking product scope questions."
-        high_impact_unknowns: []
-        system_context:
-          relevant_object_refs: []
-          relevant_assertion_refs: []
-          relevant_resource_refs:
-            - "${String(state.steps.read_tasks.action.parent_context_ref || '').trim()}"
-          relevant_memory_refs: []
-          durable_implications:
-            - kind: terminal_child
-              statement: "This quest is a leaf worker for an already-planned parent task."
-        verification_targets:
-          - "Assigned child task has local commits in the child worktree before validation."
-          - "Relevant tests, build, and documentation checks for the assigned task pass in the child worktree."
-          - "Landing records the merge commit into the configured parent branch."
-        decomposition_rationale: "Terminal child quests are already leaf assignments, so the smallest executable task graph is one local task."
-        task_graph:
-          tasks:
-            - id: "${String(state.steps.read_tasks.action.parent_task_id || 'assigned-task').trim() || 'assigned-task'}"
-              title: "${String(state.steps.read_tasks.action.prompt || 'Execute assigned child task').replace(/^loopship:\\s*/i, '').trim() || 'Execute assigned child task'}"
-              type: coding
-              status: pending
-              dependencies:
-                []
-              scope_files:
-                []
-              spec_refs:
-                []
-              context_refs:
-                - "${String(state.steps.read_tasks.action.parent_context_ref || '').trim()}"
-              acceptance:
-                - "Implement only the assigned parent task in the current child worktree."
-                - "Run relevant local checks and record evidence before validation."
-                - "Land into the configured parent branch and return the merge commit."
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action.values}"
   - stage_planning:
       then: stage_result_planning
       metadata:
@@ -488,10 +393,154 @@ do:
             type: object
             additionalProperties: true
         as: "${action}"
+  - validate_child_dag:
+      then: child_dag_validation_route
+      metadata:
+        description: "Normalize the approved child rows and reject unordered scope or concurrency conflicts before binding."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_child_dag_validation_contract
+              kind: behaviour
+              statement: "Child DAG validation returns canonical tasks and one finite concurrency ceiling."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return {
+                      ok: typeof action?.ok === "boolean" && Number.isInteger(action?.max_concurrency),
+                      evidence: { ok: action?.ok, max_concurrency: action?.max_concurrency }
+                    };
+      call: loopship.afn.service.child.validate-dag
+      with:
+        body:
+          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
+          max_concurrency: "${inputs.maxConcurrency === undefined ? 4 : inputs.maxConcurrency}"
+          supervise_step: "${state.steps.read_tasks.action.supervise_step === true}"
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action}"
+  - child_dag_validation_route:
+      metadata:
+        description: "Bind only valid child DAGs; invalid task graphs return to replanning without hidden edges."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_child_dag_validation_route
+              kind: behaviour
+              statement: "Invalid child resource conflicts never enter Native dispatch."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: Boolean(action?.matched_case), evidence: { matched_case: action?.matched_case || "" } };
+      switch:
+        - valid:
+            when: "${state.steps.validate_child_dag.action.ok === true}"
+            then: stage_task_graph_ready
+        - invalid:
+            then: stage_result_child_dag_invalid
   - stage_task_graph_ready:
       then: stage_result_task_graph_ready
+      for:
+        in: "${state.steps.validate_child_dag.action.tasks}"
+        each: childTask
+        at: childIndex
+      do:
+        - prepare_child:
+            then: run_child_lifecycle
+            metadata:
+              description: "Prepare one child worktree only when its Native DAG node becomes ready."
+              validation:
+                post:
+                  kind: static
+                  ok: true
+              verification:
+                assertions:
+                  - id: loopship_native_child_prepared
+                    kind: behaviour
+                    statement: "One ready node prepares exactly one stable child identity without command emission."
+                    check:
+                      script:
+                        kind: js
+                        code: |
+                          return {
+                            ok: action?.count === 1 && !action?.actions,
+                            evidence: { task_id: action?.task_id || "", child_wtree: action?.child_wtree || "" }
+                          };
+            call: loopship.afn.service.child.prepare-worktree
+            with:
+              body:
+                repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
+                wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
+                quest: "${state.steps.read_tasks.action || {}}"
+                task: "${state.vars.childTask}"
+                runtime: "${inputs.runtime || ''}"
+                target_branch: "${state.steps.read_tasks.action.coordinator_branch || state.steps.read_tasks.action.wtree || ''}"
+                target_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
+                supervise_step: "${state.steps.read_tasks.action.supervise_step === true}"
+            output:
+              schema:
+                document:
+                  type: object
+                  additionalProperties: true
+              as: "${action}"
+        - run_child_lifecycle:
+            metadata:
+              description: "Execute the prepared terminal child through the pinned Native child lifecycle."
+              ref:
+                  digest: "sha256:45855d66c1d31ee4ebab26ef6f8073c450e1a05053a99e79d2ec53f9457b3daf"
+              validation:
+                post:
+                  kind: static
+                  ok: true
+              verification:
+                assertions:
+                  - id: loopship_native_child_lifecycle
+                    kind: behaviour
+                    statement: "A passed child node returns a stable landed and archived receipt."
+                    check:
+                      script:
+                        kind: js
+                        code: |
+                          return {
+                            ok: action?.status === "child_archived" && Boolean(action?.merge_commit),
+                            evidence: action || {}
+                          };
+            call: loopship.workflow.service.flows.swe-child
+            with:
+              version: 0.1.0
+              input:
+                prepared: "${state.steps.prepare_child.action}"
+            output:
+              schema:
+                document:
+                  type: object
+                  additionalProperties: true
+              as: "${action.result.output}"
       metadata:
-        description: "Run Loopship task_graph_ready via the pinned executing step workflow."
+        description: "Execute the approved child graph as one immutable finite Native DAG."
+        extensions:
+          fastflow:
+            schemaVersion: fastflow.task/v2
+            dag:
+              id: "${state.vars.childTask.id}"
+              dependsOn: "${state.vars.childTask.dependencies || []}"
+              maxConcurrency: "${state.steps.validate_child_dag.action.max_concurrency}"
+              join: all_settled
         validation:
           post:
             kind: static
@@ -500,41 +549,74 @@ do:
               generated_by: loopship.fastflow
         verification:
           assertions:
-            - id: loopship_native_step_contract
+            - id: loopship_native_child_dag_settled
               kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
+              statement: "The Native all-settled aggregate retains one input-ordered outcome per approved child task."
               check:
                 script:
                   kind: js
                   code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
-        ref:
-          digest: "sha256:2aaccc0a7fec622d5bc63f81f5d4cd5b19733cff821e8fa5609d28f75cfc8a75"
-      call: loopship.workflow.service.step.executing
-      with:
-        version: 0.1.0
-        input:
-          wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          runtime: "${inputs.runtime || ''}"
-          quest: "${state.steps.read_tasks.action || {}}"
-          children: "${inputs.children || state.steps.read_tasks.action.tasks || []}"
-          actor: "${inputs.actor || 'loopship'}"
-          target_branch: "${inputs.target_branch || state.steps.read_tasks.action.landing_target_branch || 'main'}"
-          target_worktree: "${inputs.target_worktree || state.steps.read_tasks.action.landing_target_worktree || ''}"
-          source_branch: "${inputs.source_branch || state.steps.read_tasks.action.coordinator_branch || ''}"
+                    const nodes = Array.isArray(action?.scheduler?.nodes) ? action.scheduler.nodes : [];
+                    return {
+                      ok: action?.scheduler?.schemaVersion === "fastflow.scheduler.result/v2" && nodes.length === action?.count,
+                      evidence: { count: action?.count || 0, node_count: nodes.length }
+                    };
       output:
         schema:
           document:
             type: object
             additionalProperties: true
         as: "${action}"
+  - stage_result_child_dag_invalid:
+      then: select_stage_result
+      metadata:
+        description: "Return invalid child graphs to replanning without creating implicit serialization edges."
+        validation:
+          post:
+            kind: static
+            ok: true
+            evidence:
+              generated_by: loopship.fastflow
+        verification:
+          assertions:
+            - id: loopship_invalid_child_dag_replans
+              kind: behaviour
+              statement: "Unordered child conflicts persist a concrete replan reason."
+              check:
+                script:
+                  kind: js
+                  code: |
+                    return { ok: action?.stage_after === "replanning", evidence: action || {} };
+      run:
+        script:
+          language: js
+          code: |
+            const validation = state.steps.validate_child_dag?.action || {};
+            const errors = Array.isArray(validation.errors) ? validation.errors : [];
+            const reason = errors.join("; ") || "invalid Native child DAG";
+            return {
+              schema_version: "loopship.stage-result.build/v1",
+              flow_id: "swe",
+              stage_before: "task_graph_ready",
+              stage_after: "replanning",
+              transition: "rejected",
+              step: "executing",
+              step_workflow_task: "stage_result_child_dag_invalid",
+              step_payload: validation,
+              step_action: validation,
+              state_patch: { stage: "replanning", replan_reason: reason },
+              events: [{ event: "child_dag_rejected", stage: "replanning", errors }],
+              runtime: state.steps.resolve_stage?.action?.runtime || {}
+            };
+      output:
+        schema:
+          document:
+            type: object
+            additionalProperties: true
+        as: "${action.value}"
   - stage_executing:
-      then: stage_result_executing
       metadata:
-        description: "Run Loopship executing via the pinned child_result step workflow."
+        description: "Reject persisted coordinator executions from the removed external child-dispatch lifecycle."
         validation:
           post:
             kind: static
@@ -543,51 +625,23 @@ do:
               generated_by: loopship.fastflow
         verification:
           assertions:
-            - id: loopship_native_step_contract
+            - id: loopship_legacy_execution_rejected
               kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
+              statement: "Legacy coordinator execution state fails closed and must be resubmitted."
               check:
                 script:
                   kind: js
                   code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
-        ref:
-          digest: "sha256:8e14ae7ae30e24fae1527eb4a40589dd6ed44021b912f3b14a3cf3405985ebd0"
-      call: loopship.workflow.service.step.child-result
-      with:
-        version: 0.1.0
-        input:
-          schema_version: loopship.step.request/v1
-          kind: quest_step_request
-          wtree: "${state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-          quest_id: "${state.steps.read_tasks.action.quest_id || state.steps.read_tasks.action.wtree || inputs.wtree || ''}"
-          flow_id: swe
-          flow_version: 1
-          current_stage: executing
-          summary: "Submit the result of a completed child quest back to the parent flow."
-          prompt: "${state.steps.read_tasks.action.prompt || inputs.request || ''}"
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          repoRoot: "${inputs.repoRoot || inputs.repo || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          runtime: "${inputs.runtime || ''}"
-          tasks: "${Array.isArray(state.steps.read_tasks.action.tasks) ? state.steps.read_tasks.action.tasks : []}"
-          question_rounds: "${Array.isArray(state.steps.read_tasks.action.question_rounds) ? state.steps.read_tasks.action.question_rounds : []}"
-          plan_detail: "${state.steps.read_tasks.action.plan_detail || {}}"
-          validation_receipt: "${state.steps.read_tasks.action.validation_receipt || {}}"
-          verification_receipt: "${state.steps.read_tasks.action.verification_receipt || {}}"
-          events: "${Array.isArray(state.steps.query_events.action) ? state.steps.query_events.action : []}"
-          parent_wtree: "${state.steps.read_tasks.action.parent_wtree || ''}"
-          coordinator_branch: "${state.steps.read_tasks.action.coordinator_branch || ''}"
-          coordinator_worktree: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
-          landing_target_branch: "${state.steps.read_tasks.action.landing_target_branch || 'main'}"
-          landing_target_worktree: "${state.steps.read_tasks.action.landing_target_worktree || ''}"
-          requirements: []
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action}"
+                    return { ok: false, evidence: { code: "legacy_execution_unsupported" } };
+      run:
+        script:
+          language: js
+          code: |
+            const error = new Error(
+              "legacy_execution_unsupported: coordinator child-dispatch state cannot resume; resubmit as a new Native DAG execution"
+            );
+            error.code = "legacy_execution_unsupported";
+            throw error;
   - stage_validating:
       then: stage_result_validating
       metadata:
@@ -784,7 +838,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:800592a79353e41df2b27fe814ed6479091e6eecfcf1856a81291488057d82c9"
+          digest: "sha256:2228cbd3df585bbb1a24e9a6ce355f1411a90f494b51b0bc012ba21dc327626a"
       call: loopship.workflow.service.step.landing
       with:
         version: 0.1.0
@@ -893,7 +947,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:275abbce2405b8530f32e2fa7d02339c27ce4d71295e90fc94a8f6c0c23e5b95"
+          digest: "sha256:ba809205ccddd26e5e9dd601814fe39640afbf093d513fcd9365a37a0a2c43c7"
       call: loopship.workflow.service.step.archived
       with:
         version: 0.1.0
@@ -962,24 +1016,20 @@ do:
             function assignmentKey(wtree, taskId) { const left = normalizeTaskPathSegment(wtree || "quest"); const right = normalizeTaskPathSegment(taskId || "task"); const full = [left, right].filter(Boolean).join("-"); if (full.length <= 72) return full; const digest = compactDigest(full); const taskPart = right.slice(0, 20).replace(/-+$/g, "") || "task"; const wtreeBudget = Math.max(16, 72 - taskPart.length - digest.length - 2); const wtreePart = left.slice(0, wtreeBudget).replace(/-+$/g, "") || "quest"; return [wtreePart, taskPart, digest].join("-"); }
             function taskAcceptance(value) { return Array.isArray(value) ? stringList(value).join("; ") : String(value || "").trim(); }
             function normalizeSystemContext(value) { const row = object(value); return { relevant_object_refs: stringList(row.relevant_object_refs), relevant_assertion_refs: stringList(row.relevant_assertion_refs), relevant_resource_refs: stringList(row.relevant_resource_refs), relevant_memory_refs: stringList(row.relevant_memory_refs), durable_implications: array(row.durable_implications).filter((item) => Object.keys(object(item)).length) }; }
-            function normalizePrompt(value) { return String(value || "").toLowerCase().replace(/^loopship:\s*/, "").replace(/[^a-z0-9]+/g, " ").trim(); }
-            function isTerminalChild(tasks) { return Boolean(String(tasks.parent_wtree || "").trim()) || Boolean(String(tasks.parent_task_id || "").trim()) || Boolean(String(tasks.parent_context_ref || "").trim()) || normalizePrompt(tasks.prompt).startsWith("execute child task "); }
-            function normalizePlanTask(tasks, input, index) { const task = object(input); const wtree = String(tasks.wtree || "quest"); const id = normalizeName(task.id || task.task_id || "task-" + (index + 1)); const contextRoot = String(tasks.context_root || "."); const terminalChild = isTerminalChild(tasks); const coordinatorBranch = String(tasks.coordinator_branch || "main"); const coordinatorWorktree = String(tasks.coordinator_worktree || contextRoot); const landingTargetBranch = String(tasks.landing_target_branch || coordinatorBranch); return { id, title: String(task.title || task.name || id), type: task.type === "general" ? "general" : "coding", status: String(task.status || (terminalChild ? "pending" : "child_received")), dependencies: stringList(task.dependencies || task.depends_on).map(normalizeName), scope_files: stringList(task.scope_files || task.scope), spec_refs: stringList(task.spec_refs || task.specs), context_refs: stringList(task.context_refs || task.context), branch_ref: terminalChild ? coordinatorBranch : String(task.branch_ref || "codex/" + assignmentKey(wtree, id)), worktree_path: terminalChild ? coordinatorWorktree : String(task.worktree_path || contextRoot.replace(/[\\/]+$/g, "") + "/worktrees/" + assignmentKey(wtree, id)), child_wtree: terminalChild ? "" : String(task.child_wtree || assignmentKey(wtree, id)), concurrency_group: String(task.concurrency_group || ""), merge_target: String(task.merge_target || (terminalChild ? landingTargetBranch : coordinatorBranch)), merge_lease_id: terminalChild ? "" : String(task.merge_lease_id || "lease-" + assignmentKey(wtree, id)), merge_commit: String(task.merge_commit || ""), system_impact_ref: String(task.system_impact_ref || ""), acceptance: taskAcceptance(task.acceptance || task.acceptance_criteria) }; }
+            function normalizePlanTask(tasks, input, index) { const task = object(input); const wtree = String(tasks.wtree || "quest"); const id = normalizeName(task.id || task.task_id || "task-" + (index + 1)); const contextRoot = String(tasks.context_root || "."); const coordinatorBranch = String(tasks.coordinator_branch || "main"); return { id, title: String(task.title || task.name || id), type: task.type === "general" ? "general" : "coding", status: String(task.status || "child_received"), dependencies: stringList(task.dependencies || task.depends_on).map(normalizeName), scope_files: stringList(task.scope_files || task.scope), spec_refs: stringList(task.spec_refs || task.specs), context_refs: stringList(task.context_refs || task.context), branch_ref: "codex/" + assignmentKey(wtree, id), worktree_path: contextRoot.replace(/[\\/]+$/g, "") + "/worktrees/" + assignmentKey(wtree, id), child_wtree: assignmentKey(wtree, id), concurrency_group: String(task.concurrency_group || ""), merge_target: coordinatorBranch, merge_lease_id: "lease-" + assignmentKey(wtree, id), merge_commit: String(task.merge_commit || ""), system_impact_ref: String(task.system_impact_ref || ""), acceptance: taskAcceptance(task.acceptance || task.acceptance_criteria) }; }
             function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
             function matchesPlan(value) { const row = object(value); return "classification" in row || "questions" in row || "task_graph" in row; }
             function findPlanPayload(value, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPlanPayload(item, depth + 1); if (matchesPlan(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (matchesPlan(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPlanPayload(row[key], depth + 1); if (matchesPlan(found)) return found; } } for (const item of Object.values(row)) { const found = findPlanPayload(item, depth + 1); if (matchesPlan(found)) return found; } return {}; }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const tasks = object(state.steps.read_tasks?.action);
-            const terminalChildAction = object(state.steps.stage_planning_terminal_child?.action);
-            const stageAction = Object.keys(terminalChildAction).length ? terminalChildAction : object(state.steps.stage_planning?.action);
+            const stageAction = object(state.steps.stage_planning?.action);
             const payload = findPlanPayload(stageAction);
             const questions = array(payload.questions);
             const targetStage = questions.length ? "awaiting_user_answers" : "plan_review";
             const transition = questions.length ? "questions" : "planned";
             const patch = questions.length ? { stage: targetStage, replan_reason: "", question_rounds: [...array(tasks.question_rounds), { questions }] } : { stage: targetStage, replan_reason: "", assumptions: stringList(payload.assumptions), constraints: stringList(payload.constraints), plan_detail: { classification: String(payload.classification || ""), scope: String(payload.scope || ""), summary: String(payload.summary || payload.scope || ""), rationale: String(payload.summary || payload.scope || ""), system_context: normalizeSystemContext(payload.system_context), high_impact_unknowns: stringList(payload.high_impact_unknowns), defaulted_unknowns: stringList(payload.defaulted_unknowns), verification_targets: stringList(payload.verification_targets), decomposition_rationale: String(payload.decomposition_rationale || payload.summary || "") }, tasks: array(object(payload.task_graph).tasks).map((task, index) => normalizePlanTask(tasks, task, index)) };
             const event = questions.length ? { event: "question_round", stage: targetStage, question_count: questions.length } : { event: "plan_submitted", stage: targetStage, classification: String(payload.classification || ""), task_count: array(object(payload.task_graph).tasks).length, verification_target_count: array(payload.verification_targets).length };
-            const stepWorkflowTask = Object.keys(terminalChildAction).length ? "stage_planning_terminal_child" : "stage_planning";
-            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "planning", stage_after: targetStage, transition, step: "plan", step_workflow_task: stepWorkflowTask, step_payload: payload, step_action: payload, state_patch: patch, events: [event], runtime: runtimeSnapshot() };
+            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "planning", stage_after: targetStage, transition, step: "plan", step_workflow_task: "stage_planning", step_payload: payload, step_action: payload, state_patch: patch, events: [event], runtime: runtimeSnapshot() };
       output:
         schema:
           document:
@@ -1020,9 +1070,7 @@ do:
             function assignmentKey(wtree, taskId) { const left = normalizeTaskPathSegment(wtree || "quest"); const right = normalizeTaskPathSegment(taskId || "task"); const full = [left, right].filter(Boolean).join("-"); if (full.length <= 72) return full; const digest = compactDigest(full); const taskPart = right.slice(0, 20).replace(/-+$/g, "") || "task"; const wtreeBudget = Math.max(16, 72 - taskPart.length - digest.length - 2); const wtreePart = left.slice(0, wtreeBudget).replace(/-+$/g, "") || "quest"; return [wtreePart, taskPart, digest].join("-"); }
             function taskAcceptance(value) { return Array.isArray(value) ? stringList(value).join("; ") : String(value || "").trim(); }
             function normalizeSystemContext(value) { const row = object(value); return { relevant_object_refs: stringList(row.relevant_object_refs), relevant_assertion_refs: stringList(row.relevant_assertion_refs), relevant_resource_refs: stringList(row.relevant_resource_refs), relevant_memory_refs: stringList(row.relevant_memory_refs), durable_implications: array(row.durable_implications).filter((item) => Object.keys(object(item)).length) }; }
-            function normalizePrompt(value) { return String(value || "").toLowerCase().replace(/^loopship:\s*/, "").replace(/[^a-z0-9]+/g, " ").trim(); }
-            function isTerminalChild(tasks) { return Boolean(String(tasks.parent_wtree || "").trim()) || Boolean(String(tasks.parent_task_id || "").trim()) || Boolean(String(tasks.parent_context_ref || "").trim()) || normalizePrompt(tasks.prompt).startsWith("execute child task "); }
-            function normalizePlanTask(tasks, input, index) { const task = object(input); const wtree = String(tasks.wtree || "quest"); const id = normalizeName(task.id || task.task_id || "task-" + (index + 1)); const contextRoot = String(tasks.context_root || "."); const terminalChild = isTerminalChild(tasks); const coordinatorBranch = String(tasks.coordinator_branch || "main"); const coordinatorWorktree = String(tasks.coordinator_worktree || contextRoot); const landingTargetBranch = String(tasks.landing_target_branch || coordinatorBranch); return { id, title: String(task.title || task.name || id), type: task.type === "general" ? "general" : "coding", status: String(task.status || (terminalChild ? "pending" : "child_received")), dependencies: stringList(task.dependencies || task.depends_on).map(normalizeName), scope_files: stringList(task.scope_files || task.scope), spec_refs: stringList(task.spec_refs || task.specs), context_refs: stringList(task.context_refs || task.context), branch_ref: terminalChild ? coordinatorBranch : String(task.branch_ref || "codex/" + assignmentKey(wtree, id)), worktree_path: terminalChild ? coordinatorWorktree : String(task.worktree_path || contextRoot.replace(/[\\/]+$/g, "") + "/worktrees/" + assignmentKey(wtree, id)), child_wtree: terminalChild ? "" : String(task.child_wtree || assignmentKey(wtree, id)), concurrency_group: String(task.concurrency_group || ""), merge_target: String(task.merge_target || (terminalChild ? landingTargetBranch : coordinatorBranch)), merge_lease_id: terminalChild ? "" : String(task.merge_lease_id || "lease-" + assignmentKey(wtree, id)), merge_commit: String(task.merge_commit || ""), system_impact_ref: String(task.system_impact_ref || ""), acceptance: taskAcceptance(task.acceptance || task.acceptance_criteria) }; }
+            function normalizePlanTask(tasks, input, index) { const task = object(input); const wtree = String(tasks.wtree || "quest"); const id = normalizeName(task.id || task.task_id || "task-" + (index + 1)); const contextRoot = String(tasks.context_root || "."); const coordinatorBranch = String(tasks.coordinator_branch || "main"); return { id, title: String(task.title || task.name || id), type: task.type === "general" ? "general" : "coding", status: String(task.status || "child_received"), dependencies: stringList(task.dependencies || task.depends_on).map(normalizeName), scope_files: stringList(task.scope_files || task.scope), spec_refs: stringList(task.spec_refs || task.specs), context_refs: stringList(task.context_refs || task.context), branch_ref: "codex/" + assignmentKey(wtree, id), worktree_path: contextRoot.replace(/[\\/]+$/g, "") + "/worktrees/" + assignmentKey(wtree, id), child_wtree: assignmentKey(wtree, id), concurrency_group: String(task.concurrency_group || ""), merge_target: coordinatorBranch, merge_lease_id: "lease-" + assignmentKey(wtree, id), merge_commit: String(task.merge_commit || ""), system_impact_ref: String(task.system_impact_ref || ""), acceptance: taskAcceptance(task.acceptance || task.acceptance_criteria) }; }
             function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
             function matchesPlan(value) { const row = object(value); return "classification" in row || "questions" in row || "task_graph" in row; }
             function findPlanPayload(value, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPlanPayload(item, depth + 1); if (matchesPlan(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (matchesPlan(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPlanPayload(row[key], depth + 1); if (matchesPlan(found)) return found; } } for (const item of Object.values(row)) { const found = findPlanPayload(item, depth + 1); if (matchesPlan(found)) return found; } return {}; }
@@ -1118,8 +1166,6 @@ do:
           code: |-
             function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
             function array(value) { return Array.isArray(value) ? value : []; }
-            function normalizePrompt(value) { return String(value || "").toLowerCase().replace(/^loopship:\s*/, "").replace(/[^a-z0-9]+/g, " ").trim(); }
-            function isTerminalChild(tasks) { return Boolean(String(tasks.parent_wtree || "").trim()) || Boolean(String(tasks.parent_task_id || "").trim()) || Boolean(String(tasks.parent_context_ref || "").trim()) || normalizePrompt(tasks.prompt).startsWith("execute child task "); }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             function matchesTaskGraphReview(value) { const row = object(value); return typeof row.approved === "boolean" || typeof row.rejected === "boolean"; }
             function findTaskGraphReviewPayload(value, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findTaskGraphReviewPayload(item, depth + 1); if (matchesTaskGraphReview(found)) return found; } return {}; } const row = object(value); if (matchesTaskGraphReview(row)) return row; for (const key of ["decision", "output", "result", "workflow", "action", "value", "answer", "response"]) { if (key in row) { const found = findTaskGraphReviewPayload(row[key], depth + 1); if (matchesTaskGraphReview(found)) return found; } } for (const item of Object.values(row)) { const found = findTaskGraphReviewPayload(item, depth + 1); if (matchesTaskGraphReview(found)) return found; } return {}; }
@@ -1130,7 +1176,7 @@ do:
             const emptyApproved = !rejected && payload.approved === true && array(tasks.tasks).length === 0;
             const effectiveRejected = rejected || emptyApproved;
             const replanReason = rejected ? String(payload.replan_reason || "") : emptyApproved ? "approved task graph is empty; replan with at least one concrete local or child task before execution" : "";
-            const targetStage = effectiveRejected ? "replanning" : isTerminalChild(tasks) ? "executing" : "task_graph_ready";
+            const targetStage = effectiveRejected ? "replanning" : "task_graph_ready";
             const transition = effectiveRejected ? "rejected" : "approved";
             const event = { event: effectiveRejected ? "task_graph_rejected" : "task_graph_approved", stage: targetStage, replan_reason: replanReason };
             return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "plan_review", stage_after: targetStage, transition, step: "task_graph", step_workflow_task: "stage_plan_review", step_payload: payload, step_action: payload, state_patch: effectiveRejected ? { stage: targetStage, replan_reason: replanReason } : { stage: targetStage, replan_reason: "" }, events: [event], runtime: runtimeSnapshot() };
@@ -1143,7 +1189,7 @@ do:
   - stage_result_task_graph_ready:
       then: select_stage_result
       metadata:
-        description: "Build a stage-local result from the selected stage workflow output."
+        description: "Build the single input-ordered parent reconciliation after the Native child DAG settles."
         validation:
           post:
             kind: static
@@ -1152,531 +1198,29 @@ do:
               generated_by: loopship.fastflow
         verification:
           assertions:
-            - id: loopship_native_step_contract
+            - id: loopship_native_child_dag_reconciliation
               kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
+              statement: "Parent state is reconciled once after all child nodes pass, fail, or become blocked."
               check:
                 script:
                   kind: js
                   code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
-      run:
-        script:
-          language: js
-          code: |-
-            function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
-            function array(value) { return Array.isArray(value) ? value : []; }
-            function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
-            function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
-            function taskId(value) { const row = object(value); return String(row.task_id || row.id || "").trim(); }
-            function preparedChildren(value) { const row = object(value); const listed = array(row.prepared_children).concat(array(row.children)).map((item) => object(item)).filter((item) => taskId(item)); if (listed.length) return listed; return taskId(row) ? [row] : []; }
-            function tasksAfterChildPrepare(tasks, value) { const prepared = preparedChildren(value); if (!prepared.length) return tasks; const byId = new Map(prepared.map((item) => [taskId(item), item])); return { ...tasks, tasks: array(tasks.tasks).map((task) => { const row = object(task); const launch = byId.get(taskId(row)); if (!launch) return task; return { ...row, status: "child_dispatched", child_wtree: String(launch.child_wtree || row.child_wtree || ""), branch_ref: String(launch.branch_ref || row.branch_ref || ""), worktree_path: String(launch.worktree_path || row.worktree_path || ""), merge_target: String(launch.merge_target || row.merge_target || ""), merge_lease_id: String(launch.merge_lease_id || row.merge_lease_id || "") }; }) }; }
-            function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
-            function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
-            const tasks = object(state.steps.read_tasks?.action);
-            const stageAction = object(state.steps.stage_task_graph_ready?.action);
-            const payload = findPayload(stageAction, (row) => array(object(row).prepared_children).length > 0 || array(object(row).children).length > 0 || "task_id" in object(row) || "child_wtree" in object(row));
-            const nextTasks = tasksAfterChildPrepare(tasks, payload);
-            const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
-            const targetStage = transition === "complete" ? "validating" : "executing";
-            const event = { event: "step_submitted", stage: targetStage, step: "executing" };
-            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "task_graph_ready", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_task_graph_ready", step_payload: payload, step_action: payload, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks) }, events: [event], runtime: runtimeSnapshot() };
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action.value}"
-  - stage_leaf_git_head:
-      then: stage_leaf_target_git_head
-      metadata:
-        description: "Resolve the leaf child worktree HEAD commit for lifecycle evidence."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
-      call: loopship.afn.service.git.resolve-commit
+                    return {
+                      ok: action?.schema_version === "loopship.stage-result.build/v1",
+                      evidence: { transition: action?.transition || "", stage_after: action?.stage_after || "" }
+                    };
+      call: loopship.afn.service.child.build-dag-reconciliation
       with:
         body:
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          cwd: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
-          ref: HEAD
+          tasks: "${state.steps.validate_child_dag.action.tasks || []}"
+          dag_result: "${state.steps.stage_task_graph_ready.action || {}}"
+          runtime: "${state.steps.resolve_stage.action.runtime || {}}"
       output:
         schema:
           document:
             type: object
             additionalProperties: true
         as: "${action}"
-  - stage_leaf_target_git_head:
-      then: stage_leaf_execution_route
-      metadata:
-        description: "Resolve the landing target HEAD so leaf execution cannot complete without a new local commit."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
-      call: loopship.afn.service.git.resolve-commit
-      with:
-        body:
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          cwd: "${state.steps.read_tasks.action.context_root || inputs.repo || inputs.repoRoot || env.PWD || ''}"
-          ref: "${state.steps.read_tasks.action.landing_target_branch || state.steps.read_tasks.action.parent_wtree || 'main'}"
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action}"
-  - stage_leaf_execution_route:
-      metadata:
-        description: "Route terminal-child execution through native implementation or AITL fallback only when no local implementation commit exists."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                call: loopship.afn.service.flow.compose-transition-result
-                with:
-                  body:
-                    schema_version: loopship.stage-result.build/v1
-                    flow_id: swe
-                    stage_before: executing
-                    stage_after: executing
-                    transition: check
-                    step: executing
-                    step_workflow_task: stage_leaf_execution_route
-                    step_payload: {}
-                    step_action: {}
-                    state_patch: {}
-                    events:
-                      - event: stage_leaf_execution_route_check
-                    runtime: {}
-                    as_check: true
-      switch:
-        - implementation_missing:
-            when: "${Array.isArray(state.steps.read_tasks.action.tasks) && state.steps.read_tasks.action.tasks.some((task) => !String((task || {}).child_wtree || '').trim() && !['child_merged', 'child_archived', 'done', 'merged'].includes(String((task || {}).status || 'pending'))) && (!String(state.steps.stage_leaf_git_head.action.commit || '').trim() || (String(state.steps.stage_leaf_target_git_head.action.commit || '').trim() && String(state.steps.stage_leaf_git_head.action.commit || '') === String(state.steps.stage_leaf_target_git_head.action.commit || '')))}"
-            then: stage_leaf_native_implementation
-        - local_commit_present:
-            when: "${true}"
-            then: stage_result_leaf_executing
-  - stage_leaf_native_implementation:
-      then: stage_leaf_git_head_after_native
-      metadata:
-        description: "Ask the configured implementation agent to complete the assigned terminal child task and return a receipt."
-        inference: loopship_child_implementation
-        validation:
-          post:
-            kind: js
-            expression: |
-              const decision = state?.steps?.stage_leaf_native_implementation?.action?.decision || {};
-              const receipt = decision.implementation_receipt || {};
-              const ok = Boolean(receipt && typeof receipt === "object" && Object.keys(receipt).length > 0);
-              return { ok, evidence: { implementation_receipt: ok } };
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                call: loopship.afn.service.flow.compose-transition-result
-                with:
-                  body:
-                    schema_version: loopship.stage-result.build/v1
-                    flow_id: swe
-                    stage_before: executing
-                    stage_after: executing
-                    transition: check
-                    step: executing
-                    step_workflow_task: stage_leaf_native_implementation
-                    step_payload: {}
-                    step_action: {}
-                    state_patch: {}
-                    events:
-                      - event: stage_leaf_native_implementation_check
-                    runtime: {}
-                    as_check: true
-      call: fastflow.afn.core.request.input
-      with:
-        body:
-          timeout_ms: 1200000
-          instruction: |-
-            # Loopship Terminal Child Implementation
-            
-            Complete the assigned terminal child task in the current child
-            worktree when no local implementation commit exists yet.
-            If a prior native attempt left uncommitted implementation changes,
-            review those changes, finish the required checks, and commit the
-            completed child work instead of restarting from scratch.
-            
-            Stay inside `request.coordinator_worktree`. Read the parent context
-            and task boundaries from `request.parent_context_ref`. Implement
-            only the local terminal-child task rows. Do not create nested child
-            worktrees, do not edit parent runtime state directly, and do not
-            land or merge into the parent branch; Loopship validation,
-            verification, and landing steps own those transitions.
-            
-            Commit the local child work, run relevant checks, and return exactly
-            one `implementation_receipt` with the resolver, agent identity,
-            session or thread id when available, worktree, branch, commits,
-            checks, and artifact evidence.
-          request:
-            schema:
-              type: object
-              additionalProperties: true
-            build:
-              kind: js
-              using:
-                - inputs
-                - state
-              code: |
-                const tasks = state?.steps?.read_tasks?.action || {};
-                return {
-                  repo: String(inputs.repo || inputs.repoRoot || tasks.context_root || ""),
-                  coordinator_worktree: String(tasks.coordinator_worktree || ""),
-                  coordinator_branch: String(tasks.coordinator_branch || ""),
-                  parent_wtree: String(tasks.parent_wtree || ""),
-                  parent_task_id: String(tasks.parent_task_id || ""),
-                  parent_context_ref: String(tasks.parent_context_ref || ""),
-                  landing_target_branch: String(tasks.landing_target_branch || tasks.parent_wtree || "main"),
-                  task_graph: Array.isArray(tasks.tasks) ? tasks.tasks : [],
-                  current_head: String(state?.steps?.stage_leaf_git_head?.action?.commit || ""),
-                  target_head: String(state?.steps?.stage_leaf_target_git_head?.action?.commit || "")
-                };
-          answer:
-            schema:
-              type: object
-              additionalProperties: false
-              required:
-                - implementation_receipt
-              properties:
-                implementation_receipt:
-                  type: object
-                  additionalProperties: false
-                  required:
-                    - resolver
-                    - agent_id
-                    - worktree_path
-                    - branch_ref
-                    - commits
-                    - checks
-                    - artifacts
-                  anyOf:
-                    - required:
-                        - session_id
-                    - required:
-                        - thread_id
-                  properties:
-                    resolver:
-                      enum:
-                        - llm.cli.codex.gpt-5.4-mini.max
-                        - aitl.subagent
-                    agent_id:
-                      type: string
-                      minLength: 1
-                    session_id:
-                      type: string
-                      minLength: 1
-                    thread_id:
-                      type: string
-                      minLength: 1
-                    worktree_path:
-                      type: string
-                      minLength: 1
-                    branch_ref:
-                      type: string
-                      minLength: 1
-                    commits:
-                      type: array
-                      minItems: 1
-                      items:
-                        type: string
-                        minLength: 1
-                    checks:
-                      type: array
-                      minItems: 1
-                      items:
-                        type: object
-                        additionalProperties: false
-                        required:
-                          - name
-                          - status
-                        properties:
-                          name:
-                            type: string
-                          status:
-                            enum:
-                              - passed
-                              - failed
-                              - skipped
-                          summary:
-                            type: string
-                          ref:
-                            type: string
-                    artifacts:
-                      type: array
-                      minItems: 1
-                      items:
-                        type: object
-                        additionalProperties: false
-                        required:
-                          - type
-                          - ref
-                        properties:
-                          type:
-                            type: string
-                          ref:
-                            type: string
-                          summary:
-                            type: string
-                          status:
-                            type: string
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action}"
-  - stage_leaf_git_head_after_native:
-      then: stage_leaf_target_git_head_after_native
-      metadata:
-        description: "Resolve the terminal-child HEAD after native implementation returns."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                call: loopship.afn.service.flow.compose-transition-result
-                with:
-                  body:
-                    schema_version: loopship.stage-result.build/v1
-                    flow_id: swe
-                    stage_before: executing
-                    stage_after: executing
-                    transition: check
-                    step: executing
-                    step_workflow_task: stage_leaf_git_head_after_native
-                    step_payload: {}
-                    step_action: {}
-                    state_patch: {}
-                    events:
-                      - event: stage_leaf_git_head_after_native_check
-                    runtime: {}
-                    as_check: true
-      call: loopship.afn.service.git.resolve-commit
-      with:
-        body:
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          cwd: "${state.steps.read_tasks.action.coordinator_worktree || ''}"
-          ref: HEAD
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action}"
-  - stage_leaf_target_git_head_after_native:
-      then: stage_result_leaf_executing
-      metadata:
-        description: "Resolve the landing target HEAD after native implementation so execution evidence uses fresh commits."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                call: loopship.afn.service.flow.compose-transition-result
-                with:
-                  body:
-                    schema_version: loopship.stage-result.build/v1
-                    flow_id: swe
-                    stage_before: executing
-                    stage_after: executing
-                    transition: check
-                    step: executing
-                    step_workflow_task: stage_leaf_target_git_head_after_native
-                    step_payload: {}
-                    step_action: {}
-                    state_patch: {}
-                    events:
-                      - event: stage_leaf_target_git_head_after_native_check
-                    runtime: {}
-                    as_check: true
-      call: loopship.afn.service.git.resolve-commit
-      with:
-        body:
-          repo: "${inputs.repo || inputs.repoRoot || state.steps.read_tasks.action.context_root || env.PWD || ''}"
-          cwd: "${state.steps.read_tasks.action.context_root || inputs.repo || inputs.repoRoot || env.PWD || ''}"
-          ref: "${state.steps.read_tasks.action.landing_target_branch || state.steps.read_tasks.action.parent_wtree || 'main'}"
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action}"
-  - stage_result_leaf_executing:
-      then: select_stage_result
-      metadata:
-        description: "Record leaf child execution without requiring a nested child_result callback."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
-      run:
-        script:
-          language: js
-          code: |-
-            function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
-            function array(value) { return Array.isArray(value) ? value : []; }
-            function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
-            function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
-            function implementationReceiptFrom(value) { const payload = findPayload(value, (row) => "implementation_receipt" in object(row)  || ["llm.cli.codex.gpt-5.4-mini.max", "aitl.subagent"].includes(String(object(row).resolver || ""))); const receipt = object(payload.implementation_receipt || payload); return ["llm.cli.codex.gpt-5.4-mini.max", "aitl.subagent"].includes(String(receipt.resolver || "")) ? receipt : {}; }
-            function actionCommit(stepId) { return String(object(state.steps[stepId]?.action).commit || ""); }
-            function isDoneStatus(status) { return new Set(["child_merged", "child_archived", "done", "merged"]).has(String(status || "")); }
-            function markLeafTasksDone(tasks, mergeCommit) { return { ...tasks, tasks: array(tasks.tasks).map((task) => { const row = object(task); if (String(row.child_wtree || "").trim()) return row; const status = String(row.status || "pending"); const nextStatus = status === "blocked" || status === "failed" ? status : "done"; return { ...row, status: nextStatus, merge_commit: String(mergeCommit || row.merge_commit || "") }; }) }; }
-            function localTaskIds(tasks) { return array(object(tasks).tasks).map((task) => object(task)).filter((task) => !String(task.child_wtree || "").trim()).map((task, index) => String(task.id || task.task_id || "task-" + (index + 1)).trim()).filter(Boolean); }
-            function pendingLocalTaskIds(tasks) { return array(object(tasks).tasks).map((task) => object(task)).filter((task) => !String(task.child_wtree || "").trim() && !isDoneStatus(task.status)).map((task, index) => String(task.id || task.task_id || "task-" + (index + 1)).trim()).filter(Boolean); }
-            function localWorkReceipt(tasks, mergeCommit, targetCommit, status, implementationReceipt) { const missing = status === "missing_local_commit"; const receipt = { mode: "shared-head-commit", worktree_path: String(tasks.coordinator_worktree || ""), commit: mergeCommit, target_commit: targetCommit, status, covered_task_ids: missing ? [] : localTaskIds(tasks), pending_task_ids: pendingLocalTaskIds(tasks) }; return Object.keys(object(implementationReceipt)).length ? { ...receipt, implementation_receipt: implementationReceipt } : receipt; }
-            function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
-            function sameStringList(left, right) { const a = array(left).map((value) => String(value || "").trim()).filter(Boolean); const b = array(right).map((value) => String(value || "").trim()).filter(Boolean); return a.length === b.length && a.every((value, index) => value === b[index]); }
-            function hasMatchingMissingCommitEvent(events, mergeCommit, targetCommit, pendingTaskIds) { return array(events).some((entry) => { const row = object(entry); return String(row.event || "") === "leaf_execution_missing_commit" && String(row.merge_commit || "") === String(mergeCommit || "") && String(row.target_commit || "") === String(targetCommit || "") && sameStringList(row.pending_task_ids, pendingTaskIds); }); }
-            function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
-            const tasks = object(state.steps.read_tasks?.action);
-            const implementationReceipt = implementationReceiptFrom(state.steps.stage_leaf_native_implementation?.action);
-            const mergeCommit = actionCommit("stage_leaf_git_head_after_native") || actionCommit("stage_leaf_git_head");
-            const targetCommit = actionCommit("stage_leaf_target_git_head_after_native") || actionCommit("stage_leaf_target_git_head");
-            const pendingTaskIds = pendingLocalTaskIds(tasks);
-            if (pendingTaskIds.length && (!mergeCommit || (targetCommit && mergeCommit === targetCommit))) {
-              const receipt = localWorkReceipt(tasks, mergeCommit, targetCommit, "missing_local_commit", implementationReceipt);
-              const event = { event: "leaf_execution_missing_commit", stage: "executing", task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, pending_task_ids: pendingTaskIds, implementation_receipt: Object.keys(implementationReceipt).length > 0 };
-              const duplicateEvent = hasMatchingMissingCommitEvent(state.steps.query_events?.action, mergeCommit, targetCommit, pendingTaskIds);
-              return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "executing", stage_after: "executing", transition: "blocked", step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, step_action: { task_count: array(tasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, state_patch: { stage: "executing", tasks: array(tasks.tasks), local_work_receipt: receipt }, events: duplicateEvent ? [] : [event], runtime: runtimeSnapshot() };
-            }
-            const nextTasks = markLeafTasksDone(tasks, mergeCommit);
-            const receipt = localWorkReceipt(nextTasks, mergeCommit, targetCommit, "recorded", implementationReceipt);
-            const transition = terminalTaskState(nextTasks) === "all_done" ? "complete" : "partial";
-            const targetStage = transition === "complete" ? "validating" : "executing";
-            const event = { event: "leaf_execution_recorded", stage: targetStage, task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, covered_task_ids: receipt.covered_task_ids, implementation_receipt: Object.keys(implementationReceipt).length > 0 };
-            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "executing", step_workflow_task: "stage_result_leaf_executing", step_payload: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, step_action: { task_count: array(nextTasks.tasks).length, merge_commit: mergeCommit, target_commit: targetCommit, local_work_receipt: receipt }, state_patch: { stage: targetStage, tasks: array(nextTasks.tasks), local_work_receipt: receipt }, events: [event], runtime: runtimeSnapshot() };
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action.value}"
-  - stage_result_executing:
-      then: select_stage_result
-      metadata:
-        description: "Build a stage-local result from the selected stage workflow output."
-        validation:
-          post:
-            kind: static
-            ok: true
-            evidence:
-              generated_by: loopship.fastflow
-        verification:
-          assertions:
-            - id: loopship_native_step_contract
-              kind: behaviour
-              statement: "The generated Loopship Fastflow-native step produced an action result."
-              check:
-                script:
-                  kind: js
-                  code: |
-                    const ok = action !== undefined;
-                    return { ok, evidence: { has_action: ok } };
-      run:
-        script:
-          language: js
-          code: |-
-            function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
-            function array(value) { return Array.isArray(value) ? value : []; }
-            function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
-            function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
-            function taskId(value) { const row = object(value); return String(row.task_id || row.id || "").trim(); }
-            function taskDependencies(value) { const row = object(value); const raw = Array.isArray(row.dependencies) ? row.dependencies : Array.isArray(row.depends_on) ? row.depends_on : []; return raw.map((entry) => String(entry || "").trim()).filter(Boolean); }
-            function tasksAfterChildResult(tasks, payload) { const taskId = String(payload.task_id || payload.id || ""); const items = array(tasks.tasks); if (!taskId || !items.length) return tasks; return { ...tasks, tasks: items.map((task) => { const row = object(task); if (String(row.id || "") !== taskId) return task; const status = String(payload.status || ""); return { ...row, status: status === "passed" ? "child_archived" : status === "blocked" ? "blocked" : "failed", child_wtree: String(payload.child_wtree || row.child_wtree || ""), branch_ref: String(payload.branch_ref || row.branch_ref || ""), worktree_path: String(payload.worktree_path || row.worktree_path || ""), merge_target: String(payload.merge_target || row.merge_target || ""), merge_lease_id: String(payload.merge_lease_id || row.merge_lease_id || ""), merge_commit: String(payload.merge_commit || row.merge_commit || "") }; }) }; }
-            function childResultsAfterChildResult(tasks, payload) { const taskId = String(payload.task_id || payload.id || "").trim(); const childWtree = String(payload.child_wtree || "").trim(); if (!taskId || !childWtree) return array(tasks.child_results); const next = { task_id: taskId, child_wtree: childWtree, status: String(payload.status || "").trim(), evidence: array(payload.evidence).map((entry) => object(entry)).filter((entry) => String(entry.type || "").trim() && String(entry.ref || "").trim()), branch_ref: String(payload.branch_ref || "").trim(), worktree_path: String(payload.worktree_path || "").trim(), merge_target: String(payload.merge_target || "").trim(), merge_lease_id: String(payload.merge_lease_id || "").trim(), merge_commit: String(payload.merge_commit || "").trim() }; const existing = array(tasks.child_results).filter((entry) => { const row = object(entry); return !(String(row.task_id || "").trim() === taskId && String(row.child_wtree || "").trim() === childWtree); }); return [...existing, next]; }
-            function terminalTaskState(tasks) { const statuses = array(object(tasks).tasks).map((task) => String(object(task).status || "child_received")).filter(Boolean); if (!statuses.length) return "unknown"; const done = new Set(["child_merged", "child_archived", "done", "merged"]); if (statuses.every((status) => done.has(status))) return "all_done"; return "continue"; }
-            function hasReadyUndispatchedChildren(tasks) { const items = array(object(tasks).tasks).map((task) => object(task)); const statusById = new Map(items.map((task) => [taskId(task), String(task.status || "child_received")])); const done = new Set(["child_merged", "child_archived", "done", "merged"]); return items.some((task) => { const status = String(task.status || "child_received"); if (!(status === "child_received" || status === "pending" || status === "queued")) return false; return taskDependencies(task).every((dependencyId) => { const dependencyStatus = statusById.get(dependencyId); return typeof dependencyStatus === "string" && done.has(dependencyStatus); }); }); }
-            function hasFailedChildren(tasks) { return array(object(tasks).tasks).some((task) => { const status = String(object(task).status || "child_received"); return status === "blocked" || status === "failed"; }); }
-            function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
-            const tasks = object(state.steps.read_tasks?.action);
-            const stageAction = object(state.steps.stage_executing?.action);
-            const payload = findPayload(stageAction, (row) => "child_wtree" in object(row) || "merge_commit" in object(row) || "task_id" in object(row));
-            const nextTasks = tasksAfterChildResult(tasks, payload);
-            const complete = terminalTaskState(nextTasks) === "all_done";
-            const queueNextChild = !complete && !hasFailedChildren(nextTasks) && hasReadyUndispatchedChildren(nextTasks);
-            const transition = complete ? "complete" : queueNextChild ? nextTasks.supervise_step === true ? "next_child" : "next_children" : "partial";
-            const targetStage = complete ? "validating" : queueNextChild ? "task_graph_ready" : "executing";
-            const patch = { stage: targetStage, tasks: array(nextTasks.tasks), child_results: childResultsAfterChildResult(tasks, payload) };
-            const event = { event: "child_result_submitted", stage: targetStage, task_id: String(payload.task_id || payload.id || ""), child_wtree: String(payload.child_wtree || ""), status: String(payload.status || ""), merge_commit: String(payload.merge_commit || "") };
-            return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "executing", stage_after: targetStage, transition, step: "child_result", step_workflow_task: "stage_executing", step_payload: payload, step_action: payload, state_patch: patch, events: [event], runtime: runtimeSnapshot() };
-      output:
-        schema:
-          document:
-            type: object
-            additionalProperties: true
-        as: "${action.value}"
   - stage_result_validating:
       then: select_stage_result
       metadata:
@@ -1706,15 +1250,13 @@ do:
             function array(value) { return Array.isArray(value) ? value : []; }
             function directPayload(value) { const row = object(value); const decision = object(row.decision); if (Object.prototype.hasOwnProperty.call(decision, "decision")) return decision.decision; if (Object.keys(decision).length) return decision; if (Object.prototype.hasOwnProperty.call(row, "decision")) return row.decision; return row; }
             function findPayload(value, match, depth = 0) { if (depth > 8 || !value || typeof value !== "object") return {}; if (Array.isArray(value)) { for (const item of value) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; } const row = object(value); const direct = directPayload(row); if (match(direct)) return direct; for (const key of ["output", "result", "workflow", "action", "value", "answer"]) { if (key in row) { const found = findPayload(row[key], match, depth + 1); if (match(found)) return found; } } for (const item of Object.values(row)) { const found = findPayload(item, match, depth + 1); if (match(found)) return found; } return {}; }
-            function normalizePrompt(value) { return String(value || "").replace(/^loopship:\s*/i, "").trim().toLowerCase(); }
-            function isTerminalChild(tasks) { return Boolean(String(tasks.parent_wtree || "").trim()) || Boolean(String(tasks.parent_task_id || "").trim()) || Boolean(String(tasks.parent_context_ref || "").trim()) || normalizePrompt(tasks.prompt).startsWith("execute child task "); }
             function runtimeSnapshot() { const resolved = object(state.steps.resolve_stage?.action); return resolved.runtime || { tasks: object(state.steps.read_tasks?.action), manifest: null, events: state.steps.query_events?.action || [] }; }
             const tasks = object(state.steps.read_tasks?.action);
             const stageAction = object(state.steps.stage_validating?.action);
             const payload = findPayload(stageAction, (row) => "checks" in object(row) && "status" in object(row));
             const status = String(payload.status || "");
             const transition = status === "passed" ? "passed" : status === "failed_child" ? "failed_child" : "failed";
-            const targetStage = transition === "passed" ? "verification_pending" : transition === "failed_child" ? "validating" : isTerminalChild(tasks) ? "executing" : "task_graph_ready";
+            const targetStage = transition === "passed" ? "verification_pending" : transition === "failed_child" ? "validating" : "task_graph_ready";
             const patch = { stage: targetStage, validation_receipt: { status, checks: array(payload.checks) } };
             const event = { event: "validation_submitted", stage: targetStage, status, check_count: array(payload.checks).length };
             return { schema_version: "loopship.stage-result.build/v1", flow_id: "swe", stage_before: "validating", stage_after: targetStage, transition, step: "validation", step_workflow_task: "stage_validating", step_payload: payload, step_action: payload, state_patch: patch, events: [event], runtime: runtimeSnapshot() };
@@ -1910,7 +1452,7 @@ do:
                     const ok = Object.keys(selected).length > 0;
                     return { ok, evidence: { has_action: ok, stage_before: String(selected.stage_before || "") } };
       set:
-        selected_result: "${({ planning: state.steps.stage_result_planning?.action, awaiting_user_answers: state.steps.stage_result_awaiting_user_answers?.action, plan_review: state.steps.stage_result_plan_review?.action, task_graph_ready: state.steps.stage_result_task_graph_ready?.action, executing: state.steps.stage_result_leaf_executing?.action || state.steps.stage_result_executing?.action, validating: state.steps.stage_result_validating?.action, verification_pending: state.steps.stage_result_verification_pending?.action, system_update_pending: state.steps.stage_result_system_update_pending?.action, landing_ready: state.steps.stage_result_landing_ready?.action, replanning: state.steps.stage_result_replanning?.action, archived: state.steps.stage_result_archived?.action })[String(state.steps.resolve_stage?.action?.current_stage || \"planning\")] || {}}"
+        selected_result: "${({ planning: state.steps.stage_result_planning?.action, awaiting_user_answers: state.steps.stage_result_awaiting_user_answers?.action, plan_review: state.steps.stage_result_plan_review?.action, task_graph_ready: state.steps.stage_result_task_graph_ready?.action || state.steps.stage_result_child_dag_invalid?.action, validating: state.steps.stage_result_validating?.action, verification_pending: state.steps.stage_result_verification_pending?.action, system_update_pending: state.steps.stage_result_system_update_pending?.action, landing_ready: state.steps.stage_result_landing_ready?.action, replanning: state.steps.stage_result_replanning?.action, archived: state.steps.stage_result_archived?.action })[String(state.steps.resolve_stage?.action?.current_stage || \"planning\")] || {}}"
       output:
         schema:
           document:
@@ -2077,7 +1619,7 @@ do:
         as: "${action}"
   - continue_or_stop:
       metadata:
-        description: "Continue inline Loopship lifecycle stages until a handoff, child dispatch, blocked state, or archive terminal state."
+        description: "Continue inline Loopship lifecycle stages until a handoff, blocked state, or archive terminal state."
         validation:
           post:
             kind: static
@@ -2088,7 +1630,7 @@ do:
           assertions:
             - id: loopship_native_continuation_contract
               kind: behaviour
-              statement: "Inline lifecycle stages continue inside the same Fastflow run, while handoff and child-dispatch states stop."
+              statement: "Inline lifecycle stages continue inside the same Fastflow run, while explicit handoff and blocked states stop."
               check:
                 script:
                   kind: js
@@ -2101,9 +1643,6 @@ do:
             then: cleanup_landed_worktrees
         - awaiting_user_answers:
             when: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'awaiting_user_answers'}"
-            then: end
-        - child_dispatch:
-            when: "${String(state.steps.build_stage_result?.action?.stage_after || '') === 'executing' && String(state.steps.build_stage_result?.action?.step || '') === 'executing' && String(state.steps.build_stage_result?.action?.step_workflow_task || '') === 'stage_task_graph_ready'}"
             then: end
         - blocked_execution:
             when: "${String(state.steps.build_stage_result?.action?.transition || '') === 'blocked'}"

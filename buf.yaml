@@ -1,13 +1,13 @@
 version: v2
 modules:
   - path: proto
-  - path: node_modules/cmdproto/proto
+  - path: .cmdproto-deps/proto
 lint:
   use:
     - STANDARD
     - CMDPROTO
 plugins:
-  - plugin: ./node_modules/.bin/cmdproto-buf-plugin
+  - plugin: ./.cmdproto-deps/bin/cmdproto-buf-plugin
 breaking:
   use:
     - FILE

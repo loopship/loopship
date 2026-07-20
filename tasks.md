@@ -17,8 +17,9 @@ This ledger tracks the repo's worktree-first lifecycle coverage after the hard c
 - Built-in hook installation covers Codex, Gemini, and Copilot; manually configured runtimes use
   the same runtime-neutral hook command and native thread-id normalization.
 - Hook continuation output stays compact and does not expose legacy identity keys.
-- Simulation flows and child dispatch flows use `wtree` consistently.
-- Legacy quest-state keys fail fast and require manual cleanup or quest recreation.
+- Simulation flows and Native child DAG preparation use `wtree` consistently.
+- Prior quest-state schemas and legacy keys fail explicitly with
+  `legacy_execution_unsupported`; users must abandon or cancel the old run and resubmit it.
 
 ## Verification Targets
 

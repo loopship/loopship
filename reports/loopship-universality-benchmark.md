@@ -26,7 +26,7 @@ Scope: non-deployment benchmark evidence for the "any system / any scale" claim.
 | `create a lightweight team decision log` | `loopship_child_implementation` via `aitl.subagent`; `gpt-5.4-mini` xhigh | `tmp/live-agent-samples/decision-log` on `codex/live-decision-log` | `dc7611a Add lightweight team decision log` | `bun run check` passed locally after receipt | artifacts: `decisions/log.json`, `.loopship/system.yaml`/canonical docs check | pass |
 | `add import validation to this tiny data schema repo` | `loopship_child_implementation` via `aitl.subagent`; `gpt-5.4-mini` xhigh | `tmp/live-agent-samples/import-validation` on `codex/live-import-validation` | `efaf889 Add import validation` | `bun run check` passed locally after receipt | artifacts: `scripts/validate-import.ts`, good/bad input evidence | pass |
 
-Proof boundary: real child agents implemented, committed, ran local validation, and returned receipts in isolated tiny repos. This proves the subagent implementation route can perform child work. It does not yet prove a full native `loopship init -> emitted child CLI command -> child_result callback -> parent landing` run with live model tokens.
+Proof boundary: real child agents implemented, committed, ran local validation, and returned internal receipts in isolated tiny repos. The current release replaces the report's former external command/callback path with one Fastflow Native DAG whose pinned child workflows land before a single parent reconciliation.
 
 ## Adversarial/Security Matrix
 
@@ -38,7 +38,7 @@ Command: `bun run scripts/verify_lifecycle_adversarial_matrix.ts`
 | `stale-local-work-receipt` | pass | stale receipt HEAD rejected against actual worktree HEAD |
 | `path-traversal-system-update` | pass | external doc path escaping `.loopship/docs` rejected without changing `.loopship/system.yaml` |
 | `secret-leakage-system-doc` | pass | token-like secret material rejected before durable write |
-| `malicious-child-payload` | pass | child-result schema rejects unexpected command/stage fields |
+| `native-child-identity` | pass | Native child preparation rejects conflicting branch and worktree identities |
 | `tampered-worktree-state` | pass | branch/worktree mismatch blocks acceptance |
 | `poisoned-validation` | pass | pass-shaped receipt with failed check rejected by verifier |
 | `unsafe-landing-target` | pass | target worktree outside repo boundary rejected by verifier |
@@ -104,7 +104,7 @@ Proof boundary: deterministic scripted ceiling is now above `parallel-20-*`, wit
 
 ## Remaining Gaps Before "Any System / Any Scale"
 
-- Full native live-child Loopship flow remains open: emitted child command, live child execution, child_result callback, parent verification, parent landing/archive in one canonical run.
+- Full live-model coverage remains an operational matrix concern; the executable lifecycle itself now runs solely through the pinned Native child DAG without a public callback surface.
 - Cross-runtime confidence remains thin beyond Codex-oriented hook/stepper verification.
 - Scale evidence is filesystem/git-heavy but still local and scripted; distributed execution and large-repo contention are not proven.
 - Security fixtures now prove local guards and schema rejection, but production flow-level poisoned-validation and receipt reachability checks should be promoted into reusable AFNs before the strongest safety claim.
