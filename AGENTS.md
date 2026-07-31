@@ -15,7 +15,7 @@
 - If `tmp/plan.md` is missing or empty, create or update it before implementation; use Codex Plan mode when available, otherwise write the plan directly.
 - Keep heavy/generated temporary assets outside the repo or inside ignored `tmp/`; never commit `temp`, `tmp`, `_temp`, `_tmp`, `.tmp`, or `.temp` paths.
 - Run relevant tests/builds/checks before landing.
-- **Token discipline:** no user-facing prose unless needed to complete the requested action. Avoid mid-task updates unless blocked or coordination-critical. Act from context; ask only when needed. End with compact `what changed / how / checks` when applicable. Omit logs, diffs, and repeated context unless requested.
+- **Token discipline:** State the high-level plan once for every task, then work silently. Do not narrate routine actions, tool calls, or intermediate progress. Update the user only when the plan materially changes or input, approval, or awareness is required. Before stopping, give one concise but complete summary of what was done, the outcome, relevant checks, and any unresolved issues. Omit logs, diffs, repetition, and obvious context unless requested.
 
 <!-- END rules:spec:common -->
 <!-- BEGIN rules:spec:coding -->
