@@ -5,7 +5,7 @@
     "": {
       "name": "@omar391/loopship",
       "dependencies": {
-        "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#a6cafbd2b247cec56cc8a62550e6d8dbaf1686c8",
+        "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#02c8946fcd2bd7b15992f164d392eb35b0851b51",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
         "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
@@ -22,7 +22,7 @@
     "cmdproto",
   ],
   "overrides": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#a6cafbd2b247cec56cc8a62550e6d8dbaf1686c8",
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#02c8946fcd2bd7b15992f164d392eb35b0851b51",
   },
   "packages": {
     "@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.1", "", {}, "sha512-BvAMfS6LrgZiryOAZ4pBYucu4wG/Ei/9o9DZ9akbREnMLbPJiom2i8b9C8IsKErQoiKqVhrerzt3kOT/RrzLHg=="],
@@ -33,7 +33,7 @@
 
     "@connectrpc/connect-web": ["@connectrpc/connect-web@2.1.2", "", { "peerDependencies": { "@bufbuild/protobuf": "^2.7.0", "@connectrpc/connect": "2.1.2" } }, "sha512-1tfaK85MU+gJjwwmL31d2rzdf0XCYX99chZf63uG89SGBUd4XuZ4ZzhGo2u79TPXOE6nLIZQ2okrpyey42PYdg=="],
 
-    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#a6cafbd2b247cec56cc8a62550e6d8dbaf1686c8", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63", "yaml": "2.9.0" }, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "a6cafbd2b247cec56cc8a62550e6d8dbaf1686c8"],
+    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#02c8946fcd2bd7b15992f164d392eb35b0851b51", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63", "yaml": "2.9.0" }, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "02c8946fcd2bd7b15992f164d392eb35b0851b51"],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
