@@ -287,22 +287,24 @@ async function hardKillLoopshipLandingAt(input: {
   return JSON.parse(readFileSync(receiptPath, "utf8")) as Record<string, unknown>;
 }
 
-const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
-  Object.fromEntries(
-    [
-      "llm.cli.codex.gpt-5.5.max",
-      "llm.cli.codex.gpt-5.3-codex-spark.max",
-      "llm.cli.codex.gpt-5.3-codex-spark.high",
-    ].map((routeRef) => [
-      routeRef,
-      {
-        client: "handoff",
-        resolverPath: routeRef,
+const TEST_CONFIG_JSON = JSON.stringify({
+  inference: {
+    routes: Object.fromEntries(
+      [
+        "llm.cli.codex.gpt-5.5.max",
+        "llm.cli.codex.gpt-5.3-codex-spark.max",
+        "llm.cli.codex.gpt-5.3-codex-spark.high",
+      ].map((routeRef) => [
         routeRef,
-      },
-    ]),
-  ),
-);
+        {
+          client: "handoff",
+          resolverPath: routeRef,
+          routeRef,
+        },
+      ]),
+    ),
+  },
+});
 
 function parseCallId(call: string): {
   registry: string;
@@ -764,11 +766,12 @@ function runLoopshipCli(
     cwd: repo,
     env: {
       HOME: resolve(repo, "..", "home"),
-      INFERENCE_CLIENT: "handoff",
-      INFERENCE_PROVIDER: "",
-      INFERENCE_MODEL: "",
+      INFERENCE_CLIENT: undefined,
+      INFERENCE_PROVIDER: undefined,
+      INFERENCE_MODEL: undefined,
+      INFERENCE_ROUTES_JSON: undefined,
       OPENAI_API_KEY: "",
-      INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+      CONFIG_JSON: TEST_CONFIG_JSON,
       LOOPSHIP_GLOBAL_BIN: resolve(repo, "..", "bin", "loopship"),
       LOOPSHIP_SCRIPT: resolve(process.cwd(), "index.ts"),
       FASTFLOW_SCHEDULER_MODE: "test",
@@ -1249,10 +1252,10 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
     expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+https://github.com/cueintent/fastflow.git#4b080043509fa80fa15823816781eb5ff0a46072",
+      "git+ssh://git@github.com/cueintent/fastflow.git#05c257693ea08a237c910c90ef2a5ca59696eadb",
     );
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+https://github.com/cueintent/fastflow.git#4b080043509fa80fa15823816781eb5ff0a46072",
+      "git+ssh://git@github.com/cueintent/fastflow.git#05c257693ea08a237c910c90ef2a5ca59696eadb",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
@@ -1455,11 +1458,12 @@ describe("Loopship Fastflow-native bridge", () => {
               CODEX_THREAD_ID: "packed-native-session-test",
               FASTFLOW_SCHEDULER_MODE: "local-durable",
               FASTFLOW_SCHEDULER_DB: schedulerDb,
-              INFERENCE_CLIENT: "handoff",
-              INFERENCE_PROVIDER: "",
-              INFERENCE_MODEL: "",
+              INFERENCE_CLIENT: undefined,
+              INFERENCE_PROVIDER: undefined,
+              INFERENCE_MODEL: undefined,
+              INFERENCE_ROUTES_JSON: undefined,
               OPENAI_API_KEY: "",
-              INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+              CONFIG_JSON: TEST_CONFIG_JSON,
             },
             timeoutMs: 120_000,
           },
@@ -1467,13 +1471,15 @@ describe("Loopship Fastflow-native bridge", () => {
         expect(session.status, session.stderr || session.stdout).toBe(0);
         const response = parseJsonObject(session.stdout.trim(), "packed Native session");
         expect(response).toMatchObject({
-          schemaVersion: "fastflow/workflow-run-artifact/v1",
-          kind: "workflow_result",
-          status: "running",
-          accepted: true,
-          queued: true,
+          schemaVersion: "fastflow/interaction-response/v1",
+          kind: "supervisor_review",
+          supervision: { enabled: true, mode: "step" },
+          nextCall: { command: "loopship stepper step --json @-" },
         });
-        expect(String(response.executionId || "")).toMatch(/^loopship-[0-9a-f]{64}$/);
+        const nextCall = response.nextCall as Record<string, unknown>;
+        const nextArgs = nextCall.args as Record<string, unknown>;
+        expect(String(nextArgs.sessionId || "")).toMatch(/^loopship-[0-9a-f]{64}$/);
+        expect(String(nextArgs.nonce || "")).toMatch(/^sha256:[0-9a-f]{64}$/);
         daemon.kill("SIGINT");
         expect(await daemon.exited).toBe(0);
         daemon = null;

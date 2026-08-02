@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   startLoopshipTestScheduler,
@@ -18,19 +18,21 @@ import {
 import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
-const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
-  Object.fromEntries(
-    [
-      "llm.cli.codex.gpt-5.5.max",
-      "llm.cli.codex.gpt-5.3-codex-spark.max",
-      "llm.cli.codex.gpt-5.3-codex-spark.high",
-    ].map((routeRef) => [
-      routeRef,
-      { client: "handoff", resolverPath: routeRef, routeRef },
-    ]),
-  ),
-);
-let nativeRuntimeEnv: Record<string, string> = {};
+const TEST_CONFIG_JSON = JSON.stringify({
+  inference: {
+    routes: Object.fromEntries(
+      [
+        "llm.cli.codex.gpt-5.5.max",
+        "llm.cli.codex.gpt-5.3-codex-spark.max",
+        "llm.cli.codex.gpt-5.3-codex-spark.high",
+      ].map((routeRef) => [
+        routeRef,
+        { client: "handoff", resolverPath: routeRef, routeRef },
+      ]),
+    ),
+  },
+});
+let nativeRuntimeEnv: Record<string, string | undefined> = {};
 
 type JsonObject = Record<string, any>;
 type PauseToken = {
@@ -224,6 +226,29 @@ function assertHookRouteMatches(workspaceRoot: string, pause: PauseToken | null)
   }
 }
 
+async function recoverRunningResult(
+  repo: string,
+  wtree: string,
+  initial: JsonObject,
+): Promise<JsonObject> {
+  const deadline = Date.now() + 120_000;
+  let result = initial;
+  while (
+    result.schemaVersion === "fastflow/workflow-run-artifact/v1" &&
+    result.kind === "workflow_result" &&
+    ["pending", "queued", "running"].includes(String(result.status || ""))
+  ) {
+    if (Date.now() >= deadline) {
+      fail(`timed out recovering Fastflow stepper result: ${JSON.stringify(result)}`);
+    }
+    await Bun.sleep(20);
+    const recovery = runLoopship(repo, ["resume", "--repo", repo, "--wtree", wtree]);
+    if (recovery.status !== 0) fail(recovery.stderr || recovery.stdout);
+    result = parseJson(recovery.stdout, "running Fastflow stepper recovery");
+  }
+  return result;
+}
+
 function resumeNativePause(input: {
   repo: string;
   root: string;
@@ -265,12 +290,13 @@ async function main(): Promise<number> {
     nativeRuntimeEnv = {
       ...scheduler.env,
       HOME: join(root, "home"),
-      INFERENCE_CLIENT: "handoff",
-      INFERENCE_PROVIDER: "",
-      INFERENCE_MODEL: "",
+      INFERENCE_CLIENT: undefined,
+      INFERENCE_PROVIDER: undefined,
+      INFERENCE_MODEL: undefined,
+      INFERENCE_ROUTES_JSON: undefined,
       OPENAI_API_KEY: "",
       CODEX_THREAD_ID: "loopship-stepper-thread",
-      INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+      CONFIG_JSON: TEST_CONFIG_JSON,
     };
     const start = runLoopship(repo, [
       "stepper",
@@ -286,7 +312,11 @@ async function main(): Promise<number> {
     const pause = assertNativeFastflowResponse(first, "stepper init");
     if (pause) {
       assertHookRouteMatches(pause.workspaceRoot, pause);
-      const resumed = resumeNativePause({ repo, root, pause });
+      const resumed = await recoverRunningResult(
+        repo,
+        basename(pause.workspaceRoot),
+        resumeNativePause({ repo, root, pause }),
+      );
       const nextPause = assertNativeFastflowResponse(resumed, "stepper step");
       assertHookRouteMatches(pause.workspaceRoot, nextPause);
     }

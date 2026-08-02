@@ -29,19 +29,21 @@ import {
 } from "./loopship_hook_state.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
-const TEST_INFERENCE_ROUTES_JSON = JSON.stringify(
-  Object.fromEntries(
-    [
-      "llm.cli.codex.gpt-5.5.max",
-      "llm.cli.codex.gpt-5.3-codex-spark.max",
-      "llm.cli.codex.gpt-5.3-codex-spark.high",
-    ].map((routeRef) => [
-      routeRef,
-      { client: "handoff", resolverPath: routeRef, routeRef },
-    ]),
-  ),
-);
-let nativeRuntimeEnv: Record<string, string> = {};
+const TEST_CONFIG_JSON = JSON.stringify({
+  inference: {
+    routes: Object.fromEntries(
+      [
+        "llm.cli.codex.gpt-5.5.max",
+        "llm.cli.codex.gpt-5.3-codex-spark.max",
+        "llm.cli.codex.gpt-5.3-codex-spark.high",
+      ].map((routeRef) => [
+        routeRef,
+        { client: "handoff", resolverPath: routeRef, routeRef },
+      ]),
+    ),
+  },
+});
+let nativeRuntimeEnv: Record<string, string | undefined> = {};
 
 function fail(message: string): never {
   throw new Error(message);
@@ -232,11 +234,12 @@ async function main(): Promise<number> {
     nativeRuntimeEnv = {
       ...scheduler.env,
       HOME: join(root, "home"),
-      INFERENCE_CLIENT: "handoff",
-      INFERENCE_PROVIDER: "",
-      INFERENCE_MODEL: "",
+      INFERENCE_CLIENT: undefined,
+      INFERENCE_PROVIDER: undefined,
+      INFERENCE_MODEL: undefined,
+      INFERENCE_ROUTES_JSON: undefined,
       OPENAI_API_KEY: "",
-      INFERENCE_ROUTES_JSON: TEST_INFERENCE_ROUTES_JSON,
+      CONFIG_JSON: TEST_CONFIG_JSON,
     };
     const noop = runLoopship(repo, ["hook", "--runtime", "codex"], {
       session_id: "codex-ordinary-thread",
