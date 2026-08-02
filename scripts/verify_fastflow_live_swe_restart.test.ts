@@ -213,8 +213,8 @@ function renderWorker(input: {
                 codex: {
                   capabilities: { vision: true, tools: true },
                   thinking: {
-                    default: { level: "medium" },
-                    max: { level: "xhigh" },
+                    highest: "xhigh",
+                    default: "medium",
                   },
                 },
               },
