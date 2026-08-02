@@ -66,7 +66,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#1c8c2b7d769c8ad422493ae01db59cd6b8c0086e",
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#b54a1c82458fa107b500222ac0a96a33814a80f9",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
@@ -76,7 +76,7 @@
     "cmdproto"
   ],
   "resolutions": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#1c8c2b7d769c8ad422493ae01db59cd6b8c0086e"
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#b54a1c82458fa107b500222ac0a96a33814a80f9"
   },
   "bundledDependencies": [
     "@cueintent/fastflow"
