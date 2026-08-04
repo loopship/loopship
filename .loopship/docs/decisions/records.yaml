@@ -58,7 +58,7 @@ decisions:
   signature-sidecar:
     state: accepted
     date: 2026-06-08
-    title: YAML signature sidecar
+    title: YAML integrity manifest
     context: |-
       Loopship needs tamper-evident canonical files without embedding digest state into the human
       and LLM first-read semantic root.
@@ -74,7 +74,7 @@ decisions:
           - This keeps one required file but creates self-hash complexity and noisy root diffs whenever canonical data changes.
       json-manifest:
         text: |-
-          Use a JSON signature sidecar as the root integrity surface while keeping the semantic
+          Use a JSON integrity manifest as the root integrity surface while keeping the semantic
           root in YAML.
         tradeoffs:
           - This is mechanically fine but conflicts with the YAML-first durable knowledge model used for Loopship-readable system state.
@@ -85,15 +85,17 @@ decisions:
         tradeoffs:
           - This keeps the mechanical audit data outside the root while preserving readable YAML and deterministic canonicalization.
     decision: |-
-      Store root and canonical resource digests plus Ed25519 receipt data in
-      .loopship/signature.yaml.
+      Store root and canonical resource digests plus an unkeyed receipt chain in
+      .loopship/signature.yaml. The manifest detects drift but does not authenticate
+      signer identity.
     rationale: |-
-      A YAML signature sidecar keeps .loopship/system.yaml semantic and readable while preserving
+      A YAML integrity manifest keeps .loopship/system.yaml semantic and readable while preserving
       deterministic audit metadata for canonical files.
     consequences:
       - Loopship has two required durable root files, but only .loopship/system.yaml is semantic first-read context.
-      - Runtime must regenerate .loopship/signature.yaml after canonical root or document writes so signature coverage matches current durable state.
+      - Runtime must regenerate .loopship/signature.yaml after canonical root or document writes so digest coverage matches current durable state.
       - Signature entries may include schema files even when they are not root resources, because schema integrity is part of the canonical verification surface.
+      - If signer identity becomes a requirement later, use an external signer or OS keystore and store only a public fingerprint, key ID, and detached receipt; never embed a private key.
     links:
       about:
         - object:system-model

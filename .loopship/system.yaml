@@ -21,7 +21,7 @@ objects:
     kind: unit
     text: |-
       Durable semantic frontier using objects, assertions, resources, memories, links,
-      concrete canonical docs, and signature integrity.
+      concrete canonical docs, and digest integrity.
   - id: swe-flow
     kind: flow
     text: |-
@@ -60,7 +60,7 @@ assertions:
     level: must
     text: |-
       Canonical Loopship documents must be declared as canonical resources and covered by
-      .loopship/signature.yaml.
+      the digest manifest at .loopship/signature.yaml.
     links:
       about:
         - object:system-model
@@ -177,7 +177,7 @@ resources:
     location: scripts/verify_system_model.ts
     schema_ref: loopship://schemas/docs/artifact-bom.yaml
     text: |-
-      Semantic verifier for concrete canonical docs, signature coverage, typed links, and
+      Semantic verifier for concrete canonical docs, digest coverage, typed links, and
       anti-shell rules.
     links:
       about:

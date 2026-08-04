@@ -499,7 +499,7 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
   },
   {
     call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
-    summary: "Apply a schema-valid Loopship system document update and refresh managed signatures.",
+    summary: "Apply a schema-valid Loopship system document update and refresh the managed integrity manifest.",
     inputs: {
       required: ["repo", "update"],
       optional: ["request_id", "actor", "reason", "dry_run"],
@@ -517,12 +517,12 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
         },
       },
     },
-    tags: ["loopship", "system", "docs", "signature"],
+    tags: ["loopship", "system", "docs", "integrity"],
     preferWhen: ["A Loopship workflow needs to apply schema-aware system document changes."],
     avoidWhen: ["The workflow only needs to read or draft system document updates."],
     metadata: {
       allowed_phases: ["action"],
-      effects: ["file.write", "signature.write"],
+      effects: ["file.write", "integrity-manifest.write"],
     },
   },
   {

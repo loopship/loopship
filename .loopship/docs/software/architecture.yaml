@@ -19,7 +19,7 @@ standard_alignment:
 goals:
   - Loopship provides deterministic quest lifecycle orchestration for worktree-based delivery, including planning, child execution, verification, system update, landing, and archive.
   - Public commands return compact JSON step output with schema-backed next actions, so humans and agents can continue lifecycle work without relying on prose reconstruction.
-  - Durable system knowledge remains readable to humans and LLM agents while still being schema-backed, signed, and mechanically verifiable.
+  - Durable system knowledge remains readable to humans and LLM agents while still being schema-backed, digest-covered, and mechanically verifiable.
   - Runtime hooks continue work only when canonical quest state proves continuation is safe, non-duplicate, within budget, and free of managed-file drift.
 stakeholders:
   human-operator:
@@ -53,7 +53,7 @@ constraints:
   - Shipped schemas use stable loopship://schemas/... identifiers for cross-schema refs while runtime may resolve them from local repository paths.
   - The root system schema is shipped at schemas/system.yaml and exposed as loopship://schemas/system.yaml for stable validation.
   - Loopship's current software, workflow, and agent system kinds require canonical software architecture, decision records, workflow specification, and agent system card documents.
-  - Generated Markdown and generated artifacts may help humans and agents inspect behavior, but they must not satisfy canonical documentation, signature, or source-of-truth checks.
+  - Generated Markdown and generated artifacts may help humans and agents inspect behavior, but they must not satisfy canonical documentation, integrity-manifest, or source-of-truth checks.
   - Lifecycle behavior is owned by the SWF-shaped flow YAML and reusable step workflow YAML; Loopship must not add separate lifecycle stage specs for individual steps.
 context:
   business: |-
@@ -90,7 +90,7 @@ solution_strategy: |-
   Loopship treats workflow steps, task payloads, Native child invocations, system updates,
   and route outputs as schema-backed contracts rather than loose prose conventions. Runtime
   decisions trust task YAML, event JSONL, Native scheduler events, immutable child execution
-  identities, git worktree state, signatures, and runtime receipts before agent summaries or
+  identities, git worktree state, integrity manifests, and runtime receipts before agent summaries or
   terminal chatter. Canonical
   external docs use concrete industry-profile schemas instead of one generic profile
   framework. The architecture YAML is now the canonical source for controller, lifecycle,
@@ -101,7 +101,7 @@ structure:
     Loopship is organized as a CLI launcher, workflow definition library, worktree-local quest
     runtime, hook continuation controller, canonical system knowledge surface, and verifier
     suite. The root `.loopship/system.yaml` stays small; detailed industry-profile knowledge
-    lives in concrete canonical docs covered by `.loopship/signature.yaml`.
+    lives in concrete canonical docs covered by the digest manifest at `.loopship/signature.yaml`.
   systems:
     loopship: |-
       Loopship is the workflow launcher, quest runtime coordinator, hook continuation controller,
@@ -139,13 +139,13 @@ structure:
       cancellation uses a raw newline-JSON or process-local production transport.
     system-update: |-
       The system_update component validates replacement root data and external docs, writes
-      canonical files, and refreshes root signature coverage.
+      canonical files, and refreshes root digest coverage.
     landing-and-archive: |-
       Landing performs real git merges for child-to-parent and root-to-main flows, while
       archive records landed commit, merge strategy, and terminal lifecycle output.
     hook-and-doctor: |-
       The hook controller selects quests from explicit worktree signals and continuation
-      guards, while doctor repairs scaffolding, hook installation, shims, signatures, and
+      guards, while doctor repairs scaffolding, hook installation, shims, integrity manifests, and
       managed drift.
     verifiers: |-
       Verification scripts enforce schema validity, runtime contract coherence, package
@@ -156,7 +156,7 @@ structure:
       bridging, hook handling, simulation entrypoints, doctor behavior, and CLI JSON writing.
     loopship-core: |-
       scripts/loopship_core.ts owns quest state IO, task normalization, system scaffold
-      generation, signature writing, and system_update application logic.
+      generation, integrity-manifest writing, and system_update application logic.
     native-flow-runtime: |-
       scripts/loopship_fastflow.ts loads promoted workflow contracts, resolves their pinned
       dependencies and schemas, and registers the Loopship adapters used by Native v1.
@@ -164,7 +164,7 @@ structure:
       execution state.
     system-verifier: |-
       scripts/verify_system_model.ts validates root semantics, concrete document schemas,
-      typed links, global record ids, signature coverage, and anti-shell rules.
+      typed links, global record ids, digest coverage, and anti-shell rules.
 runtime:
   overview: |-
     The bundled SWE flow proceeds through planning, awaiting user answers, plan review, task
@@ -338,7 +338,7 @@ data:
       The parent reconciles those receipts once in input order before validation and verification.
     system-update-flow: |-
       System update payloads validate root and external documents, write canonical YAML, and
-      regenerate the signature sidecar.
+      regenerate the integrity manifest.
     hook-flow: |-
       Hook payloads flow through selector resolution, canonical state checks, duplicate and
       budget guards, and runtime-specific continuation output.
@@ -451,7 +451,7 @@ diagrams:
         Loopship->>ChildAgent: Native scheduler runs pinned child workflow
         ChildAgent-->>Loopship: immutable child lifecycle receipt
         Loopship->>SystemUpdate: validated durable update
-        SystemUpdate-->>Loopship: canonical docs and signature refreshed
+        SystemUpdate-->>Loopship: canonical docs and integrity manifest refreshed
         Loopship-->>User: archived landed receipt
   component-map:
     kind: component
@@ -473,7 +473,7 @@ diagrams:
     kind: dataflow
     syntax: mermaid
     text: |-
-      Dataflow diagram for verified evidence becoming canonical YAML and refreshed signature
+      Dataflow diagram for verified evidence becoming canonical YAML and refreshed digest
       coverage.
     source: |-
       flowchart LR
@@ -488,7 +488,7 @@ decision_refs:
 glossary:
   canonical: |-
     Canonical files are durable source-of-truth YAML resources validated by schema and
-    covered by `.loopship/signature.yaml`.
+    covered by the digest manifest at `.loopship/signature.yaml`.
   semantic-frontier: |-
     The semantic frontier is the compact root knowledge model agents read first before
     traversing concrete canonical resources.
@@ -498,7 +498,7 @@ glossary:
     archive.
   system-update-pending: |-
     system_update_pending is the coordinator-led stage where verified child evidence becomes
-    a schema-valid system_update payload, canonical document writes, and refreshed signature
+    a schema-valid system_update payload, canonical document writes, and refreshed digest
     coverage.
   runtime-availability: |-
     Runtime availability covers quota, authentication, missing binaries, and hard timeouts;

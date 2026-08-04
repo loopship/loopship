@@ -179,7 +179,7 @@ evaluation:
   system-model:
     text: |-
       verify_system_model rejects unresolved links, missing required docs, shell docs, stale
-      schema names, unsigned canonical resources, and invalid document fragments.
+      schema names, canonical resources missing digest coverage, and invalid document fragments.
   coherency:
     text: |-
       verify_coherency rejects stale prompt language, legacy schema names, deleted package
@@ -235,4 +235,4 @@ diagrams:
         ChildAgent-->>Loopship: immutable child lifecycle receipt
         Loopship->>Verifier: validate acceptance and receipts
         Verifier-->>SystemUpdate: verified durable implications
-        SystemUpdate-->>RootAgent: canonical YAML and signature refreshed
+        SystemUpdate-->>RootAgent: canonical YAML and integrity manifest refreshed

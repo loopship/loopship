@@ -7,12 +7,6 @@ import {
   readdirSync,
   rmSync,
 } from "node:fs";
-import {
-  createPrivateKey,
-  createPublicKey,
-  sign as signBytes,
-  verify as verifyBytes,
-} from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   expandHome,
@@ -454,29 +448,26 @@ function managedFileDigest(path: string): string {
   return hashText(readText(path));
 }
 
-const LOCAL_MANIFEST_PRIVATE_KEY = `[REDACTED PRIVATE KEY]`;
+const ROOT_MANIFEST_GENERATOR = "system_update";
 
-function signManifestReceipt(receiptHead: string): Record<string, string> {
-  const privateKey = createPrivateKey(LOCAL_MANIFEST_PRIVATE_KEY);
-  const value = signBytes(null, Buffer.from(receiptHead, "utf8"), privateKey).toString("base64");
-  return {
-    algorithm: "ed25519",
-    key_id: "loopship-local-v2",
-    value,
-  };
-}
-
-function manifestSignatureIsValid(receiptHead: string, value: string): boolean {
-  try {
-    return verifyBytes(
-      null,
-      Buffer.from(receiptHead, "utf8"),
-      createPublicKey(createPrivateKey(LOCAL_MANIFEST_PRIVATE_KEY)),
-      Buffer.from(value, "base64"),
-    );
-  } catch {
-    return false;
-  }
+function rootManifestReceiptHead(
+  previousHead: string | null,
+  rootPath: string,
+  rootDigest: string,
+  entries: Array<{ path: string; digest: string }>,
+): string {
+  return hashText(
+    [
+      previousHead ?? "",
+      ROOT_MANIFEST_GENERATOR,
+      rootPath,
+      rootDigest,
+      ...entries
+        .slice()
+        .sort((left, right) => left.path.localeCompare(right.path))
+        .map((entry) => `${entry.path}:${entry.digest}`),
+    ].join("\n"),
+  );
 }
 
 function renderYamlDocument(value: Record<string, unknown>): string {
@@ -678,7 +669,7 @@ function defaultSystemRoot(repoRoot: string): Record<string, unknown> {
       {
         id: "system-model",
         kind: "unit",
-        text: "Durable semantic frontier using objects, assertions, resources, optional memories, links, concrete canonical docs, and signature integrity.",
+        text: "Durable semantic frontier using objects, assertions, resources, optional memories, links, concrete canonical docs, and digest integrity.",
       },
     ],
     assertions: [
@@ -686,7 +677,7 @@ function defaultSystemRoot(repoRoot: string): Record<string, unknown> {
         id: "canonical-docs-are-signed",
         kind: "rule",
         level: "must",
-        text: "Canonical system resources must be covered by the root signature.",
+        text: "Canonical system resources must be covered by the root integrity manifest.",
         links: {
           about: ["object:system-model"],
           supported_by: ["resource:software-architecture"],
@@ -752,17 +743,17 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
       "The root system file stays minimal and delegates architecture detail to concrete canonical documents.",
     ],
     context: {
-      business: "This system tracks durable system knowledge through a semantic root, canonical resources, and signature integrity.",
-      technical: "The schema library validates the root, section-shaped document profiles, optional record packs, and signature sidecar.",
+      business: "This system tracks durable system knowledge through a semantic root, canonical resources, and digest integrity.",
+      technical: "The schema library validates the root, section-shaped document profiles, optional record packs, and integrity manifest.",
     },
     solution_strategy: "Use concrete industry-profile document schemas instead of one generic profile and section format.",
     structure: {
-      overview: "The system is organized around a compact semantic root, concrete canonical documents, optional record packs, and signature validation.",
+      overview: "The system is organized around a compact semantic root, concrete canonical documents, optional record packs, and integrity validation.",
       systems: {
         "system-root": "The system root keeps the first-read semantic model compact and delegates detail to concrete canonical docs.",
       },
       containers: {
-        "signature-sidecar": "The signature sidecar stores root and canonical resource digests without bloating the semantic root.",
+        "signature-sidecar": "The integrity manifest stores root and canonical resource digests without bloating the semantic root.",
       },
       components: {
         "system-update-writer": "The system_update step validates and writes canonical root and external document updates.",
@@ -772,9 +763,9 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
       },
     },
     runtime: {
-      overview: "Runtime writes canonical knowledge through system_update and refreshes signature coverage after accepted changes.",
+      overview: "Runtime writes canonical knowledge through system_update and refreshes digest coverage after accepted changes.",
       scenarios: {
-        "system-update-runtime": "Validate proposed root and external documents against the schema library, write canonical YAML, and refresh the signature sidecar.",
+        "system-update-runtime": "Validate proposed root and external documents against the schema library, write canonical YAML, and refresh the integrity manifest.",
       },
       failure_scenarios: {
         "shell-doc-rejection": "A canonical document with placeholder or title-only content fails semantic verification before it can become durable truth.",
@@ -785,7 +776,7 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
         "local-worktree": "Canonical system files live inside the active repository worktree and are verified before finishing the task.",
       },
       nodes: {
-        "developer-machine": "The local developer machine runs Bun scripts that validate schemas, runtime flows, and signature coverage.",
+        "developer-machine": "The local developer machine runs Bun scripts that validate schemas, runtime flows, and digest coverage.",
       },
     },
     interfaces: {
@@ -795,7 +786,7 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
       },
       "signature-yaml-interface": {
         kind: "file",
-        text: ".loopship/signature.yaml is the mechanical audit and digest sidecar for root and canonical resources.",
+        text: ".loopship/signature.yaml is the mechanical integrity manifest and digest sidecar for root and canonical resources.",
       },
     },
     data: {
@@ -803,7 +794,7 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
         "system-yaml-store": "The root YAML stores objects, assertions, resources, and optional memories as the semantic frontier.",
       },
       flows: {
-        "system-update-flow": "System updates flow from validated payloads into root and canonical documents, followed by signature refresh.",
+        "system-update-flow": "System updates flow from validated payloads into root and canonical documents, followed by integrity-manifest refresh.",
       },
     },
     quality: {
@@ -827,7 +818,7 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
       "context-diagram": {
         kind: "context",
         syntax: "mermaid",
-        text: "C4-style context diagram source for the root system, canonical docs, signature, and verifier.",
+        text: "C4-style context diagram source for the root system, canonical docs, integrity manifest, and verifier.",
         source: "flowchart LR\n  Root[.loopship/system.yaml] --> Docs[Canonical YAML Docs]\n  Docs --> Signature[.loopship/signature.yaml]\n  Verifier[verify_system_model] --> Root\n  Verifier --> Docs\n  Verifier --> Signature",
       },
     },
@@ -840,7 +831,7 @@ function defaultArchitectureDoc(repoRoot: string): Record<string, unknown> {
     },
     decision_refs: ["resource:decisions"],
     glossary: {
-      canonical: "Canonical files are durable source-of-truth YAML resources covered by the signature sidecar.",
+      canonical: "Canonical files are durable source-of-truth YAML resources covered by the integrity manifest.",
     },
   };
 }
@@ -875,17 +866,17 @@ function defaultDecisionLogDoc(repoRoot: string): Record<string, unknown> {
             ],
           },
           "concrete-docs": {
-            text: "Use a compact semantic root and concrete canonical docs covered by a root signature sidecar.",
+            text: "Use a compact semantic root and concrete canonical docs covered by a root integrity manifest.",
             tradeoffs: [
               "This keeps first-read context small while preserving full industry-profile documentation through typed resources.",
             ],
           },
         },
-        decision: "Use a compact semantic root and concrete canonical docs covered by a root signature sidecar.",
-        rationale: "This gives agents a stable first-read context while preserving schema-shaped detail and tamper-evident canonical docs.",
+        decision: "Use a compact semantic root and concrete canonical docs covered by a root integrity manifest.",
+        rationale: "This gives agents a stable first-read context while preserving schema-shaped detail and deterministic digest coverage.",
         consequences: [
           "The root must declare canonical document resources.",
-          "The runtime must refresh signature coverage after canonical writes.",
+          "The runtime must refresh digest coverage after canonical writes.",
         ],
       },
     },
@@ -1024,20 +1015,14 @@ export function writeSystemManifest(
     role: entry.role,
     digest: managedFileDigest(resolve(repoRoot, entry.path)),
   }));
-  const receiptHead = hashText(
-    [
-      previousHead ?? "",
-      "system_update",
-      manifestPathKey(repoRoot, systemPath),
-      rootDigest,
-      ...entries
-        .slice()
-        .sort((left, right) => left.path.localeCompare(right.path))
-        .map((entry) => `${entry.path}:${entry.digest}`),
-    ].join("\n"),
+  const receiptHead = rootManifestReceiptHead(
+    previousHead,
+    manifestPathKey(repoRoot, systemPath),
+    rootDigest,
+    entries,
   );
   writeText(manifestPath, renderYamlDocument({
-    schema_version: 2,
+    schema_version: 3,
     canonicalization: "loopship-canonical-json-v1",
     hash_algorithm: "sha256",
     root: {
@@ -1048,9 +1033,8 @@ export function writeSystemManifest(
     entries,
     previous_receipt_head: previousHead,
     receipt_head: receiptHead,
-    signed_at: nowIso(),
-    signer: "system_update",
-    signature: signManifestReceipt(receiptHead),
+    generated_at: nowIso(),
+    generated_by: ROOT_MANIFEST_GENERATOR,
   }));
   return manifestPath;
 }
@@ -1083,7 +1067,7 @@ export function verifyRootManifest(repoRoot: string): {
   const manifestPath = resolve(repoRoot, LOOPSHIP_ROOT_MANIFEST_FILE);
   const manifest = parseYamlFile(manifestPath) as Record<string, any> | null;
   if (!manifest || typeof manifest !== "object") {
-    return { ok: false, errors: [`missing root signature: ${manifestPath}`] };
+    return { ok: false, errors: [`missing root integrity manifest: ${manifestPath}`] };
   }
   const schemaErrors = validateSchemaPath(
     manifest as Record<string, any>,
@@ -1092,22 +1076,22 @@ export function verifyRootManifest(repoRoot: string): {
   if (schemaErrors.length) {
     return {
       ok: false,
-      errors: schemaErrors.map((error) => `invalid root signature: ${error}`),
+      errors: schemaErrors.map((error) => `invalid root integrity manifest: ${error}`),
     };
   }
   const errors: string[] = [];
   const root = asRecord(manifest.root);
   if (!root || typeof root.path !== "string" || typeof root.digest !== "string") {
-    return { ok: false, errors: [`invalid root signature entry: ${manifestPath}`] };
+    return { ok: false, errors: [`invalid root integrity manifest entry: ${manifestPath}`] };
   }
   if (root.schema !== "loopship://schemas/system.yaml") {
-    errors.push(`root signature schema must be loopship://schemas/system.yaml: ${manifestPath}`);
+    errors.push(`root integrity manifest schema must be loopship://schemas/system.yaml: ${manifestPath}`);
   }
   const systemPath = resolve(repoRoot, String(root.path));
   if (!existsSync(systemPath)) {
-    errors.push(`root signature missing root file: ${root.path}`);
+    errors.push(`root integrity manifest missing root file: ${root.path}`);
   } else if (canonicalYamlDigest(systemPath) !== String(root.digest)) {
-    errors.push(`unauthorized/tampered root file: ${systemPath}`);
+    errors.push(`root integrity manifest digest mismatch: ${systemPath}`);
   }
   const expectedEntries = canonicalManagedEntries(repoRoot).sort((left, right) =>
     left.path.localeCompare(right.path),
@@ -1128,64 +1112,47 @@ export function verifyRootManifest(repoRoot: string): {
   for (const entry of expectedEntries) {
     const actual = actualByPath.get(entry.path);
     if (!actual) {
-      errors.push(`root signature missing file entry: ${entry.path}`);
+      errors.push(`root integrity manifest missing file entry: ${entry.path}`);
       continue;
     }
     if (entry.resource_ref && actual.resource_ref !== entry.resource_ref) {
-      errors.push(`root signature entry resource_ref mismatch: ${entry.path}`);
+      errors.push(`root integrity manifest entry resource_ref mismatch: ${entry.path}`);
     }
     if (actual.schema !== entry.schema) {
-      errors.push(`root signature entry schema mismatch: ${entry.path}`);
+      errors.push(`root integrity manifest entry schema mismatch: ${entry.path}`);
     }
     if (actual.role !== entry.role) {
-      errors.push(`root signature entry role mismatch: ${entry.path}`);
+      errors.push(`root integrity manifest entry role mismatch: ${entry.path}`);
     }
     const fullPath = resolve(repoRoot, entry.path);
     if (!existsSync(fullPath)) {
-      errors.push(`root signature references missing file: ${entry.path}`);
+      errors.push(`root integrity manifest references missing file: ${entry.path}`);
       continue;
     }
     if (managedFileDigest(fullPath) !== String(actual.digest ?? "")) {
-      errors.push(`unauthorized/tampered root file: ${fullPath}`);
+      errors.push(`root integrity manifest digest mismatch: ${fullPath}`);
     }
   }
   const expectedPaths = new Set(expectedEntries.map((entry) => entry.path));
   for (const entry of actualEntries) {
     const path = String(entry.path ?? "");
     if (path && !expectedPaths.has(path)) {
-      errors.push(`root signature contains unmanaged file entry: ${path}`);
+      errors.push(`root integrity manifest contains unmanaged file entry: ${path}`);
     }
   }
-  const expectedHead = hashText(
-    [
-      typeof manifest.previous_receipt_head === "string"
-        ? manifest.previous_receipt_head
-        : "",
-      String(manifest.signer ?? ""),
-      String(root.path ?? ""),
-      String(root.digest ?? ""),
-      ...actualEntries
-        .slice()
-        .sort((left, right) =>
-          String(left.path ?? "").localeCompare(String(right.path ?? "")),
-        )
-        .map((entry) => `${String(entry.path ?? "")}:${String(entry.digest ?? "")}`),
-    ].join("\n"),
+  const expectedHead = rootManifestReceiptHead(
+    typeof manifest.previous_receipt_head === "string"
+      ? manifest.previous_receipt_head
+      : null,
+    String(root.path ?? ""),
+    String(root.digest ?? ""),
+    actualEntries.map((entry) => ({
+      path: String(entry.path ?? ""),
+      digest: String(entry.digest ?? ""),
+    })),
   );
   if (manifest.receipt_head !== expectedHead) {
-    errors.push(`root signature receipt chain mismatch: ${manifestPath}`);
-  }
-  const signature = asRecord(manifest.signature);
-  if (
-    manifest.signer !== "system_update" ||
-    signature?.algorithm !== "ed25519" ||
-    signature?.key_id !== "loopship-local-v2" ||
-    typeof signature?.value !== "string" ||
-    !signature.value
-  ) {
-    errors.push(`root signature must include a system_update ed25519 signature: ${manifestPath}`);
-  } else if (!manifestSignatureIsValid(expectedHead, signature.value)) {
-    errors.push(`root signature cryptographic verification failed: ${manifestPath}`);
+    errors.push(`root integrity manifest receipt chain mismatch: ${manifestPath}`);
   }
   return { ok: errors.length === 0, errors };
 }

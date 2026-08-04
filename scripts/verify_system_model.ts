@@ -639,7 +639,7 @@ function main(): number {
   const signature = readYamlObject(ROOT_SIGNATURE_PATH);
   const signatureSchemaErrors = validateSchemaPath(signature, "schemas/signature.yaml");
   if (signatureSchemaErrors.length) {
-    errors.push(`root signature schema validation failed: ${signatureSchemaErrors.join("; ")}`);
+    errors.push(`root integrity manifest schema validation failed: ${signatureSchemaErrors.join("; ")}`);
   }
 
   const manifestCheck = verifyRootManifest(PACKAGE_ROOT);
