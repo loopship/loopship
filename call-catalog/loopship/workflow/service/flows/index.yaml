@@ -4,9 +4,9 @@ schemaVersion: fastflow/call-catalog-scope/v2
 workflows:
   swe:
     stable:
-      release: 74
-      digest: "sha256:108ed8f465d1a9b8a7a515c09abc2482aecd32a8d1d91f851f158eb3358c4f0d"
-      summary: "Pin the terminal Native child result contract."
+      release: 75
+      digest: "sha256:83593237b5a650f772df4594f729618a22bcc12e090f938aa4cf0140969696ac"
+      summary: "Refresh SWE system-update wording for digest-only integrity"
       inputs:
         required: []
         optional: []
@@ -46,9 +46,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCal3R0xsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGsozAEAnG4Q1UK+OWQyjgXGJJnQ
-    pylEwit5OTVZrEuBTRuulxEA/1BEJImBL6WrrHxbf/oDJbOpfuUw1S6d9NibY2w3
-    7mgE
-    =9kfR
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCanHu7RsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGuxYwEA+Sk6hNZPZ9Fe2+RvPXrQ
+    a/1vZMoJsoOjyYa5yNKNPYMA/1cEZ0Z3ICLQQs1t0id1CddMZ+u+2r7r+gy78rEP
+    BXAF
+    =kuuN
     -----END PGP SIGNATURE-----
