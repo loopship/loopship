@@ -199,7 +199,7 @@ runtime:
       that identity is missing or ambiguous.
     system-update-flow: |-
       system_update_pending flows from child summary to bin storage, root prompt, schema-valid
-      system_update payload, bin validation, canonical document writes, and signature refresh.
+      system_update payload, bin validation, canonical document writes, and integrity-manifest refresh.
   failure_scenarios:
     hook-continuation-guards: |-
       Hook continuation blocks on managed-file drift, duplicate hook snapshots, stale snapshot
@@ -261,7 +261,7 @@ interfaces:
   ops-commands:
     kind: cli
     text: |-
-      loopship doctor --fix repairs scaffolding, hooks, shims, signatures, and drift. loopship
+      loopship doctor --fix repairs scaffolding, hooks, shims, integrity manifests, and drift. loopship
       handbook renders canonical YAML into Markdown and reports or fixes schema-safe duplicate
       prose references. loopship sim init, loopship sim step, and loopship sim hook provide
       deterministic selected-flow stepping and hook passthrough behavior.

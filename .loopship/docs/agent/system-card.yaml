@@ -156,8 +156,8 @@ safety:
   mitigations:
     schema-gates: |-
       Schema validation, semantic verifiers, and workflow digest checks reject malformed
-      updates, malformed stable workflow edits, unresolved links, shell docs, unsigned
-      canonical resources, and stale schema surfaces.
+      updates, malformed stable workflow edits, unresolved links, shell docs, canonical
+      resources missing digest coverage, and stale schema surfaces.
     worktree-boundary: |-
       Worktree isolation and root coordinator rules keep child implementation work bounded and
       auditable.

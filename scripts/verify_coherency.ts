@@ -59,11 +59,11 @@ function collectFiles(dir: string): string[] {
 
 const PRIVATE_KEY_PEM_BEGIN = [
   "-----BEGIN ",
-  "(?:RSA |OPENSSH |EC |)PRIVATE KEY-----",
+  "(?:ENCRYPTED |RSA |OPENSSH |EC |)PRIVATE KEY-----",
 ].join("");
 const PRIVATE_KEY_PEM_END = [
   "-----END ",
-  "(?:RSA |OPENSSH |EC |)PRIVATE KEY-----",
+  "(?:ENCRYPTED |RSA |OPENSSH |EC |)PRIVATE KEY-----",
 ].join("");
 const EMBEDDED_PRIVATE_KEY_BLOCK = new RegExp(
   `${PRIVATE_KEY_PEM_BEGIN}[\\s\\S]{16,}?${PRIVATE_KEY_PEM_END}`,
@@ -81,7 +81,11 @@ function assertNoEmbeddedPrivateKeys(): void {
       ".loopship",
       "call-catalog",
       "references",
+      "proto",
     ].flatMap((directory) => collectFiles(resolve(PACKAGE_ROOT, directory))),
+    resolve(PACKAGE_ROOT, "buf.yaml"),
+    resolve(PACKAGE_ROOT, "bun.lock"),
+    resolve(PACKAGE_ROOT, "tsconfig.json"),
   ];
   for (const path of new Set(packageTextFiles)) {
     if (!existsSync(path)) continue;
@@ -649,6 +653,32 @@ function assertNoStaleProjectLanguage(): void {
   }
 }
 
+function assertDigestOnlyCanonicalLanguage(): void {
+  const checks: Array<{ path: string; required: string[]; forbidden: string[] }> = [
+    {
+      path: ".loopship/docs/agent/system-card.yaml",
+      required: ["canonical\n      resources missing digest coverage"],
+      forbidden: ["unsigned\n      canonical resources"],
+    },
+    {
+      path: ".loopship/docs/software/architecture.yaml",
+      required: ["integrity-manifest refresh", "integrity manifests"],
+      forbidden: ["signature refresh", "repairs scaffolding, hooks, shims, signatures"],
+    },
+    {
+      path: ".loopship/docs/decisions/records.yaml",
+      required: ["YAML integrity manifest", "Integrity-manifest entries"],
+      forbidden: ["YAML signature manifest", "Signature entries"],
+    },
+  ];
+  for (const check of checks) {
+    const path = resolve(PACKAGE_ROOT, check.path);
+    const text = readText(path);
+    for (const phrase of check.required) assertContains(text, phrase, check.path);
+    for (const phrase of check.forbidden) assertNotContains(text, phrase, check.path);
+  }
+}
+
 function assertWorkflowValidation(): void {
   for (const relativePath of [
     "call-catalog/loopship/workflow/service/flows/index.yaml",
@@ -684,6 +714,7 @@ function main(): number {
   assertCanonicalSchemas();
   assertRootSystemDocument();
   assertNoStaleProjectLanguage();
+  assertDigestOnlyCanonicalLanguage();
   assertReadmeCommandSurface();
   assertPlanPrompt();
   assertSystemUpdatePrompt();
