@@ -5,7 +5,7 @@ document:
   namespace: service-step
   name: system-update
   version: 0.1.0
-  summary: "Submit automated system document updates for Loopship to write as signed repo docs."
+  summary: "Submit automated system document updates for Loopship to write as digest-covered repo docs."
   metadata:
     catalog:
       tags:
@@ -119,7 +119,7 @@ do:
                   flow_id: String(inputs.flow_id || quest.flow_id || "swe"),
                   flow_version: Number(inputs.flow_version || quest.flow_version || 1),
                   current_stage: String(inputs.current_stage || quest.stage || ""),
-                  summary: String(inputs.summary || "Submit system doc updates. Loopship writes signed repo docs."),
+                  summary: String(inputs.summary || "Submit system doc updates. Loopship writes digest-covered repo docs."),
                   prompt: String(inputs.prompt || quest.prompt || ""),
                   repo: String(inputs.repo || inputs.repoRoot || quest.context_root || env.PWD || ""),
                   repoRoot: String(inputs.repoRoot || inputs.repo || quest.context_root || env.PWD || ""),

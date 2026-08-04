@@ -132,9 +132,9 @@ workflows:
       requires: []
   system-update:
     stable:
-      release: 11
-      digest: "sha256:2e8ebcb4cbdc6f30f8715c3ad2fae81773ed2050f5a8458ba4b333cfc7cc2af6"
-      summary: "Give Node-backed request builders a bounded five-second launch budget."
+      release: 12
+      digest: "sha256:719e95fed0a18071fa75358fa64d6a0ed9cd172893047ab0fede1b354838f84c"
+      summary: "Replace self-signed root receipts with digest-only integrity coverage"
       inputs:
         required: []
         optional: []
@@ -243,9 +243,9 @@ stable_attestation:
   signature: |-
     -----BEGIN PGP SIGNATURE-----
     
-    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCal3LhxsUgAAAAAAEAA5t
-    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGtBqwD9GEVBkItZA5XgXgJpTR5Q
-    YnKFhcMv5kCi8QqS9f45TDQA/A0WrIdte2snlIFfSQZW5NsITQDQEGKfj0X1izzx
-    J40D
-    =6ITR
+    iJEEABYKADkWIQRDgxQRJ6WgF4fARvNJEQrn3cssawUCanHuShsUgAAAAAAEAA5t
+    YW51MiwyLjUrMS4xMiwwLDMACgkQSREK593LLGt4FgEAy4nwuP/aPWq6IDLmORaO
+    EpMo+bFUP/GDgw2Fhk2Gkg4BAIaRMF/qCki7wa3cRerf4h7ypyhVfEcMJRBbuk5P
+    cKsK
+    =J/t7
     -----END PGP SIGNATURE-----
