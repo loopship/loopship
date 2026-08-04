@@ -352,7 +352,7 @@ function renderDocument(
 function renderSourceManifest(lines: string[], repoRoot: string, system: YamlMap): void {
   lines.push("# Source Manifest", "");
   lines.push(`- Root: \`.loopship/system.yaml\``);
-  lines.push(`- Signature: \`.loopship/signature.yaml\``);
+  lines.push(`- Integrity manifest: \`.loopship/signature.yaml\``);
   for (const resource of canonicalDocumentResources(system)) {
     lines.push(`- Canonical document: \`${String(resource.location)}\``);
   }

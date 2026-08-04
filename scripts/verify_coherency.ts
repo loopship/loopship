@@ -57,6 +57,44 @@ function collectFiles(dir: string): string[] {
   return files;
 }
 
+const PRIVATE_KEY_PEM_BEGIN = [
+  "-----BEGIN ",
+  "(?:ENCRYPTED |RSA |OPENSSH |EC |)PRIVATE KEY-----",
+].join("");
+const PRIVATE_KEY_PEM_END = [
+  "-----END ",
+  "(?:ENCRYPTED |RSA |OPENSSH |EC |)PRIVATE KEY-----",
+].join("");
+const EMBEDDED_PRIVATE_KEY_BLOCK = new RegExp(
+  `${PRIVATE_KEY_PEM_BEGIN}[\\s\\S]{16,}?${PRIVATE_KEY_PEM_END}`,
+);
+
+function assertNoEmbeddedPrivateKeys(): void {
+  const packageTextFiles = [
+    resolve(PACKAGE_ROOT, "index.ts"),
+    resolve(PACKAGE_ROOT, "package.json"),
+    resolve(PACKAGE_ROOT, "README.md"),
+    ...[
+      "bin",
+      "scripts",
+      "schemas",
+      ".loopship",
+      "call-catalog",
+      "references",
+      "proto",
+    ].flatMap((directory) => collectFiles(resolve(PACKAGE_ROOT, directory))),
+    resolve(PACKAGE_ROOT, "buf.yaml"),
+    resolve(PACKAGE_ROOT, "bun.lock"),
+    resolve(PACKAGE_ROOT, "tsconfig.json"),
+  ];
+  for (const path of new Set(packageTextFiles)) {
+    if (!existsSync(path)) continue;
+    if (EMBEDDED_PRIVATE_KEY_BLOCK.test(readText(path))) {
+      throw new Error(`embedded private-key PEM block is forbidden: ${relativePackagePath(path)}`);
+    }
+  }
+}
+
 function relativePackagePath(path: string): string {
   return path.slice(PACKAGE_ROOT.length + 1);
 }
@@ -259,7 +297,7 @@ function assertSystemUpdatePrompt(): void {
   const text = readText(resolve(PACKAGE_ROOT, "call-catalog", "loopship", "workflow", "service", "step", "system-update.stable.yaml"));
   const scope = "system_update side-effect workflow";
   for (const needle of [
-    "Submit system doc updates. Loopship writes signed repo docs.",
+    "Submit system doc updates. Loopship writes digest-covered repo docs.",
     "fastflow.afn.core.request.input",
     "loopship.afn.service.system.apply-update",
     "schemas/steps/system-update-input.yaml",
@@ -615,6 +653,32 @@ function assertNoStaleProjectLanguage(): void {
   }
 }
 
+function assertDigestOnlyCanonicalLanguage(): void {
+  const checks: Array<{ path: string; required: string[]; forbidden: string[] }> = [
+    {
+      path: ".loopship/docs/agent/system-card.yaml",
+      required: ["canonical\n      resources missing digest coverage"],
+      forbidden: ["unsigned\n      canonical resources"],
+    },
+    {
+      path: ".loopship/docs/software/architecture.yaml",
+      required: ["integrity-manifest refresh", "integrity manifests"],
+      forbidden: ["signature refresh", "repairs scaffolding, hooks, shims, signatures"],
+    },
+    {
+      path: ".loopship/docs/decisions/records.yaml",
+      required: ["YAML integrity manifest", "Integrity-manifest entries"],
+      forbidden: ["YAML signature manifest", "Signature entries"],
+    },
+  ];
+  for (const check of checks) {
+    const path = resolve(PACKAGE_ROOT, check.path);
+    const text = readText(path);
+    for (const phrase of check.required) assertContains(text, phrase, check.path);
+    for (const phrase of check.forbidden) assertNotContains(text, phrase, check.path);
+  }
+}
+
 function assertWorkflowValidation(): void {
   for (const relativePath of [
     "call-catalog/loopship/workflow/service/flows/index.yaml",
@@ -642,13 +706,15 @@ function main(): number {
   assertExists(resolve(PACKAGE_ROOT, "package.json"), "loopship package.json");
   assertExists(resolve(SKILL_ROOT, "SKILL.md"), "skill launcher");
   assertExists(resolve(PACKAGE_ROOT, ".loopship", "system.yaml"), "root system");
-  assertExists(resolve(PACKAGE_ROOT, ".loopship", "signature.yaml"), "root signature");
+  assertExists(resolve(PACKAGE_ROOT, ".loopship", "signature.yaml"), "root integrity manifest");
   assertMinimalSkillRoot();
   assertPackageFilesExist();
+  assertNoEmbeddedPrivateKeys();
   assertNoLegacySystemDocs();
   assertCanonicalSchemas();
   assertRootSystemDocument();
   assertNoStaleProjectLanguage();
+  assertDigestOnlyCanonicalLanguage();
   assertReadmeCommandSurface();
   assertPlanPrompt();
   assertSystemUpdatePrompt();

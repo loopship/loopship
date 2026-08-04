@@ -1,25 +1,14 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: loopship://schemas/signature.yaml
-title: Loopship Signature Manifest
+title: Loopship Integrity Manifest
 type: object
-additionalProperties: false
-required:
-  - schema_version
-  - canonicalization
-  - hash_algorithm
-  - root
-  - entries
-  - receipt_head
-  - signed_at
-  - signer
-  - signature
-properties:
-  schema_version:
-    const: 2
-  canonicalization:
-    const: loopship-canonical-json-v1
-  hash_algorithm:
-    const: sha256
+oneOf:
+  - $ref: "#/$defs/legacy_v2"
+  - $ref: "#/$defs/digest_v3"
+$defs:
+  sha256:
+    type: string
+    pattern: "^[a-f0-9]{64}$"
   root:
     type: object
     additionalProperties: false
@@ -65,30 +54,84 @@ properties:
       - string
       - "null"
     pattern: "^[a-f0-9]{64}$"
-  receipt_head:
-    $ref: "#/$defs/sha256"
-  signed_at:
-    type: string
-    format: date-time
-  signer:
-    const: system_update
-  signature:
+  legacy_v2:
     type: object
     additionalProperties: false
     required:
-      - algorithm
-      - key_id
-      - value
+      - schema_version
+      - canonicalization
+      - hash_algorithm
+      - root
+      - entries
+      - receipt_head
+      - signed_at
+      - signer
+      - signature
     properties:
-      algorithm:
-        const: ed25519
-      key_id:
+      schema_version:
+        const: 2
+      canonicalization:
+        const: loopship-canonical-json-v1
+      hash_algorithm:
+        const: sha256
+      root:
+        $ref: "#/$defs/root"
+      entries:
+        $ref: "#/$defs/entries"
+      previous_receipt_head:
+        $ref: "#/$defs/previous_receipt_head"
+      receipt_head:
+        $ref: "#/$defs/sha256"
+      signed_at:
         type: string
-        minLength: 1
-      value:
+        format: date-time
+      signer:
+        const: system_update
+      signature:
+        type: object
+        additionalProperties: false
+        required:
+          - algorithm
+          - key_id
+          - value
+        properties:
+          algorithm:
+            const: ed25519
+          key_id:
+            type: string
+            minLength: 1
+          value:
+            type: string
+            minLength: 1
+  digest_v3:
+    type: object
+    additionalProperties: false
+    required:
+      - schema_version
+      - canonicalization
+      - hash_algorithm
+      - root
+      - entries
+      - receipt_head
+      - generated_at
+      - generated_by
+    properties:
+      schema_version:
+        const: 3
+      canonicalization:
+        const: loopship-canonical-json-v1
+      hash_algorithm:
+        const: sha256
+      root:
+        $ref: "#/$defs/root"
+      entries:
+        $ref: "#/$defs/entries"
+      previous_receipt_head:
+        $ref: "#/$defs/previous_receipt_head"
+      receipt_head:
+        $ref: "#/$defs/sha256"
+      generated_at:
         type: string
-        minLength: 1
-$defs:
-  sha256:
-    type: string
-    pattern: "^[a-f0-9]{64}$"
+        format: date-time
+      generated_by:
+        const: system_update

@@ -8963,7 +8963,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
     }
   }, 10_000);
 
-  test("system update signs non-Loopship repo resources without requiring packaged schemas", () => {
+  test("system update writes a digest manifest for non-Loopship repo resources without requiring packaged schemas", () => {
     const fixture = createGitFixture("loopship-native-system-update-external-repo-");
     try {
       writeFileSync(join(fixture.repo, "README.md"), "# Support dashboard\n\nOpen index.html.\n");
@@ -8972,7 +8972,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
         id: "support-dashboard",
         title: "Support Dashboard",
         kinds: ["software"],
-        text: "Browser-only support dashboard fixture.\nIt proves system signatures work in repos without packaged Loopship schemas.",
+        text: "Browser-only support dashboard fixture.\nIt proves digest manifests work in repos without packaged Loopship schemas.",
         scope_in: ["Static local dashboard files."],
         scope_out: ["Packaged Loopship schema files copied into the target repo."],
         objects: [
@@ -8985,10 +8985,10 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
         ],
         assertions: [
           {
-            id: "external-repo-signature",
+            id: "external-repo-integrity",
             kind: "behaviour",
             level: "must",
-            text: "System update must sign target repo resources without requiring packaged schemas in that repo.\nNon-YAML resources must not be parsed as YAML.",
+            text: "System update must record target repo resource digests without requiring packaged schemas in that repo.\nNon-YAML resources must not be parsed as YAML.",
             links: {
               about: ["object:support-dashboard"],
               supported_by: ["resource:readme"],
@@ -9027,6 +9027,12 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
       const manifest = parseYaml(
         readFileSync(join(fixture.repo, ".loopship", "signature.yaml"), "utf8"),
       ) as Record<string, unknown>;
+      expect(manifest.schema_version).toBe(3);
+      expect(manifest.generated_by).toBe("system_update");
+      expect(typeof manifest.generated_at).toBe("string");
+      expect(manifest).not.toHaveProperty("signature");
+      expect(manifest).not.toHaveProperty("signer");
+      expect(manifest).not.toHaveProperty("signed_at");
       const entries = Array.isArray(manifest.entries)
         ? (manifest.entries as Array<Record<string, unknown>>)
         : [];
@@ -9035,27 +9041,72 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
       expect(verifyRootManifest(fixture.repo)).toMatchObject({ ok: true, errors: [] });
       const manifestPath = join(fixture.repo, ".loopship", "signature.yaml");
       const manifestText = readFileSync(manifestPath, "utf8");
+      writeFileSync(join(fixture.repo, "README.md"), "# Support dashboard\n\nTampered.\n");
+      expect(verifyRootManifest(fixture.repo)).toMatchObject({
+        ok: false,
+        errors: [expect.stringContaining("digest mismatch")],
+      });
+      writeFileSync(join(fixture.repo, "README.md"), "# Support dashboard\n\nOpen index.html.\n");
+      const legacySignature = {
+        algorithm: "ed25519",
+        key_id: "legacy-test-key",
+        value: "opaque-test-value",
+      };
+      const legacyManifest: Record<string, unknown> = {
+        ...manifest,
+        schema_version: 2,
+        signed_at: "2026-08-04T00:00:00.000Z",
+        signer: "system_update",
+        signature: legacySignature,
+      };
+      delete legacyManifest.generated_at;
+      delete legacyManifest.generated_by;
       writeFileSync(
         manifestPath,
-        manifestText.replace("key_id: loopship-local-v2", "key_id: unknown-key"),
+        stringifyYaml(legacyManifest),
         "utf8",
       );
       expect(verifyRootManifest(fixture.repo)).toMatchObject({
-        ok: false,
-        errors: [expect.stringContaining("must include a system_update ed25519 signature")],
+        ok: true,
+        errors: [],
       });
+      legacySignature.value = "a-different-opaque-value";
       writeFileSync(
         manifestPath,
-        manifestText.replace(
-          /(^|\n)(\s*value:)\s*[^\n]+/,
-          "$1$2 invalid-signature",
-        ),
+        stringifyYaml(legacyManifest),
         "utf8",
       );
       expect(verifyRootManifest(fixture.repo)).toMatchObject({
-        ok: false,
-        errors: [expect.stringContaining("cryptographic verification failed")],
+        ok: true,
+        errors: [],
       });
+      const previousReceiptHead = legacyManifest.receipt_head;
+      applySystemUpdate(
+        fixture.repo,
+        {
+          schema_version: 1,
+          mode: "replace",
+          summary: "Rewrite the digest manifest after legacy compatibility validation.",
+          root,
+          external_docs: [],
+        },
+        "test-system-update-v3",
+      );
+      const regenerated = parseYaml(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+      expect(regenerated.schema_version).toBe(3);
+      expect(regenerated.previous_receipt_head).toBe(previousReceiptHead);
+      expect(regenerated).not.toHaveProperty("signature");
+      expect(verifyRootManifest(fixture.repo)).toMatchObject({ ok: true, errors: [] });
+      const tamperedReceipt = {
+        ...regenerated,
+        receipt_head: "0".repeat(64),
+      };
+      writeFileSync(manifestPath, stringifyYaml(tamperedReceipt), "utf8");
+      expect(verifyRootManifest(fixture.repo)).toMatchObject({
+        ok: false,
+        errors: [expect.stringContaining("receipt chain mismatch")],
+      });
+      writeFileSync(manifestPath, manifestText, "utf8");
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }

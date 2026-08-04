@@ -36,7 +36,7 @@ prefixes:
         runtime:
           tags: "runtime, quest, manifest, commit"
         system:
-          tags: "system, docs, signature, apply"
+          tags: "system, docs, integrity, apply-update, apply, update"
     workflow:
       service:
         flows:

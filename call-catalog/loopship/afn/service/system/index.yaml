@@ -1,7 +1,7 @@
 schemaVersion: fastflow/call-catalog-scope/v2
 calls:
   - call: loopship.afn.service.system.apply-update
-    summary: "Apply a schema-valid Loopship system document update and refresh managed signatures."
+    summary: "Apply a schema-valid Loopship system document update and refresh the managed integrity manifest."
     inputs:
       required:
         - repo
@@ -77,4 +77,4 @@ calls:
         - action
       effects:
         - file.write
-        - signature.write
+        - integrity-manifest.write

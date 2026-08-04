@@ -778,7 +778,7 @@ do:
                     const ok = action !== undefined;
                     return { ok, evidence: { has_action: ok } };
         ref:
-          digest: "sha256:2e8ebcb4cbdc6f30f8715c3ad2fae81773ed2050f5a8458ba4b333cfc7cc2af6"
+          digest: "sha256:719e95fed0a18071fa75358fa64d6a0ed9cd172893047ab0fede1b354838f84c"
       call: loopship.workflow.service.step.system-update
       with:
         version: 0.1.0
@@ -792,7 +792,7 @@ do:
           flow_id: "${state.steps.read_tasks.action.flow_id || 'swe'}"
           flow_version: "${state.steps.read_tasks.action.flow_version || 1}"
           current_stage: system_update_pending
-          summary: "Submit system doc updates. Loopship writes signed repo docs."
+          summary: "Submit system doc updates. Loopship writes digest-covered repo docs."
           prompt: "${state.steps.read_tasks.action.prompt || inputs.prompt || ''}"
           runtime: "${inputs.runtime || ''}"
           tasks: "${state.steps.read_tasks.action.tasks || []}"

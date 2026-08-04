@@ -65,7 +65,7 @@ outputs:
   signature:
     schema_ref: loopship://schemas/signature.yaml
     text: |-
-      System-update completion refreshes the root signature sidecar for canonical root,
+      System-update completion refreshes the root integrity manifest for canonical root,
       schema, and resource files.
 processes:
   root-quest-flow:
@@ -110,7 +110,7 @@ processes:
         lane: agent
         text: |-
           System update writes only durable semantic changes justified by verified evidence and
-          regenerates the signature sidecar.
+          regenerates the integrity manifest.
       landing:
         lane: runtime
         text: |-
@@ -145,7 +145,7 @@ data_objects:
     continuation decisions and evidence review.
   signature-yaml: |-
     Signature YAML records root and canonical resource digest coverage after system updates
-    and proves current canonical docs match the signed state.
+    and proves current canonical docs match the recorded digest state.
 invariants:
   planning-before-execution: |-
     Execution must not proceed until required planning, clarification answers, accepted
@@ -190,7 +190,7 @@ monitoring:
     reported and redirected into `.dev.yaml` plus promotion.
   system-model: |-
     System-model verification rejects unresolved links, missing required docs, shell docs,
-    stale schema names, and unsigned canonical resources.
+    stale schema names, and canonical resources missing digest coverage.
   hook-continuation: |-
     Hook verification checks explicit selector handling, duplicate suppression, stop
     reasons, drift guards, and continuation budgets.
