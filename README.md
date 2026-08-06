@@ -17,18 +17,18 @@ moves non-engine facilities to CueIntent while workflow execution remains in Fas
 
 ```bash
 bunx @omar391/loopship init "loopship: build the app" --runtime codex
-bun index.ts init "loopship: build the app" --runtime codex --flow swe
+bun index.ts init "loopship: build the app" --runtime codex --flow swe --max-concurrency 3
 bun index.ts resume --repo /repo --wtree build-the-app
 bun index.ts resume --repo /repo --json @fastflow-resume.json
-bun index.ts hook --runtime codex
+bun index.ts hook --runtime codex --json @-
 bun index.ts stepper init "loopship: build me a python app" --runtime codex --flow swe
 bun index.ts stepper step --json @fastflow-resume.json
 bun index.ts stepper hook --runtime codex
 bun index.ts doctor --fix
 bun index.ts handbook
 bun index.ts handbook --raw
-bun index.ts handbook --duplicates --json
-bun index.ts handbook --fix-duplicates --json
+bun index.ts handbook --duplicates --output-json
+bun index.ts handbook --fix-duplicates --output-json
 bun index.ts cmdproto execjson init '{"request":"loopship:build-the-app","repo":"/repo","runtime":"codex"}'
 bun index.ts cmdproto execjson resume '{"repo":"/repo","wtree":"build-the-app"}'
 bun index.ts cmdproto execjson handbook '{"repo":"/repo","duplicates":true}'
@@ -62,11 +62,13 @@ rejected unless the same process explicitly sets
 the Fastflow runtime bundled in the Loopship package. A configured source root
 must be complete or startup fails without falling back to the bundled runtime.
 
-`cmdproto` is wired in as a transparent command wrapper. `loopship cmdproto`
-mirrors the current public command paths through `cmdproto execjson <path> <payload>`,
-while still delegating to `loopship init`, `loopship resume`, `loopship hook`,
-`loopship doctor`, and `loopship handbook` command logic. Local guided stepping remains CLI-only via
-`loopship stepper` and emits native Fastflow run/resume responses.
+`cmdproto` is the pinned shared runtime for the public Loopship commands. It owns
+descriptor-backed parsing, generated help, protobuf validation, dispatch, and the
+canonical machine-error envelope for `init`, `resume`, `hook`, `doctor`, and
+`handbook`. Human invocations and `cmdproto execjson <path> <payload>` reach the
+same typed command services; JSON sources may be inline, `@file`, or `@-`.
+Local guided stepping remains CLI-only via `loopship stepper` and emits native
+Fastflow run/resume responses.
 Every `loopship.v1.LoopshipService` method remains local and default-deny for
 remote access. Loopship is a client only of Fastflow's six descriptor-derived,
 allowlisted `fastflow.scheduler.v1.SchedulerControlService` unary Connect methods.
@@ -159,6 +161,8 @@ recoverable system temp path and prints a `file://` URL. Use
 canonical YAML sources with owner recommendations. `loopship handbook
 --fix-duplicates` applies only schema-safe reference rewrites and reports any
 remaining manual cases. The handbook is generated output, not canonical truth.
+Use `--output-json` for machine-readable handbook results; the legacy
+`handbook --json` spelling is rejected.
 
 Loopship executable lifecycle workflows live in the root `call-catalog/`. The
 `call-catalog/loopship/workflow/service/flows/swe.stable.yaml` workflow is the
@@ -179,12 +183,13 @@ restores Loopship adapters before invoking that Fastflow contract.
 Runtime hooks keep the agent thread ID separate from Fastflow's `sessionId`.
 Loopship installs and diagnoses hooks for Codex, Gemini, and Copilot. The hook
 router itself is runtime-neutral: manually configured Claude, Antigravity, or
-other integrations invoke `loopship hook --runtime <runtime>` and provide their
-native thread identifier in the hook payload.
+other integrations invoke `loopship hook --runtime <runtime> --json @-` and provide
+their native thread identifier in the hook payload. Hook installations bind stdin
+explicitly with `loopship hook --runtime <runtime> --json @-`.
 Each paused run stores `runtime`, `thread_id`, `wtree`, and the Fastflow resume
 handle in the worktree-local `.loopship/runtime/hook-state.json`. Runtime-provided
 thread environment variables bind automatically when they identify a concrete
-runtime. `loopship hook --wtree <name>` or a payload `wtree` explicitly
+runtime. `loopship hook --runtime <runtime> --json @- --wtree <name>` or a payload `wtree` explicitly
 transfers that soft binding between runtime
 threads without replacing the Fastflow resume handle. A process-scoped
 `WTREE=<name>` may bind unowned state but cannot transfer an existing binding.

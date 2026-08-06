@@ -241,7 +241,7 @@ async function main(): Promise<number> {
       OPENAI_API_KEY: "",
       CONFIG_JSON: TEST_CONFIG_JSON,
     };
-    const noop = runLoopship(repo, ["hook", "--runtime", "codex"], {
+    const noop = runLoopship(repo, ["hook", "--runtime", "codex", "--json", "@-"], {
       session_id: "codex-ordinary-thread",
       cwd: repo,
       hook_event_name: "Stop",
@@ -300,7 +300,7 @@ async function main(): Promise<number> {
     const pause = await recoverPause(repo, "hook-route", started);
     const bind = runLoopship(
       repo,
-      ["hook", "--runtime", "codex", "--repo", repo],
+      ["hook", "--runtime", "codex", "--repo", repo, "--json", "@-"],
       {
         session_id: "codex-thread-a",
         cwd: repo,
@@ -645,7 +645,7 @@ async function main(): Promise<number> {
       fail("runtime all must not act as a wildcard during implicit route lookup");
     }
 
-    const routedNoop = runLoopship(repo, ["hook", "--runtime", "codex", "--repo", repo], {
+    const routedNoop = runLoopship(repo, ["hook", "--runtime", "codex", "--repo", repo, "--json", "@-"], {
       session_id: "codex-thread-a",
       cwd: repo,
       hook_event_name: "Stop",
@@ -666,6 +666,8 @@ async function main(): Promise<number> {
         repo,
         "--wtree",
         "hook-route",
+        "--json",
+        "@-",
       ],
       {
         session_id: "claude-thread-a",
@@ -712,7 +714,7 @@ async function main(): Promise<number> {
     }
     const staleOwner = runLoopship(
       repo,
-      ["hook", "--runtime", "codex", "--repo", repo],
+      ["hook", "--runtime", "codex", "--repo", repo, "--json", "@-"],
       {
         session_id: "codex-thread-a",
         cwd: repo,
@@ -741,7 +743,7 @@ async function main(): Promise<number> {
 
     const hook = runLoopship(
       repo,
-      ["hook", "--runtime", "claude", "--repo", repo],
+      ["hook", "--runtime", "claude", "--repo", repo, "--json", "@-"],
       {
         session_id: "claude-thread-a",
         cwd: repo,

@@ -227,7 +227,7 @@ diagrams:
         participant Loopship
         participant QuestState
         Runtime->>Hook: stop event payload
-        Hook->>Loopship: loopship hook --runtime
+        Hook->>Loopship: loopship hook --runtime codex --json @-
         Loopship->>QuestState: read tasks and events
         QuestState-->>Loopship: canonical snapshot
         Loopship-->>Runtime: continue or block decision

@@ -252,8 +252,8 @@ describe("cmdproto build dependency bootstrap", () => {
       expect(realpathSync(join(appRoot, ".cmdproto-deps", "proto"))).toBe(
         join(resolvedCmdprotoRoot, "proto"),
       );
-      expect(existsSync(join(appRoot, "tmp", "cmdproto", "schema.binpb"))).toBe(true);
-      expect(existsSync(join(appRoot, "tmp", "cmdproto", "runtime.binpb"))).toBe(true);
+      expect(existsSync(join(appRoot, "dist", "cmdproto", "schema.binpb"))).toBe(true);
+      expect(existsSync(join(appRoot, "dist", "cmdproto", "runtime.binpb"))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -266,10 +266,11 @@ describe("cmdproto build dependency bootstrap", () => {
     expect(bootstrap).not.toContain("git-common-dir");
     expect(bootstrap).not.toContain('"node_modules", ".bin"');
     expect(packageJson.scripts["cmdproto:gen"]).toStartWith(".cmdproto-deps/bin/cmdproto ");
-    expect(packageJson.scripts.verify).toContain("bun run cmdproto:schema");
+    expect(packageJson.scripts.verify).toContain("bun run cmdproto:assets:check");
     expect(packageJson.scripts.verify).not.toContain("scripts/run_cmdproto_schema.ts");
     expect(packageJson.files).toContain("buf.yaml");
     expect(packageJson.files).toContain("proto");
+    expect(packageJson.files).toContain("dist/cmdproto");
     expect(buf).toContain("path: .cmdproto-deps/proto");
     expect(buf).toContain("plugin: ./.cmdproto-deps/bin/cmdproto-buf-plugin");
   });

@@ -265,6 +265,7 @@ function assertWorkflowSpecTerminalChildRules(): void {
     "default to 4",
     "1 through 32",
     "superviseStep",
+    "loopship hook --runtime codex --json @-",
     "Fastflow `*.stable.yaml` workflow files and call-catalog `index.yaml` files",
     "promotion-managed release artifacts",
     "Workflow validation rejects stable workflow digest drift",
@@ -479,8 +480,8 @@ function assertReadmeCommandSurface(): void {
   for (const needle of [
     "bun index.ts handbook",
     "bun index.ts handbook --raw",
-    "bun index.ts handbook --duplicates --json",
-    "bun index.ts handbook --fix-duplicates --json",
+    "bun index.ts handbook --duplicates --output-json",
+    "bun index.ts handbook --fix-duplicates --output-json",
     "bun index.ts cmdproto execjson handbook",
     "Bun is the canonical application and daemon runtime",
     "Node 26.x is required only as Fastflow's",

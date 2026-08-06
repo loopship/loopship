@@ -1165,7 +1165,7 @@ describe("Loopship Fastflow-native bridge", () => {
       cwd: process.cwd(),
     });
     expect(bunCli.status).toBe(0);
-    expect(bunCli.stdout).toContain("Usage:");
+    expect(bunCli.stdout).toContain("Application commands:");
   });
 
   test("keeps the Fastflow source-root override behind an explicit development opt-in", () => {
@@ -5069,11 +5069,10 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(proc.status, proc.stderr || proc.stdout).toBe(0);
       expect(existsSync(join(fixture.root, "bin", "loopship"))).toBe(true);
       const init = runLoopshipCli(fixture.repo, [
+        "cmdproto",
+        "execjson",
         "init",
-        "--repo",
-        fixture.repo,
-        "--runtime",
-        "codex",
+        JSON.stringify({ repo: fixture.repo, runtime: "codex", maxConcurrency: 3 }),
       ]);
       expect(init.status, init.stderr || init.stdout).toBe(0);
       const installedSkill = readFileSync(
@@ -5083,6 +5082,9 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(installedSkill).toContain("loopship init");
       expect(installedSkill).not.toContain("/Volumes/Projects/");
       expect(existsSync(join(fixture.repo, ".codex", "hooks.json"))).toBe(true);
+      expect(readFileSync(join(fixture.repo, ".codex", "hooks.json"), "utf8")).toContain(
+        "--json @-",
+      );
       expect(runGit(fixture.repo, ["check-ignore", ".codex/hooks.json"])).toBe(
         ".codex/hooks.json",
       );
@@ -5099,11 +5101,11 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       const unknownDoctor = runLoopshipCli(fixture.repo, ["doctor", "--fex"]);
       expect(unknownDoctor.status).toBe(1);
-      expect(unknownDoctor.stderr).toContain("unknown doctor argument: --fex");
+      expect(unknownDoctor.stderr).toContain("Unknown flag: --fex");
 
       const missingRepo = runLoopshipCli(fixture.repo, ["doctor", "--repo"]);
       expect(missingRepo.status).toBe(1);
-      expect(missingRepo.stderr).toContain("--repo requires a value");
+      expect(missingRepo.stderr).toContain("Flag --repo requires a value");
 
       const emptyRepo = runLoopshipCli(fixture.repo, ["doctor", "--repo="]);
       expect(emptyRepo.status).toBe(1);
@@ -5111,11 +5113,11 @@ describe("Loopship Fastflow-native bridge", () => {
 
       const unknownResume = runLoopshipCli(fixture.repo, ["resume", "--fex"]);
       expect(unknownResume.status).toBe(1);
-      expect(unknownResume.stderr).toContain("unknown resume argument: --fex");
+      expect(unknownResume.stderr).toContain("Unknown flag: --fex");
 
       const removedFullHook = runLoopshipCli(fixture.repo, ["hook", "--full"]);
       expect(removedFullHook.status).toBe(1);
-      expect(removedFullHook.stderr).toContain("unknown hook argument: --full");
+      expect(removedFullHook.stderr).toContain("Unknown flag: --full");
 
       const ambiguousResume = runLoopshipCli(fixture.repo, [
         "resume",
@@ -5161,7 +5163,9 @@ describe("Loopship Fastflow-native bridge", () => {
         "[]",
       ]);
       expect(arrayHookPayload.status).toBe(1);
-      expect(arrayHookPayload.stderr).toContain("hook requires a JSON object payload");
+      expect(arrayHookPayload.stderr).toContain(
+        "cannot decode message google.protobuf.Struct from JSON Array(0)",
+      );
 
       const missingHandbookRepo = runLoopshipCli(fixture.repo, [
         "handbook",
@@ -5177,7 +5181,24 @@ describe("Loopship Fastflow-native bridge", () => {
       ]);
       expect(invalidHandbookMinimum.status).toBe(1);
       expect(invalidHandbookMinimum.stderr).toContain(
-        "--min-chars must be a positive integer",
+        "min_chars must be a positive integer",
+      );
+
+      const legacyHandbookJson = runLoopshipCli(fixture.repo, [
+        "handbook",
+        "--json",
+      ]);
+      expect(legacyHandbookJson.status).toBe(1);
+      expect(legacyHandbookJson.stderr).toContain("Unknown flag: --json");
+
+      const extraInitPositionals = runLoopshipCli(fixture.repo, [
+        "init",
+        "loopship: one objective",
+        "unexpected",
+      ]);
+      expect(extraInitPositionals.status).toBe(1);
+      expect(extraInitPositionals.stderr).toContain(
+        "Unexpected positional argument: unexpected",
       );
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });

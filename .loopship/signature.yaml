@@ -62,7 +62,7 @@ entries:
     path: .loopship/docs/software/architecture.yaml
     schema: loopship://schemas/docs/software-architecture.yaml
     role: canonical
-    digest: 0f0205d0cdb87c261394ff5ef8dc5a56d79087bc8f02bf391cbccc5cdb16f272
+    digest: 80c95e10f7c729c91d73731e117775eacecc27d239654edeace7336e6fbb611c
   - resource_ref: resource:decisions
     path: .loopship/docs/decisions/records.yaml
     schema: loopship://schemas/docs/decision-records.yaml
@@ -72,13 +72,13 @@ entries:
     path: .loopship/docs/workflow/spec.yaml
     schema: loopship://schemas/docs/workflow-spec.yaml
     role: canonical
-    digest: 4de70c543223258c821840a7da3530635cd580b6531efdffa51bf2fb589bf512
+    digest: bd1086b25d81851be93e47f580738f07b84eb48d166d049f6c8922f84581235f
   - resource_ref: resource:agent-system-card
     path: .loopship/docs/agent/system-card.yaml
     schema: loopship://schemas/docs/agent-system-card.yaml
     role: canonical
     digest: 8575f2914263add6180662d23429bb586663a5b65a93ea35702e6b2697336c40
-previous_receipt_head: 917303f6f94b7f553ce6adfb359738492b5bcb548f39e8df60f95377dfbbd3de
-receipt_head: c15831850e983638855716995f028b06b0a3c933ee0c20862ab7fada5225fc78
-generated_at: 2026-08-04T15:58:58Z
+previous_receipt_head: 6eb4105eb320bda3a4546d5255f9517c308160038912d404d54d5fc2654021ae
+receipt_head: be7812ef939bc50d863747bc680fd3259714706c7fde1f42969012da7f8b99d5
+generated_at: 2026-08-06T03:42:27Z
 generated_by: system_update

@@ -4,7 +4,10 @@ node_modules
 
 # output
 out
-dist
+dist/*
+!dist/cmdproto/
+!dist/cmdproto/schema.binpb
+!dist/cmdproto/runtime.binpb
 *.tgz
 
 # code coverage
@@ -57,9 +60,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # worktree-local agent state
 **/tmp/
-
-# generated cmdproto artifacts
-/assets/cmdproto/*.binpb
 
 # rooted Fastflow workflow edits; stable artifacts are promotion outputs
 *.dev.yaml

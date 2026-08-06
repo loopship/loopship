@@ -5,13 +5,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import {
-  DEFAULT_DUPLICATE_MIN_CHARS,
-  detectHandbookDuplicates,
-  fixHandbookDuplicates,
-  renderDuplicateReport,
-  renderFixReport,
-} from "./loopship_handbook_duplicates.ts";
 import { hashText, readText, writeText } from "./loopship_utils.ts";
 
 export {
@@ -395,91 +388,4 @@ export function writeLoopshipHandbook(repo?: string): HandbookWriteResult {
     file_url: pathToFileURL(path).href,
     markdown,
   };
-}
-
-export function runHandbook(argv: string[]): number {
-  let repo = "";
-  let raw = false;
-  let duplicates = false;
-  let fixDuplicates = false;
-  let json = false;
-  let failOnDuplicates = false;
-  let minChars = DEFAULT_DUPLICATE_MIN_CHARS;
-  const requiredValue = (index: number, option: string): string => {
-    const value = argv[index];
-    if (!value || value.startsWith("-")) throw new Error(`${option} requires a value`);
-    return value;
-  };
-  const inlineValue = (token: string, option: string): string => {
-    const value = token.slice(`${option}=`.length);
-    if (!value) throw new Error(`${option} requires a value`);
-    return value;
-  };
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (token === "--repo") {
-      repo = requiredValue(++i, "--repo");
-      continue;
-    }
-    if (token?.startsWith("--repo=")) {
-      repo = inlineValue(token, "--repo");
-      continue;
-    }
-    if (token === "--raw") {
-      raw = true;
-      continue;
-    }
-    if (token === "--duplicates") {
-      duplicates = true;
-      continue;
-    }
-    if (token === "--fix-duplicates") {
-      fixDuplicates = true;
-      continue;
-    }
-    if (token === "--json") {
-      json = true;
-      continue;
-    }
-    if (token === "--fail-on-duplicates") {
-      failOnDuplicates = true;
-      continue;
-    }
-    if (token === "--min-chars") {
-      minChars = Number(requiredValue(++i, "--min-chars"));
-      if (!Number.isInteger(minChars) || minChars < 1) {
-        throw new Error("--min-chars must be a positive integer");
-      }
-      continue;
-    }
-    if (token?.startsWith("--min-chars=")) {
-      minChars = Number(inlineValue(token, "--min-chars"));
-      if (!Number.isInteger(minChars) || minChars < 1) {
-        throw new Error("--min-chars must be a positive integer");
-      }
-      continue;
-    }
-    throw new Error(`unknown handbook argument: ${token}`);
-  }
-  if (fixDuplicates) {
-    const report = fixHandbookDuplicates(repo, { minChars });
-    process.stdout.write(
-      json ? `${JSON.stringify(report, null, 2)}\n` : renderFixReport(report),
-    );
-    return failOnDuplicates && report.duplicate_count > 0 ? 2 : 0;
-  }
-  if (duplicates) {
-    const report = detectHandbookDuplicates(repo, { minChars });
-    process.stdout.write(
-      json ? `${JSON.stringify(report, null, 2)}\n` : renderDuplicateReport(report),
-    );
-    return failOnDuplicates && report.duplicate_count > 0 ? 2 : 0;
-  }
-  if (raw) {
-    process.stdout.write(renderLoopshipHandbook(repo));
-    return 0;
-  }
-  const result = writeLoopshipHandbook(repo);
-  process.stdout.write(`handbook: ${result.file_url}\n`);
-  return 0;
 }

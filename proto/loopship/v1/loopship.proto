@@ -11,9 +11,9 @@ service LoopshipService {
       path: "init"
       summary: "Start a Loopship quest from an objective."
       example: {
-        command: "init loopship:build-the-app --repo . --runtime codex --flow swe --wtree build-the-app"
+        command: "init loopship:build-the-app --repo . --runtime codex --flow swe --wtree build-the-app --max-concurrency 3"
         description: "Start routing for a Loopship request."
-        request_json: "{\"request\":\"loopship:build-the-app\",\"repo\":\".\",\"runtime\":\"codex\",\"flow\":\"swe\",\"wtree\":\"build-the-app\"}"
+        request_json: "{\"request\":\"loopship:build-the-app\",\"repo\":\".\",\"runtime\":\"codex\",\"flow\":\"swe\",\"wtree\":\"build-the-app\",\"maxConcurrency\":3}"
       }
     };
   }
@@ -35,9 +35,9 @@ service LoopshipService {
       path: "hook"
       summary: "Handle a runtime hook event payload."
       example: {
-        command: "hook --runtime codex --json {\"event\":\"Stop\",\"stop_reason\":\"none\"}"
-        description: "Handle a runtime hook event."
-        request_json: "{\"runtime\":\"codex\",\"payload\":{\"event\":\"Stop\",\"stop_reason\":\"none\"}}"
+        command: "hook --runtime codex --json {}"
+        description: "Handle a runtime hook event; installed hooks bind the payload with --json @-."
+        request_json: "{\"runtime\":\"codex\",\"payload\":{}}"
       }
     };
   }
@@ -59,9 +59,9 @@ service LoopshipService {
       path: "handbook"
       summary: "Render the standalone Loopship handbook from canonical YAML."
       example: {
-        command: "handbook --repo ."
-        description: "Generate handbook Markdown in a recoverable system temp path and return its file URL."
-        request_json: "{\"repo\":\".\"}"
+        command: "handbook --repo . --duplicates --output-json"
+        description: "Inspect duplicate handbook prose and return the report as machine-readable JSON."
+        request_json: "{\"repo\":\".\",\"duplicates\":true,\"outputJson\":true}"
       }
     };
   }
@@ -110,6 +110,7 @@ message InitRequest {
   string target_branch = 10 [(cmdproto.v1.param) = { flag: { long: "target-branch" } help: "Landing target branch." }];
   string target_worktree = 11 [(cmdproto.v1.param) = { flag: { long: "target-worktree" } help: "Landing target worktree." }];
   string skill_home = 12 [(cmdproto.v1.param) = { flag: { long: "skill-home" } help: "Optional Loopship skill installation root." }];
+  int32 max_concurrency = 13 [(cmdproto.v1.param) = { flag: { long: "max-concurrency" } help: "Maximum concurrent child quests, from 1 to 32." }];
 }
 
 message HookRequest {
@@ -137,7 +138,7 @@ message HookRequest {
   google.protobuf.Struct payload = 4 [
     (cmdproto.v1.param) = {
       json: { enabled: true }
-      help: "Runtime hook payload object."
+      help: "Required runtime hook payload object; bind installed hooks from stdin with --json @-."
     },
     (cmdproto.v1.field_json_schema) = {
       json: "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":true}"
@@ -215,6 +216,7 @@ message HandbookRequest {
   bool fix_duplicates = 4 [(cmdproto.v1.param) = { flag: { long: "fix-duplicates" } help: "Apply schema-safe duplicate prose rewrites." }];
   bool fail_on_duplicates = 5 [(cmdproto.v1.param) = { flag: { long: "fail-on-duplicates" } help: "Exit nonzero when duplicate groups remain." }];
   int32 min_chars = 6 [(cmdproto.v1.param) = { flag: { long: "min-chars" } help: "Minimum duplicate prose length." }];
+  bool output_json = 7 [(cmdproto.v1.param) = { flag: { long: "output-json" } help: "Render the handbook result as machine-readable JSON." }];
 }
 
 message InitResponse {
