@@ -130,7 +130,11 @@ structure:
       stepper continuation paths validate native response payloads, mutate canonical quest state,
       and return compact Fastflow interaction, running, or terminal result objects. Finite
       production controls may return running while the daemon continues durably; canonical
-      recovery inspects later without polling or opening scheduler SQLite.
+      recovery inspects later without polling or opening scheduler SQLite. Paused interaction
+      responses use Fastflow interaction-response/v2: routing metadata and system instructions
+      stay in the envelope, while full instructions, request context, and answer schema are
+      content-addressed through interactionRef and verified on retrieval. artifactRef remains
+      run evidence, and nextCall carries only the answer or decision needed for continuation.
     native-runtime: |-
       The Fastflow facade binds promoted workflow and step contracts to Native v1 through a
       route-metadata-only binding port. The supervised Bun daemon alone owns scheduler SQLite,

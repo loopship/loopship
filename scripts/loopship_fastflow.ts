@@ -1513,7 +1513,7 @@ function fastflowChildError(
 
 function assertNativePublicResponse(result: Record<string, unknown>): void {
   const interaction =
-    result.schemaVersion === "fastflow/interaction-response/v1" &&
+    result.schemaVersion === "fastflow/interaction-response/v2" &&
     ["inline_answer", "handoff_answer", "supervisor_review"].includes(
       String(result.kind),
     );
@@ -1524,7 +1524,7 @@ function assertNativePublicResponse(result: Record<string, unknown>): void {
     ["running", "completed", "failed"].includes(String(result.status));
   if (!interaction && !workflowResult) {
     throw new Error(
-      "Fastflow session returned a non-public Native response; expected interaction-response/v1 or workflow-run-artifact/v1.",
+      "Fastflow session returned a non-public Native response; expected interaction-response/v2 or workflow-run-artifact/v1.",
     );
   }
 }

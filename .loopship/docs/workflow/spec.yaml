@@ -45,6 +45,12 @@ triggers:
     from canonical worktree state through loopship resume --wtree. Question rounds use a
     durable hitl.review Native scheduler handoff; failed validation or verification transitions use an
     aitl.subagent repair handoff and re-read canonical state after resume.
+  compact-interaction-contract: |-
+    Paused Fastflow responses use interaction-response/v2. The envelope carries resolver and
+    continuation metadata plus interactionRef; the referenced content-addressed JSON carries
+    full instructions, request context, and answer schema. Consumers verify the reference before
+    reading it, treat artifactRef as run evidence only, and resume with only the answer or decision
+    required by nextCall. progressMode controls progress logging and responseMode is unsupported.
 inputs:
   task-yaml:
     schema_ref: loopship://schemas/tasks.yaml

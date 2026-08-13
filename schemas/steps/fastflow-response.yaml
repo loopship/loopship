@@ -14,21 +14,25 @@ $defs:
     required:
       - schemaVersion
       - kind
+      - resolverRef
       - systemInstructions
-      - instructions
-      - context
+      - interactionRef
     properties:
       schemaVersion:
-        const: fastflow/interaction-response/v1
+        const: fastflow/interaction-response/v2
       kind:
         type: string
+      resolverRef:
+        type: string
+        minLength: 1
       systemInstructions:
         type: string
         minLength: 1
-      instructions:
+      interactionRef:
+        $ref: "#/$defs/interactionRef"
+      relayUrl:
         type: string
-      context:
-        $ref: "#/$defs/context"
+        minLength: 1
       supervision:
         $ref: "#/$defs/supervision"
       nextCall:
@@ -75,15 +79,26 @@ $defs:
         properties:
           kind:
             const: supervisor_review
-  context:
+  interactionRef:
     type: object
     additionalProperties: false
     required:
-      - request
-      - answerSchema
+      - ref
+      - digest
+      - mediaType
+      - bytes
     properties:
-      request: {}
-      answerSchema: {}
+      ref:
+        type: string
+        minLength: 1
+      digest:
+        type: string
+        pattern: "^sha256:[0-9a-f]{64}$"
+      mediaType:
+        const: application/json
+      bytes:
+        type: integer
+        minimum: 0
   supervision:
     type: object
     additionalProperties: false

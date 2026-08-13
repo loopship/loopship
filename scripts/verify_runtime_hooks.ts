@@ -89,7 +89,7 @@ type PauseToken = {
 };
 
 function pauseToken(value: Record<string, any>): PauseToken {
-  if (value.schemaVersion !== "fastflow/interaction-response/v1") {
+  if (value.schemaVersion !== "fastflow/interaction-response/v2") {
     fail(`expected Fastflow interaction response: ${JSON.stringify(value)}`);
   }
   const args =
@@ -158,7 +158,7 @@ async function recoverPause(
 
 function assertNativeFastflowResponse(value: Record<string, any>, label: string): void {
   assertNoOldEnvelope(value, label);
-  if (value.schemaVersion === "fastflow/interaction-response/v1") {
+  if (value.schemaVersion === "fastflow/interaction-response/v2") {
     pauseToken(value);
     return;
   }
@@ -765,7 +765,7 @@ async function main(): Promise<number> {
       ),
       "updated hook state",
     );
-    if (output.schemaVersion === "fastflow/interaction-response/v1") {
+    if (output.schemaVersion === "fastflow/interaction-response/v2") {
       const nextPause = pauseToken(output);
       if (updatedHookState.fastflow?.sessionId !== nextPause.sessionId) {
         fail("handed-off runtime resume must refresh the stored Fastflow handle");
@@ -808,7 +808,7 @@ async function main(): Promise<number> {
         ),
         "directly updated hook state",
       );
-      if (directOutput.schemaVersion === "fastflow/interaction-response/v1") {
+      if (directOutput.schemaVersion === "fastflow/interaction-response/v2") {
         const directNextPause = pauseToken(directOutput);
         if (directlyUpdatedState.fastflow?.sessionId !== directNextPause.sessionId) {
           fail("direct Fastflow resume must refresh the stored handle");

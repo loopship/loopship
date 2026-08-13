@@ -77,6 +77,17 @@ the service or expose REST aliases.
 Fastflow workflow run/resume responses, the Loopship Fastflow consumer adapter,
 and JSON Schema payload contracts are the lifecycle contract.
 
+Paused Fastflow interactions use `fastflow/interaction-response/v2`. The public
+envelope keeps routing and continuation metadata compact: `resolverRef`,
+`systemInstructions`, an `interactionRef`, and (when continuation is required) a
+`nextCall`. `interactionRef` is a content-addressed JSON artifact carrying the
+full instructions, request context, and answer schema; consumers retrieve it on
+demand and verify its `digest`, `mediaType`, and `bytes`. A response's optional
+`artifactRef` points to run evidence, not interaction material. Resumption sends
+only the exact `response.answer` or `response.decision` envelope from `nextCall`.
+There is no response-size switch: `responseMode` is removed, while
+`progressMode: "compact"` only controls progress logging.
+
 `loopship resume` has two explicit recovery modes. `--json` forwards the
 `sessionId`, `nonce`, `workspaceRoot`, and exact `response` envelope from a Fastflow
 handoff response. `--wtree` starts a new Fastflow process against an existing

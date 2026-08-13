@@ -210,14 +210,19 @@ function nativeWorkflowOutput(value: Record<string, unknown>): Record<string, un
 }
 
 function nativePauseToken(value: Record<string, unknown>): Record<string, unknown> | null {
-  if (value.schemaVersion !== "fastflow/interaction-response/v1") return null;
+  if (value.schemaVersion !== "fastflow/interaction-response/v2") return null;
   const nextCall = isRecord(value.nextCall) ? value.nextCall : {};
   const args = isRecord(nextCall.args) ? nextCall.args : {};
   const sessionId = String(args.sessionId ?? "").trim();
   const nonce = String(args.nonce ?? "").trim();
   expect(sessionId).toBeTruthy();
   expect(nonce).toBeTruthy();
-  const context = isRecord(value.context) ? value.context : {};
+  const interactionRef = isRecord(value.interactionRef) ? value.interactionRef : {};
+  const material =
+    typeof interactionRef.ref === "string" && existsSync(interactionRef.ref)
+      ? parseJson(readFileSync(interactionRef.ref, "utf8"))
+      : {};
+  const context = isRecord(material.context) ? material.context : {};
   const request = isRecord(context.request) ? context.request : {};
   return {
     sessionId,
@@ -320,8 +325,7 @@ function expectNativeHandoffAtStage(
   const pause = nativePauseToken(value);
   expect(pause, JSON.stringify(value)).not.toBeNull();
   expect(pause!.kind, JSON.stringify(value)).toBe("handoff_answer");
-  const context = isRecord(value.context) ? value.context : {};
-  const request = isRecord(context.request) ? context.request : {};
+  const request = isRecord(pause!.request) ? pause!.request : {};
   expect(request.current_stage, JSON.stringify(value)).toBe(stage);
   const answerSchema = isRecord(pause!.answerSchema) ? pause!.answerSchema : {};
   evidence.push({

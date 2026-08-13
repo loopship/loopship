@@ -63,6 +63,11 @@ responsibilities:
     Agents trust tasks.yaml, events.jsonl, Native scheduler events, immutable child execution
     identities, git worktree state, manifests, and signatures before terminal chatter or
     narrative summaries.
+  preserve-compact-interactions: |-
+    Agents treat Fastflow interaction-response/v2 as a compact routing contract. They retrieve
+    and verify interactionRef only when interaction material is needed, never confuse artifactRef
+    run evidence with the interaction artifact, and resume with only the answer or decision
+    specified by nextCall.
 autonomy:
   level: bounded
   text: |-

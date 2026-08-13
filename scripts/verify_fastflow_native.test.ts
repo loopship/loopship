@@ -926,7 +926,7 @@ async function startQuestStage(
 }
 
 function interactionPause(value: Record<string, unknown>): Record<string, unknown> | null {
-  if (value.schemaVersion !== "fastflow/interaction-response/v1") return null;
+  if (value.schemaVersion !== "fastflow/interaction-response/v2") return null;
   const nextCall =
     value.nextCall && typeof value.nextCall === "object" && !Array.isArray(value.nextCall)
       ? (value.nextCall as Record<string, unknown>)
@@ -1248,14 +1248,14 @@ describe("Loopship Fastflow-native bridge", () => {
       "bun run verify:stress",
     );
     expect(packageJson.scripts.prepublishOnly).toBe("bun run verify:release");
-    expect(packageJson.version).toBe("2.0.0");
+    expect(packageJson.version).toBe("3.0.0");
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
     expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#bf090691a3bf65248a4b8523657c843b407e7ec9",
+      "git+ssh://git@github.com/cueintent/fastflow.git#376aa9db03302e6b4c1b5f6edd49cae809875a82",
     );
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#bf090691a3bf65248a4b8523657c843b407e7ec9",
+      "git+ssh://git@github.com/cueintent/fastflow.git#376aa9db03302e6b4c1b5f6edd49cae809875a82",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
@@ -1471,7 +1471,7 @@ describe("Loopship Fastflow-native bridge", () => {
         expect(session.status, session.stderr || session.stdout).toBe(0);
         const response = parseJsonObject(session.stdout.trim(), "packed Native session");
         expect(response).toMatchObject({
-          schemaVersion: "fastflow/interaction-response/v1",
+          schemaVersion: "fastflow/interaction-response/v2",
           kind: "supervisor_review",
           supervision: { enabled: true, mode: "step" },
           nextCall: { command: "loopship stepper step --json @-" },
@@ -1516,8 +1516,15 @@ describe("Loopship Fastflow-native bridge", () => {
           appendFileSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG, JSON.stringify(request) + "\\n");
           if (!prior) throw new Error("synthetic native submission failure");
           return {
-            schemaVersion: "fastflow/interaction-response/v1",
+            schemaVersion: "fastflow/interaction-response/v2",
             kind: "handoff_answer",
+            resolverRef: "aitl.chat",
+            interactionRef: {
+              ref: "/tmp/interaction.json",
+              digest: "sha256:" + "0".repeat(64),
+              mediaType: "application/json",
+              bytes: 2,
+            },
             nextCall: {
               command: "loopship stepper step --json @-",
               args: {
@@ -3144,11 +3151,18 @@ describe("Loopship Fastflow-native bridge", () => {
           export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRunRequest(request) {
             return {
-              schemaVersion: "fastflow/interaction-response/v1",
+              schemaVersion: "fastflow/interaction-response/v2",
               kind: "handoff_answer",
               ok: true,
               status: "paused",
               executionId: request.executionId,
+              resolverRef: "aitl.chat",
+              interactionRef: {
+                ref: "/tmp/interaction.json",
+                digest: "sha256:" + "0".repeat(64),
+                mediaType: "application/json",
+                bytes: 2,
+              },
               nextCall: {
                 args: {
                   sessionId: request.executionId,
@@ -3486,11 +3500,18 @@ describe("Loopship Fastflow-native bridge", () => {
               };
             }
             return {
-              schemaVersion: "fastflow/interaction-response/v1",
+              schemaVersion: "fastflow/interaction-response/v2",
               kind: "handoff_answer",
               ok: true,
               status: "paused",
               executionId,
+              resolverRef: "aitl.chat",
+              interactionRef: {
+                ref: "/tmp/interaction.json",
+                digest: "sha256:" + "0".repeat(64),
+                mediaType: "application/json",
+                bytes: 2,
+              },
               nextCall: {
                 args: {
                   sessionId: executionId,
@@ -3608,11 +3629,18 @@ describe("Loopship Fastflow-native bridge", () => {
           export async function executeFastflowWorkflowRecoverRequest({ executionId }) {
             appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover\\n");
             return {
-              schemaVersion: "fastflow/interaction-response/v1",
+              schemaVersion: "fastflow/interaction-response/v2",
               kind: "handoff_answer",
               ok: true,
               status: "paused",
               executionId,
+              resolverRef: "aitl.chat",
+              interactionRef: {
+                ref: "/tmp/interaction.json",
+                digest: "sha256:" + "0".repeat(64),
+                mediaType: "application/json",
+                bytes: 2,
+              },
               nextCall: {
                 args: {
                   sessionId: executionId,
@@ -4051,13 +4079,15 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(
       validateSchemaPath(
         {
-          schemaVersion: "fastflow/interaction-response/v1",
+          schemaVersion: "fastflow/interaction-response/v2",
           kind: "handoff_answer",
+          resolverRef: "aitl.chat",
           systemInstructions: "Continue the workflow.",
-          instructions: "",
-          context: {
-            request: {},
-            answerSchema: {},
+          interactionRef: {
+            ref: "/tmp/interaction.json",
+            digest: `sha256:${"0".repeat(64)}`,
+            mediaType: "application/json",
+            bytes: 2,
           },
           nextCall: {
             command: "loopship stepper step --json @-",
@@ -4075,7 +4105,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(
       validateSchemaPath(
         {
-          schemaVersion: "fastflow/interaction-response/v1",
+          schemaVersion: "fastflow/interaction-response/v2",
           kind: "handoff_answer",
           systemInstructions: "Continue the workflow.",
           instructions: "",
@@ -4096,7 +4126,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(
       validateSchemaPath(
         {
-          schemaVersion: "fastflow/interaction-response/v1",
+          schemaVersion: "fastflow/interaction-response/v2",
           kind: "handoff_answer",
           systemInstructions: "Continue the workflow.",
           instructions: "",
@@ -4116,7 +4146,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(
       validateSchemaPath(
         {
-          schemaVersion: "fastflow/interaction-response/v1",
+          schemaVersion: "fastflow/interaction-response/v2",
           kind: "handoff_answer",
           systemInstructions: "Continue the workflow.",
           instructions: "",
@@ -4137,7 +4167,7 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(
       validateSchemaPath(
         {
-          schemaVersion: "fastflow/interaction-response/v1",
+          schemaVersion: "fastflow/interaction-response/v2",
           kind: "handoff_answer",
           nextCall: {},
         },
@@ -4936,7 +4966,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("stepper prefers submitted supervisor decisions over nextCall templates", () => {
     expect(
       nativeStepperResumeRequest({
-        schemaVersion: "fastflow/interaction-response/v1",
+        schemaVersion: "fastflow/interaction-response/v2",
         kind: "supervisor_review",
         nextCall: {
           args: {
@@ -4976,7 +5006,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("hook prefers submitted handoff answers over nextCall templates", () => {
     expect(
       nativeResumeRequest({
-        schemaVersion: "fastflow/interaction-response/v1",
+        schemaVersion: "fastflow/interaction-response/v2",
         kind: "handoff_answer",
         nextCall: {
           args: {
@@ -5007,7 +5037,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("stepper prefers submitted HITL handoff answers over nextCall templates", () => {
     expect(
       nativeStepperResumeRequest({
-        schemaVersion: "fastflow/interaction-response/v1",
+        schemaVersion: "fastflow/interaction-response/v2",
         kind: "handoff_answer",
         context: {
           request: {

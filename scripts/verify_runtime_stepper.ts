@@ -144,14 +144,18 @@ function nativeClarifyingPlanDecision(): Record<string, unknown> {
 }
 
 function pauseToken(value: JsonObject): PauseToken | null {
-  if (value.schemaVersion !== "fastflow/interaction-response/v1") return null;
+  if (value.schemaVersion !== "fastflow/interaction-response/v2") return null;
   const nextCall = value.nextCall && typeof value.nextCall === "object" ? value.nextCall : null;
   const args = nextCall?.args && typeof nextCall.args === "object" ? nextCall.args : null;
   const command = String(nextCall?.command ?? "").trim();
-  const request =
-    value.context && typeof value.context === "object" && !Array.isArray(value.context)
-      ? value.context.request
-      : null;
+  const interactionRef = value.interactionRef && typeof value.interactionRef === "object"
+    ? value.interactionRef
+    : null;
+  const material = interactionRef?.ref && existsSync(String(interactionRef.ref))
+    ? parseJson(readFileSync(String(interactionRef.ref), "utf8"), "interaction artifact")
+    : {};
+  const context = material.context && typeof material.context === "object" ? material.context : {};
+  const request = context.request && typeof context.request === "object" ? context.request : null;
   const sessionId = String(args?.sessionId ?? "").trim();
   const nonce = String(args?.nonce ?? "").trim();
   const workspaceRoot = String(args?.workspaceRoot ?? "").trim();
@@ -195,7 +199,7 @@ function pauseToken(value: JsonObject): PauseToken | null {
 
 function assertNativeFastflowResponse(value: JsonObject, label: string): PauseToken | null {
   assertNoLoopshipStepEnvelope(value, label);
-  if (value.schemaVersion === "fastflow/interaction-response/v1") {
+  if (value.schemaVersion === "fastflow/interaction-response/v2") {
     return pauseToken(value);
   }
   if (
