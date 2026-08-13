@@ -39,7 +39,6 @@ type PauseToken = {
   sessionId: string;
   nonce: string;
   workspaceRoot: string;
-  reason: string;
   kind: "handoff_answer" | "supervisor_review" | "inline_answer";
   command: string;
 };
@@ -148,21 +147,9 @@ function pauseToken(value: JsonObject): PauseToken | null {
   const nextCall = value.nextCall && typeof value.nextCall === "object" ? value.nextCall : null;
   const args = nextCall?.args && typeof nextCall.args === "object" ? nextCall.args : null;
   const command = String(nextCall?.command ?? "").trim();
-  const interactionRef = value.interactionRef && typeof value.interactionRef === "object"
-    ? value.interactionRef
-    : null;
-  const material = interactionRef?.ref && existsSync(String(interactionRef.ref))
-    ? parseJson(readFileSync(String(interactionRef.ref), "utf8"), "interaction artifact")
-    : {};
-  const context = material.context && typeof material.context === "object" ? material.context : {};
-  const request = context.request && typeof context.request === "object" ? context.request : null;
   const sessionId = String(args?.sessionId ?? "").trim();
   const nonce = String(args?.nonce ?? "").trim();
   const workspaceRoot = String(args?.workspaceRoot ?? "").trim();
-  const reason =
-    request && typeof request === "object" && !Array.isArray(request)
-      ? String(request.reason ?? "").trim()
-      : "";
   if (!sessionId) fail(`interaction response must include nextCall.args.sessionId: ${JSON.stringify(value)}`);
   if (!nonce) fail(`interaction response must include nextCall.args.nonce: ${JSON.stringify(value)}`);
   if (!workspaceRoot) fail(`interaction response must include nextCall.args.workspaceRoot: ${JSON.stringify(value)}`);
@@ -191,7 +178,6 @@ function pauseToken(value: JsonObject): PauseToken | null {
     sessionId,
     nonce,
     workspaceRoot,
-    reason,
     kind,
     command,
   };

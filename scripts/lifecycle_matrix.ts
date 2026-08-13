@@ -11,6 +11,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
+import {
+  configureFastflowApp,
+  executeFastflowWorkflowRecoverRequest,
+  readWorkflowInteractionArtifact,
+  type WorkflowInteractionRef,
+} from "@cueintent/fastflow";
 import { parseTasksYaml } from "./loopship_core.ts";
 import {
   startLoopshipTestScheduler,
@@ -19,6 +25,7 @@ import {
 import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
+configureFastflowApp({ appName: "loopship" });
 const EMPTY_SYSTEM_CONTEXT = {
   relevant_object_refs: [],
   relevant_assertion_refs: [],
@@ -172,7 +179,7 @@ function scenarioPlanPayload(
   };
 }
 
-function runInitCommand(
+function runInitCommandRaw(
   fixture: MatrixFixture,
   prompt: string,
   wtree?: string,
@@ -184,7 +191,7 @@ function runInitCommand(
   return parseJson(init.stdout);
 }
 
-function runResumeCommand(
+function runResumeCommandRaw(
   fixture: MatrixFixture,
   wtree: string,
 ): Record<string, unknown> {
@@ -196,6 +203,69 @@ function runResumeCommand(
   );
   expect(resumed.status, resumed.stderr || resumed.stdout).toBe(0);
   return parseJson(resumed.stdout);
+}
+
+function nativeWorkflowIsPending(value: Record<string, unknown>): boolean {
+  return (
+    value.schemaVersion === "fastflow/workflow-run-artifact/v1" &&
+    value.kind === "workflow_result" &&
+    ["pending", "queued", "running"].includes(String(value.status ?? ""))
+  );
+}
+
+async function recoverNativeResult(
+  fixture: MatrixFixture,
+  initial: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 120_000;
+  let current = initial;
+  while (nativeWorkflowIsPending(current)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out recovering Native lifecycle result: ${JSON.stringify(current)}`);
+    }
+    const executionId = String(current.executionId ?? "").trim();
+    expect(executionId, JSON.stringify(current)).toBeTruthy();
+    const schedulerDbPath = String(fixture.env.FASTFLOW_SCHEDULER_DB ?? "").trim();
+    expect(schedulerDbPath).toBeTruthy();
+    await Bun.sleep(100);
+    try {
+      current = await executeFastflowWorkflowRecoverRequest({
+        executionId,
+        schedulerDbPath,
+        options: {
+          schedulerMode: "local-durable",
+          schedulerDescriptorPath: join(
+            String(fixture.env.LOOPSHIP_HOME),
+            "scheduler",
+            "native-v1.runtime.json",
+          ),
+        },
+      }) as unknown as Record<string, unknown>;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/Native quest manifest.*tampered quest file/u.test(message)) throw error;
+      await Bun.sleep(100);
+    }
+  }
+  return current;
+}
+
+async function runInitCommand(
+  fixture: MatrixFixture,
+  prompt: string,
+  wtree?: string,
+): Promise<Record<string, unknown>> {
+  return recoverNativeResult(
+    fixture,
+    runInitCommandRaw(fixture, prompt, wtree),
+  );
+}
+
+async function runResumeCommand(
+  fixture: MatrixFixture,
+  wtree: string,
+): Promise<Record<string, unknown>> {
+  return recoverNativeResult(fixture, runResumeCommandRaw(fixture, wtree));
 }
 
 function nativeWorkflowOutput(value: Record<string, unknown>): Record<string, unknown> | null {
@@ -217,29 +287,45 @@ function nativePauseToken(value: Record<string, unknown>): Record<string, unknow
   const nonce = String(args.nonce ?? "").trim();
   expect(sessionId).toBeTruthy();
   expect(nonce).toBeTruthy();
-  const interactionRef = isRecord(value.interactionRef) ? value.interactionRef : {};
-  const material =
-    typeof interactionRef.ref === "string" && existsSync(interactionRef.ref)
-      ? parseJson(readFileSync(interactionRef.ref, "utf8"))
-      : {};
-  const context = isRecord(material.context) ? material.context : {};
-  const request = isRecord(context.request) ? context.request : {};
   return {
     sessionId,
     nonce,
     workspaceRoot: String(args.workspaceRoot ?? "").trim(),
     kind: String(value.kind ?? ""),
+    interactionRef: value.interactionRef,
+  };
+}
+
+async function materializeNativePause(
+  pause: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const interactionRef = isRecord(pause.interactionRef)
+    ? pause.interactionRef
+    : null;
+  expect(interactionRef, JSON.stringify(pause)).not.toBeNull();
+  const workspaceRoot = String(pause.workspaceRoot ?? "").trim();
+  expect(workspaceRoot, JSON.stringify(pause)).toBeTruthy();
+  const material = await readWorkflowInteractionArtifact(
+    interactionRef as unknown as WorkflowInteractionRef,
+    { workspaceRoot },
+  );
+  const context: Record<string, unknown> = isRecord(material.context)
+    ? material.context
+    : {};
+  const request = isRecord(context.request) ? context.request : {};
+  return {
+    ...pause,
     wtree: String(request.wtree ?? request.quest_id ?? "").trim(),
     request,
     answerSchema: context.answerSchema,
   };
 }
 
-function resumeNativePause(
+async function resumeNativePause(
   fixture: MatrixFixture,
   pause: Record<string, unknown>,
   decision: Record<string, unknown>,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const payload = {
     sessionId: String(pause.sessionId),
     nonce: String(pause.nonce),
@@ -265,29 +351,33 @@ function resumeNativePause(
       ].join("\n"),
     );
   }
-  return parseJson(proc.stdout);
+  return recoverNativeResult(
+    fixture,
+    parseJson(proc.stdout),
+  );
 }
 
-function settleSupervisorPauses(
+async function settleSupervisorPauses(
   fixture: MatrixFixture,
   value: Record<string, unknown>,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   let current = value;
   while (nativePauseToken(current)?.kind === "supervisor_review") {
-    current = resumeNativePause(fixture, nativePauseToken(current)!, {});
+    current = await resumeNativePause(fixture, nativePauseToken(current)!, {});
   }
   return current;
 }
 
-function resumeNativeDecision(
+async function resumeNativeDecision(
   fixture: MatrixFixture,
   value: Record<string, unknown>,
   decision: Record<string, unknown>,
-): Record<string, unknown> {
-  const current = settleSupervisorPauses(fixture, value);
+): Promise<Record<string, unknown>> {
+  const current = await settleSupervisorPauses(fixture, value);
   const pause = nativePauseToken(current);
   expect(pause, JSON.stringify(current)).not.toBeNull();
-  const answerSchema = isRecord(pause!.answerSchema) ? pause!.answerSchema : {};
+  const detailedPause = await materializeNativePause(pause!);
+  const answerSchema = isRecord(detailedPause.answerSchema) ? detailedPause.answerSchema : {};
   const required = Array.isArray(answerSchema.required)
     ? answerSchema.required.map(String)
     : [];
@@ -305,9 +395,9 @@ function resumeNativeDecision(
       ).toBe(true);
     }
   }
-  return settleSupervisorPauses(
+  return await settleSupervisorPauses(
     fixture,
-    resumeNativePause(fixture, pause!, decision),
+    await resumeNativePause(fixture, detailedPause, decision),
   );
 }
 
@@ -317,25 +407,26 @@ type NativeHandoffEvidence = {
   requiredAnswerFields: string[];
 };
 
-function expectNativeHandoffAtStage(
+async function expectNativeHandoffAtStage(
   value: Record<string, unknown>,
   stage: string,
   evidence: NativeHandoffEvidence[],
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const pause = nativePauseToken(value);
   expect(pause, JSON.stringify(value)).not.toBeNull();
-  expect(pause!.kind, JSON.stringify(value)).toBe("handoff_answer");
-  const request = isRecord(pause!.request) ? pause!.request : {};
+  const detailedPause = await materializeNativePause(pause!);
+  expect(detailedPause.kind, JSON.stringify(value)).toBe("handoff_answer");
+  const request = isRecord(detailedPause.request) ? detailedPause.request : {};
   expect(request.current_stage, JSON.stringify(value)).toBe(stage);
-  const answerSchema = isRecord(pause!.answerSchema) ? pause!.answerSchema : {};
+  const answerSchema = isRecord(detailedPause.answerSchema) ? detailedPause.answerSchema : {};
   evidence.push({
     stage,
-    executionId: String(pause!.sessionId),
+    executionId: String(detailedPause.sessionId),
     requiredAnswerFields: Array.isArray(answerSchema.required)
       ? answerSchema.required.map(String)
       : [],
   });
-  return pause!;
+  return detailedPause;
 }
 
 function expectCanonicalStage(
@@ -420,17 +511,17 @@ function readNativeDagBoundaries(dbPath: string): NativeDagBoundary[] {
   }
 }
 
-function driveNativeChildDag(
+async function driveNativeChildDag(
   fixture: MatrixFixture,
   value: Record<string, unknown>,
   parentWtree: string,
-): {
+): Promise<{
   result: Record<string, unknown>;
   children: Array<Record<string, unknown>>;
   independentOverlapProven: boolean;
   dependencyBaseProven: boolean;
-} {
-  let current = settleSupervisorPauses(fixture, value);
+}> {
+  let current = await settleSupervisorPauses(fixture, value);
   const children = new Map<string, Record<string, unknown>>();
   const parentState = latestQuestState(fixture, parentWtree);
   const canonicalTasks = Array.isArray(parentState.tasks)
@@ -453,8 +544,9 @@ function driveNativeChildDag(
   for (let index = 0; index < 100 && !nativeWorkflowOutput(current); index += 1) {
     const pause = nativePauseToken(current);
     expect(pause, JSON.stringify(current)).not.toBeNull();
-    const required = requiredPauseFields(pause!);
-    const task = pauseTask(pause!);
+    const detailedPause = await materializeNativePause(pause!);
+    const required = requiredPauseFields(detailedPause);
+    const task = pauseTask(detailedPause);
     if (required.has("implementation_receipt")) {
       expect(task.taskId).toBeTruthy();
       expect(task.worktreePath).toBeTruthy();
@@ -521,12 +613,12 @@ function driveNativeChildDag(
       const commit = runGit(task.worktreePath, ["rev-parse", "HEAD"], fixture.env).trim();
       children.set(task.taskId, {
         task_id: task.taskId,
-        child_wtree: String(pause!.wtree || ""),
+        child_wtree: String(detailedPause.wtree || ""),
         branch_ref: task.branchRef,
         worktree_path: task.worktreePath,
         implementation_commit: commit,
       });
-      current = resumeNativeDecision(fixture, current, {
+      current = await resumeNativeDecision(fixture, current, {
         implementation_receipt: {
           resolver: "aitl.subagent",
           agent_id: "loopship-matrix-agent",
@@ -541,14 +633,14 @@ function driveNativeChildDag(
       continue;
     }
     if (required.has("checks")) {
-      current = resumeNativeDecision(fixture, current, {
+      current = await resumeNativeDecision(fixture, current, {
         status: "passed",
         checks: [{ name: `${task.taskId || "child"}-focused`, status: "passed" }],
       });
       continue;
     }
     if (required.has("acceptance_trace") && required.has("risks")) {
-      current = resumeNativeDecision(fixture, current, {
+      current = await resumeNativeDecision(fixture, current, {
         status: "passed",
         acceptance_trace: [
           {
@@ -575,23 +667,23 @@ function driveNativeChildDag(
   };
 }
 
-function driveScenario(
+async function driveScenario(
   fixture: MatrixFixture,
   scenario: MatrixScenario,
-): MatrixScenarioResult {
+): Promise<MatrixScenarioResult> {
   const handoffEvidence: NativeHandoffEvidence[] = [];
-  let current = settleSupervisorPauses(
+  let current = await settleSupervisorPauses(
     fixture,
-    runInitCommand(fixture, scenario.prompt),
+    await runInitCommand(fixture, scenario.prompt),
   );
-  let pause = expectNativeHandoffAtStage(current, "planning", handoffEvidence);
+  let pause = await expectNativeHandoffAtStage(current, "planning", handoffEvidence);
   const wtree = String(pause.wtree ?? "");
   expect(wtree).toBeTruthy();
   let executionId = String(pause.sessionId);
 
   let questionRoundUsed = false;
   if (scenario.questions?.length) {
-    current = resumeNativeDecision(
+    current = await resumeNativeDecision(
       fixture,
       current,
       scenarioPlanPayload(scenario, "questions"),
@@ -603,8 +695,11 @@ function driveScenario(
     expectCanonicalStage(fixture, wtree, "awaiting_user_answers");
     questionRoundUsed = true;
 
-    current = settleSupervisorPauses(fixture, runResumeCommand(fixture, wtree));
-    pause = expectNativeHandoffAtStage(
+    current = await settleSupervisorPauses(
+      fixture,
+      await runResumeCommand(fixture, wtree),
+    );
+    pause = await expectNativeHandoffAtStage(
       current,
       "awaiting_user_answers",
       handoffEvidence,
@@ -612,40 +707,43 @@ function driveScenario(
     expect(String(pause.sessionId)).not.toBe(executionId);
     executionId = String(pause.sessionId);
 
-    current = resumeNativeDecision(fixture, current, {
+    current = await resumeNativeDecision(fixture, current, {
       answers: scenario.preplanAnswers ?? [],
     });
-    pause = expectNativeHandoffAtStage(current, "planning", handoffEvidence);
+    pause = await expectNativeHandoffAtStage(current, "planning", handoffEvidence);
     expect(String(pause.sessionId)).toBe(executionId);
     expectCanonicalStage(fixture, wtree, "planning");
 
-    current = resumeNativeDecision(
+    current = await resumeNativeDecision(
       fixture,
       current,
       scenarioPlanPayload(scenario, "task_graph"),
     );
-    pause = expectNativeHandoffAtStage(current, "plan_review", handoffEvidence);
+    pause = await expectNativeHandoffAtStage(current, "plan_review", handoffEvidence);
     expect(String(pause.sessionId)).toBe(executionId);
     expectCanonicalStage(fixture, wtree, "plan_review");
   } else {
-    current = resumeNativeDecision(
+    current = await resumeNativeDecision(
       fixture,
       current,
       scenarioPlanPayload(scenario, "task_graph"),
     );
-    pause = expectNativeHandoffAtStage(current, "plan_review", handoffEvidence);
+    pause = await expectNativeHandoffAtStage(current, "plan_review", handoffEvidence);
     expect(String(pause.sessionId)).toBe(executionId);
     expectCanonicalStage(fixture, wtree, "plan_review");
   }
 
-  current = resumeNativeDecision(fixture, current, { approved: true });
+  current = await resumeNativeDecision(fixture, current, { approved: true });
   const approved = nativeWorkflowOutput(current);
   if (approved) {
     expect(approved.stage_after).toBe("task_graph_ready");
     expectCanonicalStage(fixture, wtree, "task_graph_ready");
-    current = settleSupervisorPauses(fixture, runResumeCommand(fixture, wtree));
+    current = await settleSupervisorPauses(
+      fixture,
+      await runResumeCommand(fixture, wtree),
+    );
   }
-  const childDag = driveNativeChildDag(fixture, current, wtree);
+  const childDag = await driveNativeChildDag(fixture, current, wtree);
   current = childDag.result;
   const executingOutput = nativeWorkflowOutput(current)!;
   expect(executingOutput.step).toBe("executing");
@@ -691,15 +789,18 @@ function driveScenario(
     loopshipRouted = loopshipRouted && childState.flow_id === "swe-child";
   }
 
-  current = settleSupervisorPauses(fixture, runResumeCommand(fixture, wtree));
-  pause = expectNativeHandoffAtStage(current, "validating", handoffEvidence);
+  current = await settleSupervisorPauses(
+    fixture,
+    await runResumeCommand(fixture, wtree),
+  );
+  pause = await expectNativeHandoffAtStage(current, "validating", handoffEvidence);
   executionId = String(pause.sessionId);
 
-  current = resumeNativeDecision(fixture, current, {
+  current = await resumeNativeDecision(fixture, current, {
     status: "passed",
     checks: [{ name: `${scenario.id}-smoke`, status: "passed" }],
   });
-  pause = expectNativeHandoffAtStage(
+  pause = await expectNativeHandoffAtStage(
     current,
     "verification_pending",
     handoffEvidence,
@@ -707,7 +808,7 @@ function driveScenario(
   expect(String(pause.sessionId)).toBe(executionId);
   expectCanonicalStage(fixture, wtree, "verification_pending");
 
-  current = resumeNativeDecision(fixture, current, {
+  current = await resumeNativeDecision(fixture, current, {
     status: "passed",
     acceptance_trace: scenario.tasks.map((task) => ({
       acceptance: String((task.acceptance as string[])[0] ?? task.title ?? "done"),
@@ -715,7 +816,7 @@ function driveScenario(
     })),
     risks: [],
   });
-  pause = expectNativeHandoffAtStage(
+  pause = await expectNativeHandoffAtStage(
     current,
     "system_update_pending",
     handoffEvidence,
@@ -723,7 +824,7 @@ function driveScenario(
   expect(String(pause.sessionId)).toBe(executionId);
   expectCanonicalStage(fixture, wtree, "system_update_pending");
 
-  current = resumeNativeDecision(fixture, current, {
+  current = await resumeNativeDecision(fixture, current, {
     system_update: {
       schema_version: 1,
       mode: "no_change",
@@ -980,7 +1081,7 @@ export async function runLifecycleScenario(
       home: fixture.env.HOME!,
     });
     Object.assign(fixture.env, scheduler.env);
-    return driveScenario(fixture, scenario);
+    return await driveScenario(fixture, scenario);
   } finally {
     await scheduler?.stop();
     rmSync(fixture.root, { recursive: true, force: true });
