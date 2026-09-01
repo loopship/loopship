@@ -70,7 +70,7 @@ export function resolveLoopshipNativeExecutionRequest(
       const tasksPath = resolve(workspaceRoot, LOOPSHIP_RUNTIME_NAMESPACE, "tasks.yaml");
       if (existsSync(tasksPath)) {
         throw legacyExecutionUnsupported(
-          `quest state has no Native v1 execution ledger at ${path}; resubmit it as a new Native execution`,
+          `quest state has no Fastflow execution ledger at ${path}; resubmit it as a new Fastflow execution`,
         );
       }
     } else {
@@ -107,7 +107,7 @@ export function readLoopshipNativeExecutionRequest(
   const path = requestPath(workspaceRoot);
   if (!existsSync(path)) {
     throw legacyExecutionUnsupported(
-      `quest state has no Native v1 execution request at ${path}; resubmit it as a new Native execution`,
+      `quest state has no Fastflow execution request at ${path}; resubmit it as a new Fastflow execution`,
     );
   }
   const envelope = parseRequest(path);

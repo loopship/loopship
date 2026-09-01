@@ -274,7 +274,7 @@ async function main(): Promise<number> {
   try {
     const repo = createRepo(root);
     scheduler = await startLoopshipTestScheduler({
-      dbPath: join(root, "scheduler", "native-v1.sqlite"),
+      dbPath: join(root, "scheduler", "fastflow.sqlite"),
       home: join(root, "home"),
     });
     nativeRuntimeEnv = {

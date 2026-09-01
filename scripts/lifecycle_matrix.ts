@@ -9,10 +9,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Database } from "bun:sqlite";
 import {
-  configureFastflowApp,
   executeFastflowWorkflowRecoverRequest,
   readWorkflowInteractionArtifact,
   type WorkflowInteractionRef,
@@ -25,7 +24,13 @@ import {
 import { runCommand } from "./loopship_utils.ts";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "loopship.ts");
-configureFastflowApp({ appName: "loopship" });
+const FASTFLOW_PACKAGE_ROOT = dirname(
+  fileURLToPath(import.meta.resolve("@cueintent/fastflow/package.json")),
+);
+const { configureFastflowRuntime } = await import(
+  pathToFileURL(join(FASTFLOW_PACKAGE_ROOT, "src", "lib", "runtime-shell.mjs")).href,
+);
+const LOOPSHIP_FASTFLOW_RUNTIME = configureFastflowRuntime({ appName: "loopship" });
 const EMPTY_SYSTEM_CONTEXT = {
   relevant_object_refs: [],
   relevant_assertion_refs: [],
@@ -237,10 +242,10 @@ async function recoverNativeResult(
           schedulerDescriptorPath: join(
             String(fixture.env.LOOPSHIP_HOME),
             "scheduler",
-            "native-v1.runtime.json",
+            "fastflow.runtime.json",
           ),
         },
-      }) as unknown as Record<string, unknown>;
+      }, LOOPSHIP_FASTFLOW_RUNTIME) as unknown as Record<string, unknown>;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/Native quest manifest.*tampered quest file/u.test(message)) throw error;
@@ -1077,7 +1082,7 @@ export async function runLifecycleScenario(
   let scheduler: LoopshipTestScheduler | null = null;
   try {
     scheduler = await startLoopshipTestScheduler({
-      dbPath: join(fixture.root, "scheduler", "native-v1.sqlite"),
+      dbPath: join(fixture.root, "scheduler", "fastflow.sqlite"),
       home: fixture.env.HOME!,
     });
     Object.assign(fixture.env, scheduler.env);

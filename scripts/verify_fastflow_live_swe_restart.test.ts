@@ -121,17 +121,15 @@ function renderWorker(input: {
     join(input.loopshipRoot, "scripts", "loopship_fastflow.ts"),
   ).href;
   return `
-    import { readFileSync, writeFileSync } from "node:fs";
+    import { existsSync, readFileSync, writeFileSync } from "node:fs";
     import { monitorEventLoopDelay } from "node:perf_hooks";
     import { Database } from "bun:sqlite";
     import { parse as parseYaml } from "yaml";
     import {
-      configureFastflowApp,
-      resetFastflowAdapters,
-    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/consumer-adapters.mjs"))};
-    import {
-      digestNativeContract,
-    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/native-contracts.mjs"))};
+      configureFastflowRuntime,
+      resetFastflowRuntime,
+    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/runtime-shell.mjs"))};
+    import { hashSwfWorkflow } from ${JSON.stringify(sourceImport(fastflow, "src/lib/swf-compat.mjs"))};
     import { createLocalDurableSchedulerAuthority } from ${JSON.stringify(sourceImport(fastflow, "src/lib/local-durable-scheduler-authority.mjs"))};
     import { createSchedulerControlClient } from ${JSON.stringify(sourceImport(fastflow, "src/lib/scheduler-control-client.mjs"))};
     import {
@@ -144,45 +142,57 @@ function renderWorker(input: {
       validateFastflowSwfSubset,
       validateFastflowWorkflowSchema,
     } from ${JSON.stringify(sourceImport(fastflow, "src/lib/swf-workflow.mjs"))};
-    import { markWorkflowRecordValidated } from ${JSON.stringify(sourceImport(fastflow, "src/lib/workflows.mjs"))};
+    import * as FastflowApi from ${JSON.stringify(sourceImport(fastflow, "src/index.mjs"))};
+    import {
+      markWorkflowRecordValidated,
+      resolveWorkflowTupleReference,
+    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/workflows.mjs"))};
     import {
       LOOPSHIP_CALL_CATALOG_ROOT,
       cleanupCompletedNativeWorkspaceResidue,
-      createLoopshipFastflowAdapters,
+      createLoopshipRuntimeIntegrations,
+      normalizeLoopshipWorkflowRecord,
+      prepareLoopshipFastflowCatalog,
     } from ${JSON.stringify(loopshipAdapters)};
 
     const mode = process.argv[2];
     const config = JSON.parse(readFileSync(process.argv[3], "utf8"));
+    // Adapter-owned normalization must be active before the stable YAML is
+    // compiled. The hard-cut IR only accepts executable verification effects
+    // through exact AFN contracts, so the Loopship script checks must be
+    // lowered before markWorkflowRecordValidated captures the record.
+    const preflightRuntime = createLoopshipRuntimeIntegrations(FastflowApi);
+    configureFastflowRuntime({
+      appName: "loopship",
+      integrations: preflightRuntime,
+    });
     const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
     eventLoopDelay.enable();
-    const rawWorkflow = parseYaml(readFileSync(config.workflowPath, "utf8"));
-    const recordSeed = { filePath: config.workflowPath, store: "project" };
+    const rawText = readFileSync(config.workflowPath, "utf8");
+    const rawWorkflow = parseYaml(rawText);
+    const digest = "sha256:" + hashSwfWorkflow(rawWorkflow);
+    const recordSeed = {
+      filePath: config.workflowPath,
+      rawText,
+      store: "external",
+      reference: "loopship.workflow.service.flows.swe",
+      digest,
+    };
     const errors = [];
     validateFastflowWorkflowSchema(rawWorkflow, errors);
     validateFastflowSwfSubset(rawWorkflow, recordSeed, errors);
     const normalized = normalizeSwfWorkflow(rawWorkflow, recordSeed, errors);
     if (errors.length || !normalized) throw new Error(errors.join("; ") || "SWE did not normalize");
-    const digest = digestNativeContract(normalized);
-    const record = markWorkflowRecordValidated({
-      ...recordSeed,
-      digest,
-      rawWorkflow,
-      reference: "loopship.workflow.service.flows.swe",
-      workflow_call_id: "loopship.workflow.service.flows.swe",
-      summary: {
-        id: "loopship.workflow.service.flows.swe",
-        name: normalized.name,
-        namespace: normalized.namespace,
-        version: normalized.version,
-        dsl: normalized.dsl,
-        filePath: recordSeed.filePath,
-        store: recordSeed.store,
-        reference: "loopship.workflow.service.flows.swe",
-        digest,
-        target: normalized.target,
-      },
-      workflow: normalized,
-    });
+    const record = markWorkflowRecordValidated(
+      normalizeLoopshipWorkflowRecord(
+        await (await import(${JSON.stringify(sourceImport(fastflow, "src/lib/workflows.mjs"))}))
+          .loadWorkflowRecord(
+            config.workflowPath,
+            "external",
+            "loopship.workflow.service.flows.swe",
+          ),
+      ),
+    );
     const binding = {
       kind: "fixture",
       ref: "loopship-live-swe-restart",
@@ -231,19 +241,52 @@ function renderWorker(input: {
       async ensureReady() {},
       async close() {},
     });
-    const adapters = createLoopshipFastflowAdapters();
-    configureFastflowApp({
+    const adapters = createLoopshipRuntimeIntegrations(FastflowApi);
+    const resolveWorkflowRecord = async (workflowRef, nestedWorkspaceRoot, options = {}) => {
+      const resolved = await resolveWorkflowTupleReference(
+        workflowRef,
+        nestedWorkspaceRoot,
+        { channel: options.channel, runtime: { catalogResolver: catalog.resolver } },
+      );
+      const normalized = normalizeLoopshipWorkflowRecord(resolved);
+      if (workflowRef.range) {
+        normalized.invocation_range = structuredClone(workflowRef.range);
+      }
+      return normalized;
+    };
+    configureFastflowRuntime({
       appName: "loopship",
-      systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT,
-      callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT],
-      adapters: { ...adapters, createExecutionContext: createRuntime },
+      integrations: { ...adapters, createExecutionContext: createRuntime },
+    });
+    const catalog = await prepareLoopshipFastflowCatalog({
+      fastflowRoot: ${JSON.stringify(input.fastflowRoot)},
+      fastflowApi: FastflowApi,
+      catalogRoot: LOOPSHIP_CALL_CATALOG_ROOT,
+      workspaceRoot: config.coordinatorWorktree,
+    });
+    const configuredRuntime = configureFastflowRuntime({
+      appName: "loopship",
+      integrations: {
+        ...adapters,
+        catalogRegistry: catalog.registry,
+        catalogMounts: catalog.mounts,
+        catalogResolver: catalog.resolver,
+      },
     });
     const authority = createLocalDurableSchedulerAuthority({
       dbPath: config.dbPath,
+      descriptorPath: config.descriptorPath,
       // Exercise the production default while keeping SIGKILL, rather than an
       // artificially tiny expiry, as the restart boundary under test.
       leaseMs: 30_000,
       ownerId: mode === "before" ? "loopship-live-before" : "loopship-live-after",
+      catalogRegistry: catalog.registry,
+      catalogResolver: catalog.resolver,
+      executorPort: adapters.executorDispatch,
+      resourceLeasePort: adapters.resourceLeasePort,
+      runtimeReconstructionPort: {
+        createExecutionContext: configuredRuntime.createExecutionContext.bind(configuredRuntime),
+      },
     });
     const serializeError = (error) => ({
       name: error?.name || "Error",
@@ -256,12 +299,23 @@ function renderWorker(input: {
     void authority.failed.then((error) => {
       writeFileSync(config.authorityFailurePath, JSON.stringify(serializeError(error)));
     });
-    const control = createSchedulerControlClient();
+    const control = createSchedulerControlClient({
+      descriptorPath: config.descriptorPath,
+    });
     const options = {
       schedulerMode: "local-durable",
       executionId: config.executionId,
       artifactMode: "minimal",
       workspaceRoot: config.coordinatorWorktree,
+      registryMounts: catalog.mounts,
+      catalogResolver: catalog.resolver,
+      runtimeReconstructionPort: {
+        createExecutionContext: configuredRuntime.createExecutionContext.bind(configuredRuntime),
+      },
+      schedulerDescriptorPath: config.descriptorPath,
+      executorDispatchPort: adapters.executorDispatch,
+      resolveWorkflowRecord,
+      resourceLeasePort: adapters.resourceLeasePort,
     };
     const inputs = {
       repo: config.repo,
@@ -309,7 +363,10 @@ function renderWorker(input: {
         const events = await readEvents(executionId);
         const submitted = events.find((event) => event.type === "execution.submitted");
         const dispatches = events
-          .filter((event) => event.type === "node.dispatch_intended")
+          .filter((event) =>
+            event.type === "node.dispatch_intended" &&
+            event.data?.nodeId !== "fastflow_dag_context",
+          )
           .map((event) => event.data?.invocation)
           .filter(Boolean);
         rows.push({
@@ -350,11 +407,14 @@ function renderWorker(input: {
     async function waitForWorkflowResult() {
       const deadline = Date.now() + 180_000;
       while (true) {
-        const result = await recoverNativeWorkflow({
+        let result;
+        result = await recoverNativeWorkflow({
           executionId: config.executionId,
           options,
         });
-        if (!["pending", "queued", "running"].includes(result.status)) return result;
+        if (!["pending", "queued", "running"].includes(result.status)) {
+          return result;
+        }
         if (Date.now() >= deadline) {
           throw new Error("timed out waiting for the local-durable workflow result");
         }
@@ -379,17 +439,21 @@ function renderWorker(input: {
         );
       }
       const tree = await executionTree(config.executionId);
-      const child = tree.find((row) => row.sourceRef === "native-dag:${TASK_ID}");
+      const child = tree.find((row) => row.sourceRef === "sys.afn.fastflow.workflow.iteration");
       if (!child) throw new Error("live SWE did not create its stable Native child execution");
       const firstDispatch = child.dispatches[0];
       if (!firstDispatch?.effectKey) throw new Error("Native child effect identity is missing");
       writeFileSync(config.markerPath, JSON.stringify({
         status: paused.status,
         nonce: paused.pause?.nonce || "",
+        pauseStepId: paused.pause?.step_id || "",
         childExecutionId: child.executionId,
         childEffectKey: firstDispatch.effectKey,
         childInvocationId: firstDispatch.invocationId,
         childAttempt: firstDispatch.attempt,
+        childWorktree: config.repo + "/worktrees/live-parent-task-a",
+        childWorktreeExists: existsSync(config.repo + "/worktrees/live-parent-task-a"),
+        tree,
       }));
       await new Promise(() => {});
     } else if (mode === "after") {
@@ -490,7 +554,7 @@ function renderWorker(input: {
           [config.executionId, ...childTreeExecutionIds],
         );
         const terminalAfterReplay = await terminalSnapshot(config.executionId);
-        const child = replayTree.find((row) => row.sourceRef === "native-dag:${TASK_ID}");
+        const child = replayTree.find((row) => row.sourceRef === "sys.afn.fastflow.workflow.iteration");
         const landingDispatches = (tree) => tree.flatMap((row) => row.dispatches)
           .filter((dispatch) =>
             dispatch.callId === "loopship.afn.service.landing.apply-outcome" &&
@@ -529,7 +593,7 @@ function renderWorker(input: {
         }));
       } finally {
         await authority.stop();
-        resetFastflowAdapters();
+        resetFastflowRuntime();
       }
     } else {
       throw new Error("unknown live SWE worker mode: " + mode);
@@ -674,6 +738,7 @@ describe("Loopship live SWE durable restart", () => {
           "swe.stable.yaml",
         ),
         dbPath,
+        descriptorPath: join(fixture.root, "scheduler-runtime.json"),
         markerPath,
         outputPath,
         phasePath,
@@ -725,7 +790,12 @@ describe("Loopship live SWE durable restart", () => {
       expect(paused.status).toBe("paused");
       expect(paused.childExecutionId).toBeTruthy();
       expect(paused.childEffectKey).toBeTruthy();
-      expect(existsSync(fixture.childWorktree)).toBe(true);
+      if (!existsSync(fixture.childWorktree)) {
+        throw new Error(
+          "live SWE child worktree was not prepared: " +
+          readFileSync(markerPath, "utf8"),
+        );
+      }
 
       const killed = before.kill("SIGKILL");
       expect(killed).toBe(true);
@@ -747,14 +817,17 @@ describe("Loopship live SWE durable restart", () => {
         env,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      await waitForChildExit(after, 420_000, (afterStdout, afterStderr) =>
-        readLiveDiagnostics({
-          authorityFailurePath,
-          phasePath,
-          pauseTracePath,
-          stdout: `${stdout}${afterStdout}`,
-          stderr: `${stderr}${afterStderr}`,
-        }),
+      await waitForChildExit(
+        after,
+        Number(process.env.FASTFLOW_LIVE_SWE_AFTER_TIMEOUT_MS || "420000"),
+        (afterStdout, afterStderr) =>
+          readLiveDiagnostics({
+            authorityFailurePath,
+            phasePath,
+            pauseTracePath,
+            stdout: `${stdout}${afterStdout}`,
+            stderr: `${stderr}${afterStderr}`,
+          }),
       );
       const completed = JSON.parse(readFileSync(outputPath, "utf8")) as any;
       expect(completed.status).not.toBe("paused");
@@ -829,7 +902,11 @@ describe("Loopship live SWE durable restart", () => {
       );
     } finally {
       if (before.exitCode === null && before.signalCode === null) before.kill("SIGKILL");
-      rmSync(fixture.root, { recursive: true, force: true });
+      if (process.env.FASTFLOW_KEEP_LIVE_SWE_FIXTURE !== "1") {
+        rmSync(fixture.root, { recursive: true, force: true });
+      } else {
+        console.error("LIVE_SWE_FIXTURE_RETAINED", fixture.root);
+      }
     }
-  }, 480_000);
+  }, Number(process.env.FASTFLOW_LIVE_SWE_TIMEOUT_MS || "480000"));
 });

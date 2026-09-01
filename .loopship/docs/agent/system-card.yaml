@@ -38,9 +38,9 @@ actors:
     kind: system
     text: |-
       The Loopship runtime validates payloads, persists quest state, binds consumer orchestration
-      to Fastflow Native v1, hosts exact handlers behind the authenticated local-durable
-      fastflow.afn.v1 session, and enforces lifecycle transitions for agent actions. Local
-      LoopshipService commands are never remotely exposed.
+      to Fastflow's current native scheduler, runs exact handlers through explicit executor
+      integrations and the authenticated v2 WSS session, and enforces lifecycle transitions for
+      agent actions. Local LoopshipService commands are never remotely exposed.
 responsibilities:
   scout-root-first: |-
     Agents read .loopship/system.yaml first, then traverse relevant canonical resource links

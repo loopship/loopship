@@ -491,22 +491,33 @@ async function executeFastflowNativeProbe(
         createEmbeddedSchedulerProfile,
         createMemoryExecutionStore,
         createNativeSchedulerBackend,
-        digestCallContract,
         digestNativeContract,
         failedDecision,
         pinPlan,
       } from ${JSON.stringify(pathToFileURL(join(fastflowRoot, "src", "native-scheduler.mjs")).href)};
+      import { digestAfnContract } from ${JSON.stringify(pathToFileURL(join(fastflowRoot, "src", "lib", "afn-contract.mjs")).href)};
 
       const { items } = JSON.parse(readFileSync(process.argv[2], "utf8"));
       const callId = "loopship.afn.service.stress.capture";
-      const contractDigest = digestCallContract({
-        call: callId,
-        inputs: { required: ["id"], optional: ["dependencies"] },
+      const contractContent = {
+        schemaVersion: "fastflow.afn-contract/v1",
+        callId,
+        inputSchema: { type: "object", additionalProperties: false },
+        outputSchema: { type: "object" },
+        effects: ["loopship.lifecycle-stress"],
+        grantRequirements: [],
+        resourceRequirements: [],
+        qualifierSchema: { type: "object", additionalProperties: false, properties: {} },
+        replayPolicy: "idempotent",
+      };
+      const contractDigest = digestAfnContract({
+        ...contractContent,
+        contractDigest: digestNativeContract(contractContent),
       });
       const implementationDigest = digestNativeContract({
         implementation: "loopship.lifecycle-stress.capture/v1",
       });
-      const call = { callId, contractDigest, implementationDigest };
+      const call = { callId, contractDigest };
       const dependencyById = new Map(
         items.map((item) => [String(item.id), Array.isArray(item.dependencies) ? item.dependencies : []]),
       );
@@ -515,6 +526,7 @@ async function executeFastflowNativeProbe(
       const dispatchPort = createAfnDispatchPort({
         routes: [{
           ...call,
+          implementationDigest,
           routeId: "loopship:stress:capture",
           async handler(invocation) {
             const missing = (dependencyById.get(invocation.nodeId) || [])
@@ -593,7 +605,7 @@ function resolveFastflowRoot(): string {
     existsSync(join(candidate, "src", "index.mjs")) &&
     existsSync(join(candidate, "schemas", "fastflow.workflow.ext.yaml")),
   );
-  assert(found, "could not resolve the Native v1 Fastflow root");
+  assert(found, "could not resolve the Fastflow root");
   return found;
 }
 

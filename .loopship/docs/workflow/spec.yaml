@@ -32,12 +32,11 @@ participants:
   loopship-runtime:
     kind: system
     text: |-
-      The Loopship runtime stores task state, validates step payloads, integrates Fastflow Native
-      v1, runs every exact AFN handler behind the authenticated local-durable fastflow.afn.v1
-      host session, and controls consumer lifecycle transitions. Its LoopshipService cmdproto
-      methods remain local and default-deny. Scheduler operations use only Fastflow's six
-      descriptor-derived finite unary Connect methods, including the ticket method used for
-      AFN-session bootstrap.
+      The Loopship runtime stores task state, validates step payloads, integrates Fastflow's
+      current native scheduler, runs every exact AFN handler through an explicit executor
+      integration and authenticated v2 WSS session, and controls consumer lifecycle transitions.
+      Its LoopshipService cmdproto methods remain local and default-deny. Scheduler operations use
+      only Fastflow's six descriptor-derived finite unary Connect methods.
 triggers:
   task-intake: |-
     A quest starts from a schema-backed task payload submitted through loopship init. Fastflow

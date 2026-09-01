@@ -18,7 +18,14 @@ export async function startLoopshipTestScheduler(input: {
   home: string;
   loopshipRoot?: string;
 }): Promise<LoopshipTestScheduler> {
-  const fastflowRoot = resolveFastflowRoot();
+  const configuredFastflowRoot = String(process.env.LOOPSHIP_FASTFLOW_ROOT || "").trim();
+  const fastflowRoot = resolveFastflowRoot(configuredFastflowRoot);
+  const fastflowOverrideEnv: Record<string, string> = configuredFastflowRoot
+    ? {
+        LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT: "1",
+        LOOPSHIP_FASTFLOW_ROOT: fastflowRoot,
+      }
+    : {};
   const loopshipRoot = realpathSync(input.loopshipRoot || LOOPSHIP_ROOT);
   const daemonPath = join(loopshipRoot, "bin", "loopship-fastflow-daemon");
   mkdirSync(dirname(input.dbPath), { recursive: true });
@@ -41,8 +48,7 @@ export async function startLoopshipTestScheduler(input: {
       LOOPSHIP_HOME: home,
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: input.dbPath,
-      LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT: "1",
-      LOOPSHIP_FASTFLOW_ROOT: fastflowRoot,
+      ...fastflowOverrideEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -58,17 +64,16 @@ export async function startLoopshipTestScheduler(input: {
     env: {
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: input.dbPath,
-      LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT: "1",
-      LOOPSHIP_FASTFLOW_ROOT: fastflowRoot,
+      ...fastflowOverrideEnv,
       LOOPSHIP_HOME: home,
     },
     stop: () => stopScheduler(child),
   };
 }
 
-function resolveFastflowRoot(): string {
-  const root = process.env.LOOPSHIP_FASTFLOW_ROOT
-    ? resolve(process.env.LOOPSHIP_FASTFLOW_ROOT)
+function resolveFastflowRoot(configuredRoot = ""): string {
+  const root = configuredRoot
+    ? resolve(configuredRoot)
     : join(LOOPSHIP_ROOT, "node_modules", "@cueintent", "fastflow");
   if (
     !existsSync(join(root, "package.json")) ||

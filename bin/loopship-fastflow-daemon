@@ -19,6 +19,14 @@ if (loopshipHome && !isAbsolute(loopshipHome)) {
 if (loopshipHome) process.env.LOOPSHIP_HOME = loopshipHome;
 else delete process.env.LOOPSHIP_HOME;
 
+if (loopshipHome && !String(process.env.FASTFLOW_SCHEDULER_DESCRIPTOR || "").trim()) {
+  process.env.FASTFLOW_SCHEDULER_DESCRIPTOR = resolve(
+    loopshipHome,
+    "scheduler",
+    "fastflow.runtime.json",
+  );
+}
+
 const schedulerDb = String(process.env.FASTFLOW_SCHEDULER_DB || "").trim();
 if (schedulerDb && !isAbsolute(schedulerDb)) {
   throw new Error("FASTFLOW_SCHEDULER_DB must be an absolute path for Loopship");
