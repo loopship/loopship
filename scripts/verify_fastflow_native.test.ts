@@ -1266,10 +1266,10 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
     expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#7a140b063e3e6c5a85f5d73cfaf3055f20b393f8",
+      "git+ssh://git@github.com/cueintent/fastflow.git#5b7206bcf4058693068ef14e41ff18130151c989",
     );
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#7a140b063e3e6c5a85f5d73cfaf3055f20b393f8",
+      "git+ssh://git@github.com/cueintent/fastflow.git#5b7206bcf4058693068ef14e41ff18130151c989",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
@@ -1411,6 +1411,29 @@ describe("Loopship Fastflow-native bridge", () => {
           { cwd: consumer, timeoutMs: 120_000 },
         );
         expect(installed.status, installed.stderr || installed.stdout).toBe(0);
+        const installedPackageRoot = join(consumer, "node_modules", "@omar391", "loopship");
+        const installedFlowRoot = join(
+          installedPackageRoot,
+          "call-catalog",
+          "loopship",
+          "workflow",
+          "service",
+          "flows",
+        );
+        const installedFlowIndexPath = join(installedFlowRoot, "index.yaml");
+        const installedSwePath = join(installedFlowRoot, "swe.stable.yaml");
+        expect(existsSync(installedFlowIndexPath)).toBe(true);
+        expect(existsSync(installedSwePath)).toBe(true);
+        const installedFlowIndex = parseYaml(
+          readFileSync(installedFlowIndexPath, "utf8"),
+        ) as {
+          workflows?: Record<string, { stable?: { release?: unknown; digest?: unknown } }>;
+        };
+        const installedSweRelease = installedFlowIndex.workflows?.swe?.stable;
+        expect(installedSweRelease?.release).toBe(75);
+        expect(installedSweRelease?.digest).toMatch(
+          /^sha256:[0-9a-f]{64}$/,
+        );
         const binPath = join(
           consumer,
           "node_modules",
