@@ -89,9 +89,16 @@ function waitForReady(child: SchedulerChild): Promise<void> {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    const configuredTimeout = Number.parseInt(
+      process.env.LOOPSHIP_TEST_SCHEDULER_READY_TIMEOUT_MS || "120000",
+      10,
+    );
+    const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : 120_000;
     const timeout = setTimeout(() => {
       finish(new Error(`Fastflow scheduler daemon did not become ready: ${stderr || stdout}`));
-    }, 30_000);
+    }, timeoutMs);
 
     const finish = (error?: Error) => {
       if (settled) return;
