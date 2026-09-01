@@ -1570,7 +1570,23 @@ function normalizeLoopshipWorkflowDocument(
 ): Record<string, unknown> {
   const normalized = structuredClone(workflow);
   normalized.steps = normalizeLoopshipWorkflowSteps(normalized.steps, normalized);
+  rewriteLoopshipWorkflowReferences(normalized.steps);
   return normalized;
+}
+
+function rewriteLoopshipWorkflowReferences(value: unknown): void {
+  if (Array.isArray(value)) {
+    value.forEach(rewriteLoopshipWorkflowReferences);
+    return;
+  }
+  if (!isPlainObject(value)) return;
+  if (typeof value.call === "string" && value.call.startsWith("external.workflow.")) {
+    value.call = `loopship.${value.call.slice("external.".length)}`;
+  }
+  if (isPlainObject(value.workflow_ref) && value.workflow_ref.registry === "external") {
+    value.workflow_ref.registry = LOOPSHIP_WORKFLOW_REGISTRY;
+  }
+  Object.values(value).forEach(rewriteLoopshipWorkflowReferences);
 }
 
 function normalizeLoopshipWorkflowSteps(
@@ -1645,11 +1661,23 @@ async function loadLoopshipCatalogWorkflowRecord(
   channel = "stable",
 ): Promise<Record<string, unknown>> {
   const filePath = resolveLoopshipCatalogWorkflowPath(catalogRoot, workflowRef, channel);
-  return normalizeLoopshipWorkflowRecord(await api.loadWorkflowRecord(
+  const loaded = await api.loadWorkflowRecord(
     filePath,
     "external",
     String(workflowRef.call_id || ""),
-  ));
+  );
+  const callId = String(workflowRef.call_id || "");
+  const summary = isPlainObject(loaded.summary)
+    ? { ...loaded.summary, id: callId, reference: callId, store: "mounted" }
+    : loaded.summary;
+  return normalizeLoopshipWorkflowRecord({
+    ...loaded,
+    store: "mounted",
+    reference: callId,
+    sourceReference: callId,
+    workflow_call_id: callId,
+    ...(summary ? { summary } : {}),
+  });
 }
 
 export async function prepareLoopshipFastflowCatalog({
@@ -1696,12 +1724,11 @@ export async function prepareLoopshipFastflowCatalog({
     LOOPSHIP_FLOW_SCOPE,
     "swe.stable.yaml",
   );
-  const workflowRecord = await api.loadWorkflowRecord(
-    workflowPath,
-    "external",
-    loopshipFlowWorkflowRef("swe"),
+  const normalizedRootRecord = await loadLoopshipCatalogWorkflowRecord(
+    api,
+    catalogRoot,
+    { registry: LOOPSHIP_WORKFLOW_REGISTRY, call_id: loopshipFlowWorkflowRef("swe") },
   );
-  const normalizedRootRecord = normalizeLoopshipWorkflowRecord(workflowRecord);
   const bindOptions: Record<string, unknown> = {
     workspaceRoot,
   };
@@ -1711,11 +1738,17 @@ export async function prepareLoopshipFastflowCatalog({
     nestedWorkspaceRoot: string,
     options: Record<string, unknown> = {},
   ) => {
-    if (workflowRef.registry === LOOPSHIP_WORKFLOW_REGISTRY) {
+    if (
+      workflowRef.registry === LOOPSHIP_WORKFLOW_REGISTRY ||
+      workflowRef.registry === "external"
+    ) {
+      const loopshipWorkflowRef = workflowRef.registry === LOOPSHIP_WORKFLOW_REGISTRY
+        ? workflowRef
+        : { ...workflowRef, registry: LOOPSHIP_WORKFLOW_REGISTRY };
       const normalized = await loadLoopshipCatalogWorkflowRecord(
         api,
         catalogRoot,
-        workflowRef,
+        loopshipWorkflowRef,
         typeof options.channel === "string" ? options.channel : undefined,
       );
       if (workflowRef.range) {
@@ -5505,6 +5538,7 @@ export function validateLoopshipCallInvocation({
 export function createLoopshipRuntimeIntegrations(
   fastflowApi: Record<string, unknown> | null = null,
 ): Record<string, unknown> {
+  const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
   const runtimeIdentity = PACKAGE_JSON.name || "@omar391/loopship";
   const runtimeVersion = PACKAGE_JSON.version || "0.0.0";
   const ports = createLoopshipExecutorPorts(fastflowApi);
@@ -5532,7 +5566,7 @@ export function createLoopshipRuntimeIntegrations(
       return descriptor
         ? {
             ...clone(descriptor),
-            contractDigest: loopshipAfnContractDigest(descriptor),
+            contractDigest: loopshipAfnContractDigest(descriptor, portApi.digestAfnContract),
           }
         : null;
     },
