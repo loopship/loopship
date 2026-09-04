@@ -5,6 +5,10 @@
     "": {
       "name": "@omar391/loopship",
       "dependencies": {
+        "@bufbuild/protobuf": "2.12.1",
+        "@connectrpc/connect": "2.1.2",
+        "@connectrpc/connect-node": "2.1.2",
+        "@connectrpc/connect-web": "2.1.2",
         "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#b505478f30c3f3bcd82395e9676ac6f8841e4d76",
         "@cueintent/secret-manager": "git+ssh://git@github.com/cueintent/secret-manager.git#c87a28c10fe23ae2f00eeee3d82968b0241382d1",
         "ajv": "^8.20.0",
@@ -63,7 +67,5 @@
     "undici-types": ["undici-types@7.21.0", "", {}, "sha512-w9IMgQrz4O0YN1LtB7K5P63vhlIOvC7opSmouCJ+ZywlPAlO9gIkJ+otk6LvGpAs2wg4econaCz3TvQ9xPoyuQ=="],
 
     "yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
-
-    "@cueintent/secret-manager/cmdproto": ["cmdproto@github:omar391/cmdproto#9d2b675", { "dependencies": { "@bufbuild/protobuf": "^2.11.0", "@connectrpc/connect": "^2.1.2", "@connectrpc/connect-node": "^2.1.2", "@connectrpc/connect-web": "^2.1.2" }, "bin": { "cmdproto": "./scripts/cmdproto.mjs", "cmdproto-buf-plugin": "./scripts/buf-plugin-cmdproto", "cmdproto-runtime-manifest": "./scripts/runtime-manifest.mjs" } }, "omar391-cmdproto-9d2b675", "sha512-SLsXAA+eXC9naexAS5P824GmvlpJwD6NoLgSgwog17hY69v545a+Skcs+7C3aT1fqSVW83Fk2l4lOaJ4RHrcCg=="],
   }
 }

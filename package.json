@@ -70,6 +70,10 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "2.12.1",
+    "@connectrpc/connect": "2.1.2",
+    "@connectrpc/connect-node": "2.1.2",
+    "@connectrpc/connect-web": "2.1.2",
     "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#b505478f30c3f3bcd82395e9676ac6f8841e4d76",
     "@cueintent/secret-manager": "git+ssh://git@github.com/cueintent/secret-manager.git#c87a28c10fe23ae2f00eeee3d82968b0241382d1",
     "ajv": "^8.20.0",
@@ -84,6 +88,12 @@
     "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#b505478f30c3f3bcd82395e9676ac6f8841e4d76"
   },
   "bundledDependencies": [
-    "@cueintent/fastflow"
+    "@cueintent/fastflow",
+    "@cueintent/secret-manager",
+    "cmdproto",
+    "@bufbuild/protobuf",
+    "@connectrpc/connect",
+    "@connectrpc/connect-node",
+    "@connectrpc/connect-web"
   ]
 }
