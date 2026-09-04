@@ -283,7 +283,7 @@ async function hardKillLoopshipLandingAt(input: {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const stderr = new Response(child.stderr).text();
+  const stderr = child.stderr.text();
   const exit = await Promise.race([
     child.exited,
     Bun.sleep(30_000).then(() => {
@@ -1266,10 +1266,10 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
     expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#4090e68a8fc43bd81f862799abef53cd06bd054d",
+      "git+ssh://git@github.com/cueintent/fastflow.git#13b43faf348f0cc9de3f5500d723df6600ccc4b3",
     );
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#4090e68a8fc43bd81f862799abef53cd06bd054d",
+      "git+ssh://git@github.com/cueintent/fastflow.git#13b43faf348f0cc9de3f5500d723df6600ccc4b3",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
@@ -1407,7 +1407,7 @@ describe("Loopship Fastflow-native bridge", () => {
         expect(existsSync(tarball)).toBe(true);
         const installed = runCommand(
           "npm",
-          ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball],
+          ["install", "--no-audit", "--no-fund", tarball],
           { cwd: consumer, timeoutMs: 120_000 },
         );
         expect(installed.status, installed.stderr || installed.stdout).toBe(0);
@@ -2866,7 +2866,7 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       );
       expect(await daemon.exited).not.toBe(0);
-      expect(await new Response(daemon.stderr).text()).toContain(
+      expect(await daemon.stderr.text()).toContain(
         "FASTFLOW_SCHEDULER_DB must be an absolute path",
       );
 
@@ -3031,7 +3031,7 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       );
       expect(await daemon.exited).not.toBe(0);
-      expect(await new Response(daemon.stderr).text()).toContain(
+      expect(await daemon.stderr.text()).toContain(
         "LOOPSHIP_HOME must be an absolute path",
       );
     } finally {
@@ -3274,8 +3274,8 @@ describe("Loopship Fastflow-native bridge", () => {
       const results = await Promise.all(
         contenders.map(async ({ proc }) => ({
           status: await proc.exited,
-          stdout: await new Response(proc.stdout).text(),
-          stderr: await new Response(proc.stderr).text(),
+          stdout: await proc.stdout.text(),
+          stderr: await proc.stderr.text(),
         })),
       );
       for (const result of results) {
@@ -4098,8 +4098,8 @@ describe("Loopship Fastflow-native bridge", () => {
       const results = await Promise.all(
         finalizers.map(async (proc) => ({
           status: await proc.exited,
-          stdout: await new Response(proc.stdout).text(),
-          stderr: await new Response(proc.stderr).text(),
+          stdout: await proc.stdout.text(),
+          stderr: await proc.stderr.text(),
         })),
       );
       for (const result of results) {
@@ -4840,8 +4840,8 @@ describe("Loopship Fastflow-native bridge", () => {
       const contenderResults = await Promise.all(contenders.map(async (child) => {
         const [exitCode, stdout, stderr] = await Promise.all([
           child.exited,
-          new Response(child.stdout).text(),
-          new Response(child.stderr).text(),
+          child.stdout.text(),
+          child.stderr.text(),
         ]);
         return { exitCode, stdout, stderr };
       }));
@@ -7935,7 +7935,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
         return child;
       };
       const spawned = bodies.map(spawnLanding);
-      const stderr = spawned.map((child) => new Response(child.stderr).text());
+      const stderr = spawned.map((child) => child.stderr.text());
       const exits = await Promise.all(spawned.map((child) => child.exited));
       const errors = await Promise.all(stderr);
       expect(exits, errors.join("\n")).toEqual([0, 0]);
