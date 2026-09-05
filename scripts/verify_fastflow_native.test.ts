@@ -1323,7 +1323,7 @@ describe("Loopship Fastflow-native bridge", () => {
     () => {
       const proc = runCommand(
         "npm",
-        ["publish", "--dry-run", "--json", "--ignore-scripts"],
+        ["pack", "--dry-run", "--json", "--ignore-scripts"],
         { cwd: process.cwd(), timeoutMs: 30_000 },
       );
       expect(proc.status, proc.stderr || proc.stdout).toBe(0);
