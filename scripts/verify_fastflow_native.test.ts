@@ -1266,10 +1266,10 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
     expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#13b43faf348f0cc9de3f5500d723df6600ccc4b3",
+      "git+ssh://git@github.com/cueintent/fastflow.git#5c931c65f8638135625ab88b53dd0d9d85401113",
     );
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#13b43faf348f0cc9de3f5500d723df6600ccc4b3",
+      "git+ssh://git@github.com/cueintent/fastflow.git#5c931c65f8638135625ab88b53dd0d9d85401113",
     );
     expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
     expect(packageJson.dependencies.cmdproto).toBe(
