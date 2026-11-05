@@ -92,6 +92,7 @@
     "@bufbuild/protobuf",
     "@connectrpc/connect",
     "@connectrpc/connect-node",
-    "@connectrpc/connect-web"
+    "@connectrpc/connect-web",
+    "yaml"
   ]
 }

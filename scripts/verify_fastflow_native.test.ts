@@ -1279,6 +1279,7 @@ describe("Loopship Fastflow-native bridge", () => {
       "@connectrpc/connect",
       "@connectrpc/connect-node",
       "@connectrpc/connect-web",
+      "yaml",
     ]);
     expect(packageJson.dependencies.cmdproto).toBe(
       "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
