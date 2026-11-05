@@ -70,7 +70,11 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#5c931c65f8638135625ab88b53dd0d9d85401113",
+    "@bufbuild/protobuf": "2.12.1",
+    "@connectrpc/connect": "2.1.2",
+    "@connectrpc/connect-node": "2.1.2",
+    "@connectrpc/connect-web": "2.1.2",
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
@@ -80,9 +84,14 @@
     "cmdproto"
   ],
   "resolutions": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#5c931c65f8638135625ab88b53dd0d9d85401113"
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609"
   },
   "bundledDependencies": [
-    "@cueintent/fastflow"
+    "@cueintent/fastflow",
+    "cmdproto",
+    "@bufbuild/protobuf",
+    "@connectrpc/connect",
+    "@connectrpc/connect-node",
+    "@connectrpc/connect-web"
   ]
 }

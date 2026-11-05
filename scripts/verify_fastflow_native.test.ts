@@ -283,7 +283,7 @@ async function hardKillLoopshipLandingAt(input: {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const stderr = child.stderr.text();
+  const stderr = new Response(child.stderr).text();
   const exit = await Promise.race([
     child.exited,
     Bun.sleep(30_000).then(() => {
@@ -1266,12 +1266,20 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
     expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#5c931c65f8638135625ab88b53dd0d9d85401113",
+      "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609",
     );
+    expect(packageJson.dependencies["@cueintent/secret-manager"]).toBeUndefined();
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#5c931c65f8638135625ab88b53dd0d9d85401113",
+      "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609",
     );
-    expect(packageJson.bundledDependencies).toEqual(["@cueintent/fastflow"]);
+    expect(packageJson.bundledDependencies).toEqual([
+      "@cueintent/fastflow",
+      "cmdproto",
+      "@bufbuild/protobuf",
+      "@connectrpc/connect",
+      "@connectrpc/connect-node",
+      "@connectrpc/connect-web",
+    ]);
     expect(packageJson.dependencies.cmdproto).toBe(
       "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
     );
@@ -2866,7 +2874,7 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       );
       expect(await daemon.exited).not.toBe(0);
-      expect(await daemon.stderr.text()).toContain(
+      expect(await new Response(daemon.stderr).text()).toContain(
         "FASTFLOW_SCHEDULER_DB must be an absolute path",
       );
 
@@ -3031,7 +3039,7 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       );
       expect(await daemon.exited).not.toBe(0);
-      expect(await daemon.stderr.text()).toContain(
+      expect(await new Response(daemon.stderr).text()).toContain(
         "LOOPSHIP_HOME must be an absolute path",
       );
     } finally {
@@ -3274,8 +3282,8 @@ describe("Loopship Fastflow-native bridge", () => {
       const results = await Promise.all(
         contenders.map(async ({ proc }) => ({
           status: await proc.exited,
-          stdout: await proc.stdout.text(),
-          stderr: await proc.stderr.text(),
+          stdout: await new Response(proc.stdout).text(),
+          stderr: await new Response(proc.stderr).text(),
         })),
       );
       for (const result of results) {
@@ -4098,8 +4106,8 @@ describe("Loopship Fastflow-native bridge", () => {
       const results = await Promise.all(
         finalizers.map(async (proc) => ({
           status: await proc.exited,
-          stdout: await proc.stdout.text(),
-          stderr: await proc.stderr.text(),
+          stdout: await new Response(proc.stdout).text(),
+          stderr: await new Response(proc.stderr).text(),
         })),
       );
       for (const result of results) {
@@ -4840,8 +4848,8 @@ describe("Loopship Fastflow-native bridge", () => {
       const contenderResults = await Promise.all(contenders.map(async (child) => {
         const [exitCode, stdout, stderr] = await Promise.all([
           child.exited,
-          child.stdout.text(),
-          child.stderr.text(),
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
         ]);
         return { exitCode, stdout, stderr };
       }));
@@ -7935,7 +7943,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
         return child;
       };
       const spawned = bodies.map(spawnLanding);
-      const stderr = spawned.map((child) => child.stderr.text());
+      const stderr = spawned.map((child) => new Response(child.stderr).text());
       const exits = await Promise.all(spawned.map((child) => child.exited));
       const errors = await Promise.all(stderr);
       expect(exits, errors.join("\n")).toEqual([0, 0]);
