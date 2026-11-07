@@ -13,7 +13,9 @@ const FASTFLOW_REQUIRED_EXPORTS = [
   "digestAfnContract",
   "createAfnDispatchPort",
   "createResourceHandle",
+  "createResourceLease",
   "createResourceLeaseManager",
+  "validateResourceLease",
 ];
 
 export async function createFastflowSchedulerNode({
@@ -47,7 +49,16 @@ export async function createFastflowSchedulerNode({
     fastflowApi: fastflow,
     catalogRoot,
     workspaceRoot: LOOPSHIP_ROOT,
+    // Loopship catalogs are producer-signed, so the daemon cannot start
+    // without the operator key; resolve it here for an explicit failure.
+    signingKey: loopship.resolveLoopshipCatalogSigningKey().toString("base64"),
   });
+  // Producer-signed catalog policy: the Fastflow SQLite registry admits only
+  // production-signed bundles, and the Fastbrowser adapter takes the same
+  // shape. Loopship catalogs are signed at build time by
+  // requireLoopshipCatalogTrustSigningPayload; the trust root is the public
+  // half of that same key, derived inside createLoopshipCatalogTrustPolicy.
+  const catalogTrustPolicy = loopship.createLoopshipCatalogTrustPolicy();
   const configuredRuntime = configureFastflowRuntime({
     appName: "loopship",
     supervisorGuidance: loopship.LOOPSHIP_SUPERVISOR_GUIDANCE,
@@ -57,9 +68,12 @@ export async function createFastflowSchedulerNode({
       catalogRegistry: catalog.registry,
       catalogMounts: catalog.mounts,
       catalogResolver: catalog.resolver,
+      authoringRoot: LOOPSHIP_ROOT,
     },
   });
-  const ports = loopship.createLoopshipExecutorPorts(fastflow);
+  const ports = loopship.createLoopshipExecutorPorts(fastflow, {
+    resourceLeaseStatePath: `${schedulerDbPath}.resource-leases.json`,
+  });
 
   return fastflow.createBunSqliteFastflowNode({
     identity: "loopship/scheduler",
@@ -71,10 +85,10 @@ export async function createFastflowSchedulerNode({
       registrations: [{
         bytes: catalog.bytes,
         expectedDigest: catalog.bundleDigest,
-        trustPolicy: { mode: "local-development" },
+        trustPolicy: catalogTrustPolicy,
       }],
     },
-    trust: { mode: "local-development" },
+    trust: { mode: "production", owner: "loopship", catalogs: catalogTrustPolicy },
     authority: {
       executorPort: ports.executorPort,
       resourceLeasePort: ports.resourceLeasePort,

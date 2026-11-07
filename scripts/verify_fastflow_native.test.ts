@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import fs, {
   chmodSync,
   cpSync,
@@ -27,6 +27,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   createAfnInvocation,
   digestNativeContract,
+  resolveWorkflowReference,
   type JsonValue,
   validateExecutionDecision,
 } from "@cueintent/fastflow";
@@ -62,6 +63,7 @@ import {
   cleanupCompletedNativeWorkspaceResidue,
   buildLoopshipChildDagReconciliation,
   cleanupLandedWorktrees,
+  configureFastflowForLoopship,
   createLoopshipRuntimeIntegrations,
   ensureLoopshipFastflowWorkflowCatalog,
   loopshipFlowWorkflowRef,
@@ -1265,13 +1267,12 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.version).toBe("3.0.0");
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
-    expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609",
+    const fastflowPin = packageJson.dependencies["@cueintent/fastflow"];
+    expect(fastflowPin).toMatch(
+      /^git\+ssh:\/\/git@github\.com\/cueintent\/fastflow\.git#[0-9a-f]{40}$/,
     );
     expect(packageJson.dependencies["@cueintent/secret-manager"]).toBeUndefined();
-    expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609",
-    );
+    expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(fastflowPin);
     expect(packageJson.bundledDependencies).toEqual([
       "@cueintent/fastflow",
       "cmdproto",
@@ -1457,6 +1458,11 @@ describe("Loopship Fastflow-native bridge", () => {
           ...baseEnv
         } = process.env;
         const schedulerDb = join(root, "scheduler", "fastflow.sqlite");
+        // The packed daemon compiles a producer-signed catalog; supply an
+        // ephemeral signing key through the caller seam so admission uses
+        // the same production path production uses. The same key is then
+        // forwarded to the client session below.
+        const daemonCatalogSigningKey = ephemeralLoopshipCatalogSigningKey();
         daemon = Bun.spawn({
           cmd: [binPath],
           cwd: consumer,
@@ -1465,6 +1471,7 @@ describe("Loopship Fastflow-native bridge", () => {
             HOME: loopshipHome,
             LOOPSHIP_HOME: loopshipHome,
             FASTFLOW_SCHEDULER_DB: ` ${schedulerDb} `,
+            LOOPSHIP_CATALOG_SIGNING_KEY: daemonCatalogSigningKey,
             FASTFLOW_APP_MODULE: pathToFileURL(join(root, "wrong-app-module.mjs")).href,
           },
           stdout: "pipe",
@@ -1504,6 +1511,7 @@ describe("Loopship Fastflow-native bridge", () => {
               CODEX_THREAD_ID: "packed-native-session-test",
               FASTFLOW_SCHEDULER_MODE: "local-durable",
               FASTFLOW_SCHEDULER_DB: schedulerDb,
+              LOOPSHIP_CATALOG_SIGNING_KEY: daemonCatalogSigningKey,
               INFERENCE_CLIENT: undefined,
               INFERENCE_PROVIDER: undefined,
               INFERENCE_MODEL: undefined,
@@ -2911,8 +2919,16 @@ describe("Loopship Fastflow-native bridge", () => {
     const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
     const previousHome = process.env.LOOPSHIP_HOME;
     const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    const previousSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
     const wtree = "unsupported-default-scheduler";
     try {
+      // The daemon signs its catalog before it opens the durable authority, so
+      // it needs the signing seam even when the database itself is rejected.
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY =
+        generateKeyPairSync("ed25519").privateKey
+          .export({ format: "der", type: "pkcs8" })
+          .subarray(-32)
+          .toString("base64");
       const schedulerRoot = join(fixture.root, "loopship-home", "scheduler");
       const target = join(fixture.root, "scheduler-target.sqlite");
       mkdirSync(schedulerRoot, { recursive: true });
@@ -2937,6 +2953,11 @@ describe("Loopship Fastflow-native bridge", () => {
       else process.env.LOOPSHIP_HOME = previousHome;
       if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
       else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      if (previousSigningKey === undefined) {
+        delete process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
+      } else {
+        process.env.LOOPSHIP_CATALOG_SIGNING_KEY = previousSigningKey;
+      }
       rmSync(fixture.root, { recursive: true, force: true });
     }
   }, 30_000);
@@ -5556,6 +5577,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test(
     "records the actual coordinator branch when source branch differs",
     async () => {
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralLoopshipCatalogSigningKey();
       const fixture = createGitFixture("loopship-native-source-branch-state-");
       try {
         const wtree = "source-branch-state";
@@ -9244,7 +9266,9 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  });
+    // Spawns a Bun workflow subprocess; the 5s default is too tight when the
+    // suite runs alongside the live restart case.
+  }, 20_000);
 
   test("landing.apply preserves blocked landing without merging", async () => {
     const fixture = createGitFixture("loopship-native-landing-blocked-");
@@ -9326,4 +9350,135 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
       log: "events",
     }));
   });
+
+  test("resource lease ownership and fencing survive manager lifetimes", () => {
+    const root = realpathSync(mkdtempSync(join(process.cwd(), "tmp", "loopship-resource-leases-")));
+    const statePath = join(root, "resource-leases.json");
+    const resourceRef = { type: "git-worktree", handleId: "lease-recovery-worktree" };
+    const createPort = () => createLoopshipRuntimeIntegrations(null, {
+      resourceLeaseStatePath: statePath,
+    }).resourceLeasePort as {
+      resolveHandle(ref: Record<string, unknown>, context: Record<string, unknown>): Record<string, unknown>;
+      acquire(input: Record<string, unknown>): unknown;
+      release(input: Record<string, unknown>): unknown;
+    };
+    const acquire = (port: ReturnType<typeof createPort>) => {
+      const executorNodeId = "lease-recovery-executor";
+      const handle = port.resolveHandle(resourceRef, { executorNodeId });
+      return port.acquire({ handle, executorNodeId, operations: ["use"] }) as {
+        leaseId: string;
+        authorityId: string;
+        fencingGeneration: number;
+        handle: { handleDigest: string };
+        state: string;
+      };
+    };
+
+    try {
+      const firstPort = createPort();
+      const firstLease = acquire(firstPort);
+      expect(firstLease.fencingGeneration).toBe(1);
+
+      const recoveredPort = createPort();
+      const executorNodeId = "lease-recovery-executor";
+      const handle = recoveredPort.resolveHandle(resourceRef, { executorNodeId });
+      expect(() => recoveredPort.acquire({ handle, executorNodeId, operations: ["use"] }))
+        .toThrow(/already has an active lease/u);
+
+      expect(recoveredPort.release({
+        leaseId: firstLease.leaseId,
+        fencingGeneration: firstLease.fencingGeneration,
+        lease: firstLease,
+      })).toMatchObject({ state: "released" });
+      const secondLease = acquire(recoveredPort);
+      expect(secondLease.fencingGeneration).toBe(2);
+      expect(secondLease.leaseId).not.toBe(firstLease.leaseId);
+      expect(secondLease.authorityId).toBe(firstLease.authorityId);
+
+      expect(firstPort.release({
+        leaseId: firstLease.leaseId,
+        fencingGeneration: firstLease.fencingGeneration,
+        lease: firstLease,
+      })).toMatchObject({ state: "released" });
+      expect(() => acquire(createPort())).toThrow(/already has an active lease/u);
+
+      expect(recoveredPort.release({
+        leaseId: secondLease.leaseId,
+        fencingGeneration: secondLease.fencingGeneration,
+        lease: secondLease,
+      })).toMatchObject({ state: "released" });
+      expect(acquire(createPort()).fencingGeneration).toBe(3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function ephemeralLoopshipCatalogSigningKey(): string {
+    // Loopship's signing seam expects raw Ed25519 private-key bytes as
+    // base64. Export the PKCS#8 DER of the freshly generated key and keep
+    // only the raw 32 bytes; the key is never written to disk.
+    return generateKeyPairSync("ed25519").privateKey
+      .export({ format: "der", type: "pkcs8" })
+      .subarray(-32)
+      .toString("base64");
+  }
+
+  test("Loopship lifecycle command seeds mounted workflows through mutable authoring files", async () => {
+    const fixture = createGitFixture("loopship-fastflow-lifecycle-");
+    // Lifecycle promotion compiles a signed catalog bundle in-process, so it
+    // requires the ephemeral signing-key seam. The scheduler is not involved
+    // in promotion; tests pass their own throwaway key and no key persists.
+    const ephemeralSigningKey = ephemeralLoopshipCatalogSigningKey();
+    process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralSigningKey;
+    try {
+      cpSync(LOOPSHIP_CALL_CATALOG_ROOT, join(fixture.repo, "call-catalog"), {
+        recursive: true,
+      });
+      const workflowRef = loopshipFlowWorkflowRef("swe");
+      const runtime = await configureFastflowForLoopship(fixture.repo);
+      const mounted = await resolveWorkflowReference(workflowRef, fixture.repo, {
+        channel: "stable",
+        runtime,
+      }) as Record<string, unknown>;
+      const stablePath = join(
+        fixture.repo,
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      );
+      expect(mounted.filePath).toStartWith("bundle://");
+      expect(mounted.authoringFilePath).toBe(stablePath);
+      expect(existsSync(stablePath)).toBe(true);
+
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--no-install",
+          join(process.cwd(), "scripts", "loopship_fastflow_lifecycle.ts"),
+          "internal",
+          "workflows",
+          "dev",
+          "seed",
+          workflowRef,
+        ],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env, LOOPSHIP_REPO_ROOT: fixture.repo },
+          encoding: "utf8",
+        },
+      );
+      const result = JSON.parse(output) as Record<string, unknown>;
+      expect(result).toMatchObject({ ok: true, workflowRef });
+      expect(result.stablePath).toBe(mounted.filePath);
+      expect(result.devPath).toBe(stablePath.replace(".stable.yaml", ".dev.yaml"));
+      expect(existsSync(String(result.devPath))).toBe(true);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+    // Seeds the catalog through a Bun subprocess (measured ~20s here), so the
+    // previous 30s ceiling failed under full-suite load.
+  }, 120_000);
 });

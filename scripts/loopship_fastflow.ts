@@ -1,6 +1,8 @@
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -9,7 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -21,16 +23,13 @@ import {
   failedDecision,
   type AfnDispatchPort,
   type AfnInvocation,
-  type CatalogAfnContract,
-  type CatalogBundleMountResolver,
-  type CatalogBundleRegistry,
   type CallDescriptor,
   type ExecutionDecision,
   type JsonValue,
-  type RegistryMountTable,
-  type WorkflowIrBinding,
 } from "@cueintent/fastflow";
 import * as Fastflow from "@cueintent/fastflow";
+import type { CatalogAfnContract, CatalogBundleMountResolver, CatalogBundleRegistry } from "@cueintent/fastflow/catalog-bundle";
+import type { RegistryMountTable, WorkflowIrBinding } from "@cueintent/fastflow/workflow-ir";
 import { parse as parseYaml } from "yaml";
 import {
   applyLandingReceipt,
@@ -1501,6 +1500,8 @@ type LoopshipFastflowPortApi = {
   digestAfnContract: (value: Record<string, unknown>) => string;
   createResourceHandle: (input: Record<string, unknown>) => unknown;
   createResourceLeaseManager: (input: Record<string, unknown>) => LoopshipResourceLeaseManager;
+  createResourceLease: (input: Record<string, unknown>) => LoopshipResourceLease;
+  validateResourceLease: (value: unknown) => LoopshipResourceLease;
 };
 
 type BuildFilesystemCatalogBundle = (input: {
@@ -1510,6 +1511,12 @@ type BuildFilesystemCatalogBundle = (input: {
   registryMounts: RegistryMountTable;
   workflowBindings: Array<{ binding: WorkflowIrBinding; sourcePath: string }>;
   afnContracts: Array<{ contract: CatalogAfnContract }>;
+  signPayload?: (input: {
+    payload: string;
+    payloadDigest: string;
+    registryId: string;
+    releaseVersion: string;
+  }) => Array<Record<string, unknown>> | Promise<Array<Record<string, unknown>>>;
 }) => Promise<{ bytes: Uint8Array; bundle: { bundleDigest: string } }>;
 
 function requireFastflowFunction<T extends (...args: never[]) => unknown>(
@@ -1532,6 +1539,8 @@ function resolveLoopshipFastflowPortApi(
     digestAfnContract: requireFastflowFunction(source, "digestAfnContract") as LoopshipFastflowPortApi["digestAfnContract"],
     createResourceHandle: requireFastflowFunction(source, "createResourceHandle") as LoopshipFastflowPortApi["createResourceHandle"],
     createResourceLeaseManager: requireFastflowFunction(source, "createResourceLeaseManager") as LoopshipFastflowPortApi["createResourceLeaseManager"],
+    createResourceLease: requireFastflowFunction(source, "createResourceLease") as LoopshipFastflowPortApi["createResourceLease"],
+    validateResourceLease: requireFastflowFunction(source, "validateResourceLease") as LoopshipFastflowPortApi["validateResourceLease"],
   };
 }
 
@@ -1680,16 +1689,137 @@ async function loadLoopshipCatalogWorkflowRecord(
   });
 }
 
+const LOOPSHIP_CATALOG_SIGNER_ID = "loopship";
+const LOOPSHIP_CATALOG_SIGNING_ENV = "LOOPSHIP_CATALOG_SIGNING_KEY";
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+const ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+
+/**
+ * Sign freshly built Loopship catalog bundles with the operator-supplied
+ * Ed25519 key from LOOPSHIP_CATALOG_SIGNING_KEY (raw base64 key bytes).
+ * The signing key never persists to disk; it is read for one signature and
+ * then released. The public half of the same key becomes the trust root,
+ * which the scheduler admits through the producer production policy.
+ */
+function derivedPublicKeyBytes(rawPrivateKeyBytes: Buffer): Buffer {
+  // Ed25519 public keys are not derivable from raw private bytes in Node's
+  // crypto workspace, so the verifier key is always derived from the signing
+  // key at signing time: createPrivateKey + export() the public half, then
+  // keep only its raw 32 bytes. This is the sole source of trust roots.
+  const { createPrivateKey, createPublicKey } = require("node:crypto") as {
+    createPrivateKey: (input: Record<string, unknown>) => unknown;
+    createPublicKey: (input: unknown) => { export: (input: Record<string, unknown>) => Buffer };
+  };
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, rawPrivateKeyBytes]),
+    format: "der",
+    type: "pkcs8",
+  });
+  const derivedPublicKey = createPublicKey(privateKey as never);
+  const spki = derivedPublicKey.export({ format: "der", type: "spki" });
+  const raw = spki.subarray(-32);
+  if (raw.length !== 32) {
+    throw new Error("derived Ed25519 public key is malformed");
+  }
+  return Buffer.from(raw);
+}
+
+/**
+ * Resolve the catalog signing key material. Operators supply
+ * LOOPSHIP_CATALOG_SIGNING_KEY as raw Ed25519 private-key bytes in base64.
+ * Integration fixtures and tests that never reach a durable authority (for
+ * example the lifecycle promotion tool and unit-level catalog checks) pass
+ * an explicit ephemeral key through this caller-controlled seam instead of
+ * ambient environment state. The signed-content guarantee is unchanged: a
+ * bundle is always signed, and the scheduler admits it only through the
+ * matching production trust policy.
+ */
+export function resolveLoopshipCatalogSigningKey(
+  explicit?: string | null,
+): Buffer {
+  const rawKey = String(
+    explicit ?? process.env[LOOPSHIP_CATALOG_SIGNING_ENV] ?? "",
+  ).trim();
+  if (!rawKey) {
+    throw new Error(
+      `catalog signing requires ${LOOPSHIP_CATALOG_SIGNING_ENV} (raw Ed25519 private key in base64) or an ephemeral key from the caller; Loopship catalogs are signed content and cannot be admitted unsigned`,
+    );
+  }
+  const keyBytes = Buffer.from(rawKey, "base64");
+  if (keyBytes.length !== 32 || keyBytes.toString("base64") !== rawKey) {
+    throw new Error(`${LOOPSHIP_CATALOG_SIGNING_ENV} must be canonical base64 for a raw Ed25519 key`);
+  }
+  return keyBytes;
+}
+
+export function requireLoopshipCatalogTrustSigningPayload(
+  { payload }: { payload: string },
+  signingKey?: string | null,
+): Array<Record<string, unknown>> {
+  const keyBytes = resolveLoopshipCatalogSigningKey(signingKey);
+  const { sign, createPrivateKey } = require("node:crypto") as {
+    sign: (algorithm: null, data: Buffer, key: unknown) => Buffer;
+    createPrivateKey: (input: Record<string, unknown>) => unknown;
+  };
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, keyBytes]),
+    format: "der",
+    type: "pkcs8",
+  });
+  return [{
+    kind: "release-signature",
+    signerId: LOOPSHIP_CATALOG_SIGNER_ID,
+    algorithm: "Ed25519",
+    signature: sign(null, Buffer.from(payload), privateKey).toString("base64"),
+  }];
+}
+
+export function createLoopshipCatalogTrustPolicy(
+  { signerId = LOOPSHIP_CATALOG_SIGNER_ID, signingKey = null }: {
+    signerId?: string;
+    signingKey?: string | null;
+  } = {},
+): { mode: "production"; trustedSignerIds: string[]; verifyEvidence: (input: Record<string, unknown>) => boolean } {
+  const keyBytes = resolveLoopshipCatalogSigningKey(signingKey);
+  const { createPublicKey, verify } = require("node:crypto") as {
+    createPublicKey: (input: Record<string, unknown>) => { toString: (format: string) => string };
+    verify: (algorithm: null, data: Buffer, key: unknown, signature: Buffer) => boolean;
+  };
+  const publicKey = createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, derivedPublicKeyBytes(keyBytes)]),
+    format: "der",
+    type: "spki",
+  });
+  return {
+    mode: "production",
+    trustedSignerIds: [signerId],
+    verifyEvidence({ evidence, payload }: Record<string, unknown>) {
+      const candidate = evidence as Record<string, unknown> | null;
+      if (!candidate || candidate.kind !== "release-signature" || candidate.algorithm !== "Ed25519" || typeof candidate.signature !== "string") return false;
+      if (candidate.signerId !== signerId) return false;
+      const signature = Buffer.from(candidate.signature, "base64");
+      if (signature.length !== 64 || signature.toString("base64") !== candidate.signature) return false;
+      try {
+        return verify(null, Buffer.from(payload as string), publicKey, signature);
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
 export async function prepareLoopshipFastflowCatalog({
   fastflowRoot,
   fastflowApi = null,
   catalogRoot = LOOPSHIP_CALL_CATALOG_ROOT,
   workspaceRoot = LOOPSHIP_ROOT,
+  signingKey = null,
 }: {
   fastflowRoot: string;
   fastflowApi?: Record<string, unknown> | null;
   catalogRoot?: string;
   workspaceRoot?: string;
+  signingKey?: string | null;
 }): Promise<LoopshipFastflowCatalogRuntime> {
   const loadedApi = fastflowApi || await import(
     pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href,
@@ -1867,6 +1997,8 @@ export async function prepareLoopshipFastflowCatalog({
         requireFastflowFunction<LoopshipFastflowPortApi["digestAfnContract"]>(loadedApi, "digestAfnContract"),
       ),
     })),
+    signPayload: (input: { payload: string }) =>
+      requireLoopshipCatalogTrustSigningPayload(input, signingKey),
   });
   const registry = createMemoryCatalogBundleRegistry();
   await registry.registerCatalogBundle({
@@ -1919,23 +2051,49 @@ function runFastflowSession(input: {
       import * as Fastflow from ${JSON.stringify(pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href)};
       import { configureFastflowRuntime } from ${JSON.stringify(pathToFileURL(resolve(fastflowRoot, "src", "lib", "runtime-shell.mjs")).href)};
       import {
+        createLoopshipCatalogTrustPolicy,
         LOOPSHIP_CALL_CATALOG_ROOT,
         LOOPSHIP_SUPERVISOR_GUIDANCE,
         LOOPSHIP_WORKFLOW_RESUME_COMMAND,
         createLoopshipRuntimeIntegrations,
         prepareLoopshipFastflowCatalog,
+        resolveLoopshipCatalogSigningKey,
       } from ${JSON.stringify(pathToFileURL(fileURLToPath(import.meta.url)).href)};
 
       const request = JSON.parse(readFileSync(process.argv[2], "utf8"));
       try {
         process.env.LOOPSHIP_WORKSPACE_ROOT = ${JSON.stringify(workspaceRoot)};
+        // Client sessions stamp/verify catalogs with the same production
+        // policy the signed scheduler admits; the trust root is the public
+        // half of the signing key, so client and authority agree without
+        // sharing trust roots over disk.
+        const catalogTrustPolicy = ${selectedFastflowIsTestDouble ? "null" : "createLoopshipCatalogTrustPolicy()"};
+        const catalogSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY
+          ? process.env.LOOPSHIP_CATALOG_SIGNING_KEY
+          : null;
         const baseRuntime = createLoopshipRuntimeIntegrations(${selectedFastflowIsTestDouble ? "" : "Fastflow"});
         const catalog = ${selectedFastflowIsTestDouble ? "null" : `await prepareLoopshipFastflowCatalog({
           fastflowRoot: ${JSON.stringify(fastflowRoot)},
           fastflowApi: Fastflow,
           catalogRoot: ${JSON.stringify(input.catalogRoot)},
           workspaceRoot: ${JSON.stringify(workspaceRoot)},
+          signingKey: catalogSigningKey,
         })`};
+        // verify the freshly compiled catalog under the production policy
+        // before submitting any harness against it. The test double has no
+        // real catalog, so verification is skipped there — this keeps the
+        // synthetic-failure tests exercising the submission path instead
+        // of failing at catalog admission.
+        if (catalog) {
+        const verifiedCatalog = await Fastflow.verifyCatalogBundle({
+          bytes: catalog.bytes,
+          expectedDigest: catalog.bundleDigest,
+          trustPolicy: catalogTrustPolicy,
+        });
+        if (!verifiedCatalog || verifiedCatalog.bundleDigest !== catalog.bundleDigest) {
+          throw new Error("compiled Loopship catalog failed production trust verification");
+        }
+        }
         const hostRuntime = configureFastflowRuntime({
           appName: "loopship",
           supervisorGuidance: LOOPSHIP_SUPERVISOR_GUIDANCE,
@@ -5449,48 +5607,245 @@ type LoopshipResourceLeaseManager = {
 type LoopshipResourceLeaseAcquireInput = Parameters<LoopshipResourceLeaseManager["acquire"]>[0];
 type LoopshipResourceLeaseReleaseInput = Parameters<LoopshipResourceLeaseManager["release"]>[0];
 
+type LoopshipResourceLease = {
+  handle: Record<string, unknown> & {
+    handleDigest: string;
+    resourceType: string;
+    resourceId: string;
+  };
+  leaseId: string;
+  authorityId: string;
+  state: "active" | "released" | "expired" | "fenced";
+  validFrom: string;
+  validUntil: string;
+  fencingGeneration: number;
+  leaseDigest: string;
+};
+
+type LoopshipResourceLeaseState = {
+  schemaVersion: "loopship.resource-lease-state/v1";
+  authorityId: string;
+  generations: Record<string, number>;
+  leases: Record<string, LoopshipResourceLease>;
+};
+
+function loopshipResourceLeaseStatePath(): string | null {
+  const schedulerDbPath = optionalString(process.env.FASTFLOW_SCHEDULER_DB);
+  if (!schedulerDbPath) return null;
+  if (!isAbsolute(schedulerDbPath)) {
+    throw new Error("FASTFLOW_SCHEDULER_DB must be an absolute path for Loopship resource leases");
+  }
+  return `${resolve(schedulerDbPath)}.resource-leases.json`;
+}
+
+function readLoopshipResourceLeaseState(
+  statePath: string,
+  portApi: LoopshipFastflowPortApi,
+): LoopshipResourceLeaseState {
+  let fileStat: ReturnType<typeof lstatSync>;
+  try {
+    fileStat = lstatSync(statePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        schemaVersion: "loopship.resource-lease-state/v1",
+        authorityId: `loopship-resource-authority-${randomUUID()}`,
+        generations: {},
+        leases: {},
+      };
+    }
+    throw error;
+  }
+  if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
+    throw new Error(`Loopship resource lease state must be a regular file: ${statePath}`);
+  }
+
+  const parsed: unknown = JSON.parse(readFileSync(statePath, "utf8"));
+  if (
+    !isPlainObject(parsed) ||
+    Object.keys(parsed).sort().join(",") !== "authorityId,generations,leases,schemaVersion" ||
+    parsed.schemaVersion !== "loopship.resource-lease-state/v1" ||
+    typeof parsed.authorityId !== "string" ||
+    !isPlainObject(parsed.generations) ||
+    !isPlainObject(parsed.leases)
+  ) {
+    throw new Error(`Loopship resource lease state is invalid: ${statePath}`);
+  }
+  const state: LoopshipResourceLeaseState = {
+    schemaVersion: "loopship.resource-lease-state/v1",
+    authorityId: parsed.authorityId,
+    generations: {},
+    leases: {},
+  };
+  for (const [key, generation] of Object.entries(parsed.generations)) {
+    if (!Number.isSafeInteger(generation) || Number(generation) < 1) {
+      throw new Error(`Loopship resource lease generation is invalid: ${statePath}`);
+    }
+    state.generations[key] = Number(generation);
+  }
+  for (const [key, value] of Object.entries(parsed.leases)) {
+    const lease = portApi.validateResourceLease(value);
+    const handleKey = `${lease.handle.resourceType}@${lease.handle.resourceId}`;
+    if (
+      key !== lease.leaseId ||
+      lease.authorityId !== state.authorityId ||
+      (state.generations[handleKey] ?? 0) < lease.fencingGeneration
+    ) {
+      throw new Error(`Loopship resource lease ownership is invalid: ${statePath}`);
+    }
+    state.leases[key] = lease;
+  }
+  return state;
+}
+
+function withLoopshipResourceLeaseState<T>(
+  statePath: string,
+  portApi: LoopshipFastflowPortApi,
+  action: (state: LoopshipResourceLeaseState) => T,
+): T {
+  const absolutePath = resolve(statePath);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  const releaseLock = acquireCrashSafeFileLock(`${absolutePath}.lock`, 30_000);
+  try {
+    const state = readLoopshipResourceLeaseState(absolutePath, portApi);
+    const result = action(state);
+    writeText(absolutePath, `${JSON.stringify(state)}\n`);
+    return result;
+  } finally {
+    releaseLock();
+  }
+}
+
+function transitionLoopshipResourceLease(
+  portApi: LoopshipFastflowPortApi,
+  lease: LoopshipResourceLease,
+  state: LoopshipResourceLease["state"],
+): LoopshipResourceLease {
+  const { leaseDigest: _leaseDigest, ...content } = lease;
+  return portApi.createResourceLease({ ...content, state });
+}
+
+function leaseError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+function createDurableLoopshipResourceLeasePort(
+  portApi: LoopshipFastflowPortApi,
+  statePath: string,
+) {
+  const validator = portApi.createResourceLeaseManager({
+    authorityId: "loopship-resource-lease-validator",
+    leaseIdFactory: randomUUID,
+  });
+
+  return Object.freeze({
+    leaseTtlMs: 60_000,
+    acquire(input: LoopshipResourceLeaseAcquireInput) {
+      const candidate = portApi.validateResourceLease(validator.acquire(input));
+      validator.release({
+        leaseId: candidate.leaseId,
+        fencingGeneration: candidate.fencingGeneration,
+      });
+      const handleKey = `${candidate.handle.resourceType}@${candidate.handle.resourceId}`;
+      return withLoopshipResourceLeaseState(statePath, portApi, (state) => {
+        const now = Date.now();
+        for (const [leaseId, current] of Object.entries(state.leases)) {
+          if (current.state !== "active" ||
+              `${current.handle.resourceType}@${current.handle.resourceId}` !== handleKey) {
+            continue;
+          }
+          if (Date.parse(current.validUntil) <= now) {
+            state.leases[leaseId] = transitionLoopshipResourceLease(portApi, current, "expired");
+            continue;
+          }
+          throw leaseError("FASTFLOW_RESOURCE_BUSY", `resource '${handleKey}' already has an active lease`);
+        }
+        const fencingGeneration = (state.generations[handleKey] ?? 0) + 1;
+        if (!Number.isSafeInteger(fencingGeneration)) {
+          throw leaseError("FASTFLOW_RESOURCE_LEASE_INVALID", "resource fencing generation is exhausted");
+        }
+        state.generations[handleKey] = fencingGeneration;
+        const { leaseDigest: _leaseDigest, ...candidateContent } = candidate;
+        const lease = portApi.createResourceLease({
+          ...candidateContent,
+          leaseId: randomUUID(),
+          authorityId: state.authorityId,
+          state: "active",
+          fencingGeneration,
+        });
+        state.leases[lease.leaseId] = lease;
+        return structuredClone(lease);
+      });
+    },
+    release(input: LoopshipResourceLeaseReleaseInput) {
+      if (!isPlainObject(input)) {
+        throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", "resource lease release input is invalid");
+      }
+      const leaseId = input.leaseId;
+      const fencingGeneration = input.fencingGeneration;
+      if (typeof leaseId !== "string" || !Number.isSafeInteger(fencingGeneration)) {
+        throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", "resource lease release identity is invalid");
+      }
+      return withLoopshipResourceLeaseState(statePath, portApi, (state) => {
+        const lease = state.leases[leaseId];
+        if (!lease || lease.fencingGeneration !== fencingGeneration) {
+          throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", `lease '${leaseId}' is stale or unknown`);
+        }
+        const suppliedLease = input.lease;
+        if (suppliedLease !== undefined) {
+          const supplied = portApi.validateResourceLease(suppliedLease);
+          if (
+            supplied.leaseId !== lease.leaseId ||
+            supplied.authorityId !== lease.authorityId ||
+            supplied.fencingGeneration !== lease.fencingGeneration ||
+            supplied.handle.handleDigest !== lease.handle.handleDigest ||
+            supplied.validFrom !== lease.validFrom ||
+            supplied.validUntil !== lease.validUntil
+          ) {
+            throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", `lease '${leaseId}' ownership does not match`);
+          }
+        }
+        if (lease.state !== "active") return structuredClone(lease);
+        const handleKey = `${lease.handle.resourceType}@${lease.handle.resourceId}`;
+        if (state.generations[handleKey] !== lease.fencingGeneration) {
+          throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", `lease '${leaseId}' is superseded`);
+        }
+        const nextState = Date.parse(lease.validUntil) <= Date.now() ? "expired" : "released";
+        const released = transitionLoopshipResourceLease(portApi, lease, nextState);
+        state.leases[leaseId] = released;
+        return structuredClone(released);
+      });
+    },
+  });
+}
+
 function createLoopshipResourceLeasePort(
   fastflowApi: Record<string, unknown> | null = null,
+  requestedStatePath?: string | null,
 ) {
   const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
-  let leaseSequence = 0;
+  const statePath = requestedStatePath === undefined
+    ? loopshipResourceLeaseStatePath()
+    : requestedStatePath;
+  if (statePath !== null && statePath !== undefined) {
+    if (!isAbsolute(statePath)) {
+      throw new Error("Loopship resource lease state path must be absolute");
+    }
+    return Object.freeze({
+      ...createDurableLoopshipResourceLeasePort(portApi, statePath),
+      resolveHandle(ref: Record<string, unknown>, context: Record<string, unknown> = {}) {
+        return resolveLoopshipResourceHandle(portApi, ref, context);
+      },
+    });
+  }
   const manager = portApi.createResourceLeaseManager({
-    authorityId: "loopship-local-resource-authority",
-    leaseIdFactory: () => `loopship-lease-${++leaseSequence}`,
+    authorityId: `loopship-local-resource-authority-${randomUUID()}`,
+    leaseIdFactory: randomUUID,
   });
   return Object.freeze({
     leaseTtlMs: 60_000,
     resolveHandle(ref: Record<string, unknown>, context: Record<string, unknown> = {}) {
-      if (
-        !ref ||
-        typeof ref !== "object" ||
-        Array.isArray(ref) ||
-        Object.keys(ref).length !== 2 ||
-        ref.type !== "git-worktree" ||
-        typeof ref.handleId !== "string" ||
-        !ref.handleId.trim()
-      ) {
-        throw Object.assign(
-          new TypeError("Loopship resource references must contain only a git-worktree type and handleId"),
-          { code: "LOOPSHIP_RESOURCE_HANDLE_INVALID" },
-        );
-      }
-      const executorNodeId = context.executorNodeId;
-      if (typeof executorNodeId !== "string" || !executorNodeId.trim()) {
-        throw Object.assign(
-          new TypeError("Loopship resource resolution requires an executor node"),
-          { code: "LOOPSHIP_RESOURCE_OWNER_REQUIRED" },
-        );
-      }
-      return portApi.createResourceHandle({
-        resourceType: "git-worktree",
-        resourceId: ref.handleId,
-        ownerExecutorNodeId: executorNodeId,
-        affinityScope: { kind: "executor", scopeId: executorNodeId },
-        permittedOperations: ["use"],
-        recoveryPolicy: "preserve",
-        replayPolicy: "assigned-executor-only",
-      });
+      return resolveLoopshipResourceHandle(portApi, ref, context);
     },
     acquire(input: LoopshipResourceLeaseAcquireInput) {
       return manager.acquire(input);
@@ -5501,15 +5856,56 @@ function createLoopshipResourceLeasePort(
   });
 }
 
+function resolveLoopshipResourceHandle(
+  portApi: LoopshipFastflowPortApi,
+  ref: Record<string, unknown>,
+  context: Record<string, unknown> = {},
+) {
+  if (
+    !ref ||
+    typeof ref !== "object" ||
+    Array.isArray(ref) ||
+    Object.keys(ref).length !== 2 ||
+    ref.type !== "git-worktree" ||
+    typeof ref.handleId !== "string" ||
+    !ref.handleId.trim()
+  ) {
+    throw Object.assign(
+      new TypeError("Loopship resource references must contain only a git-worktree type and handleId"),
+      { code: "LOOPSHIP_RESOURCE_HANDLE_INVALID" },
+    );
+  }
+  const executorNodeId = context.executorNodeId;
+  if (typeof executorNodeId !== "string" || !executorNodeId.trim()) {
+    throw Object.assign(
+      new TypeError("Loopship resource resolution requires an executor node"),
+      { code: "LOOPSHIP_RESOURCE_OWNER_REQUIRED" },
+    );
+  }
+  return portApi.createResourceHandle({
+    resourceType: "git-worktree",
+    resourceId: ref.handleId,
+    ownerExecutorNodeId: executorNodeId,
+    affinityScope: { kind: "executor", scopeId: executorNodeId },
+    permittedOperations: ["use"],
+    recoveryPolicy: "preserve",
+    replayPolicy: "assigned-executor-only",
+  });
+}
+
 export function createLoopshipExecutorPorts(
   fastflowApi: Record<string, unknown> | null = null,
+  options: { resourceLeaseStatePath?: string | null } = {},
 ): {
   executorPort: AfnDispatchPort;
   resourceLeasePort: ReturnType<typeof createLoopshipResourceLeasePort>;
 } {
   return {
     executorPort: createLoopshipAfnDispatchPort(fastflowApi),
-    resourceLeasePort: createLoopshipResourceLeasePort(fastflowApi),
+    resourceLeasePort: createLoopshipResourceLeasePort(
+      fastflowApi,
+      options.resourceLeaseStatePath,
+    ),
   };
 }
 
@@ -5537,11 +5933,12 @@ export function validateLoopshipCallInvocation({
 
 export function createLoopshipRuntimeIntegrations(
   fastflowApi: Record<string, unknown> | null = null,
+  options: { resourceLeaseStatePath?: string | null } = {},
 ): Record<string, unknown> {
   const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
   const runtimeIdentity = PACKAGE_JSON.name || "@omar391/loopship";
   const runtimeVersion = PACKAGE_JSON.version || "0.0.0";
-  const ports = createLoopshipExecutorPorts(fastflowApi);
+  const ports = createLoopshipExecutorPorts(fastflowApi, options);
   const dispatchPort = ports.executorPort;
   const resourceLeasePort = ports.resourceLeasePort;
   return {
@@ -5612,8 +6009,9 @@ export function createLoopshipRuntimeIntegrations(
 }
 
 export async function configureFastflowForLoopship(
-  _repoRoot: string = LOOPSHIP_ROOT,
+  repoRoot: string = LOOPSHIP_ROOT,
 ): Promise<Record<string, unknown>> {
+  const authoringRoot = resolve(repoRoot);
   const fastflowRoot = resolveLoopshipFastflowRoot(["src/index.mjs"]);
   const fastflowApi = await import(
     pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href,
@@ -5629,12 +6027,15 @@ export async function configureFastflowForLoopship(
   };
   const baseRuntime = configureFastflowRuntime({
     ...applicationOptions,
-    integrations: createLoopshipRuntimeIntegrations(fastflowApi),
+    integrations: {
+      ...createLoopshipRuntimeIntegrations(fastflowApi),
+      authoringRoot,
+    },
   });
   const catalog = await prepareLoopshipFastflowCatalog({
     fastflowRoot,
     catalogRoot: workflowCatalogRoot,
-    workspaceRoot: LOOPSHIP_ROOT,
+    workspaceRoot: authoringRoot,
   });
   return configureFastflowRuntime({
     ...applicationOptions,
@@ -5643,6 +6044,7 @@ export async function configureFastflowForLoopship(
       catalogRegistry: catalog.registry,
       catalogMounts: catalog.mounts,
       catalogResolver: catalog.resolver,
+      authoringRoot,
     },
   });
 }

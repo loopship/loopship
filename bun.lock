@@ -9,7 +9,7 @@
         "@connectrpc/connect": "2.1.2",
         "@connectrpc/connect-node": "2.1.2",
         "@connectrpc/connect-web": "2.1.2",
-        "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609",
+        "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#4d0e5bb7e4d4ee06edffc0c48ac1a4f504c3364e",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
         "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
@@ -26,7 +26,7 @@
     "cmdproto",
   ],
   "overrides": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609",
+    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#4d0e5bb7e4d4ee06edffc0c48ac1a4f504c3364e",
   },
   "packages": {
     "@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.1", "", {}, "sha512-BvAMfS6LrgZiryOAZ4pBYucu4wG/Ei/9o9DZ9akbREnMLbPJiom2i8b9C8IsKErQoiKqVhrerzt3kOT/RrzLHg=="],
@@ -37,7 +37,7 @@
 
     "@connectrpc/connect-web": ["@connectrpc/connect-web@2.1.2", "", { "peerDependencies": { "@bufbuild/protobuf": "^2.7.0", "@connectrpc/connect": "2.1.2" } }, "sha512-1tfaK85MU+gJjwwmL31d2rzdf0XCYX99chZf63uG89SGBUd4XuZ4ZzhGo2u79TPXOE6nLIZQ2okrpyey42PYdg=="],
 
-    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#6a5d16d7f5850cfca60cddbd1c379b1a70cc7609", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63", "yaml": "2.9.0" }, "hasInstallScript": true, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-bw": "./bin/fastflow-bw.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "6a5d16d7f5850cfca60cddbd1c379b1a70cc7609"],
+    "@cueintent/fastflow": ["@cueintent/fastflow@git+ssh://git@github.com/cueintent/fastflow.git#4d0e5bb7e4d4ee06edffc0c48ac1a4f504c3364e", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63", "yaml": "2.9.0" }, "hasInstallScript": true, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-bw": "./bin/fastflow-bw.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "4d0e5bb7e4d4ee06edffc0c48ac1a4f504c3364e"],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

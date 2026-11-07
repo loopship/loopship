@@ -1,5 +1,11 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -40,6 +46,15 @@ export async function startLoopshipTestScheduler(input: {
     ...baseEnv
   } = process.env;
 
+  // Catalog bundles are producer-signed production content. Tests receive an
+  // ephemeral Ed25519 signing key so the daemon can admit the catalog through
+  // the same production path production uses. The key lives in the test home
+  // so a restart of the same scheduler reuses it: a different key would
+  // re-sign the catalog with a new digest and the durable authority would
+  // reject the restart as a bundle conflict.
+  const catalogSigningKey =
+    String(process.env.LOOPSHIP_CATALOG_SIGNING_KEY || "").trim() ||
+    signCatalogSigningKey(home);
   const child = spawn("bun", ["--no-install", daemonPath], {
     cwd: loopshipRoot,
     env: {
@@ -48,6 +63,7 @@ export async function startLoopshipTestScheduler(input: {
       LOOPSHIP_HOME: home,
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: input.dbPath,
+      LOOPSHIP_CATALOG_SIGNING_KEY: catalogSigningKey,
       ...fastflowOverrideEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -64,11 +80,37 @@ export async function startLoopshipTestScheduler(input: {
     env: {
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: input.dbPath,
+      // The daemon writes its runtime descriptor under LOOPSHIP_HOME/scheduler.
+      // Clients (including the runFastflowSession child) resolve the descriptor
+      // via FASTFLOW_SCHEDULER_DESCRIPTOR, so forward it explicitly. Without
+      // it the client falls back to ~/.fastflow and fails with
+      // FASTFLOW_SCHEDULER_AUTHORITY_UNAVAILABLE after a slow bind.
+      FASTFLOW_SCHEDULER_DESCRIPTOR: join(home, "scheduler", "fastflow.runtime.json"),
+      // Client sessions submit against the same signed catalog the scheduler
+      // admitted, so they need the same signing key this daemon used.
       ...fastflowOverrideEnv,
       LOOPSHIP_HOME: home,
+      LOOPSHIP_CATALOG_SIGNING_KEY: catalogSigningKey,
     },
     stop: () => stopScheduler(child),
   };
+}
+
+function signCatalogSigningKey(home: string): string {
+  const keyPath = join(home, "loopship-catalog-signing.key");
+  if (existsSync(keyPath)) return readFileSync(keyPath, "utf8").trim();
+  const { generateKeyPairSync } = require("node:crypto") as {
+    generateKeyPairSync: (algorithm: string) => {
+      privateKey: { export: (input: Record<string, unknown>) => Buffer };
+    };
+  };
+  const key = generateKeyPairSync("ed25519")
+    .privateKey.export({ format: "der", type: "pkcs8" })
+    .subarray(-32)
+    .toString("base64");
+  mkdirSync(home, { recursive: true });
+  writeFileSync(keyPath, key, { mode: 0o600 });
+  return key;
 }
 
 function resolveFastflowRoot(configuredRoot = ""): string {

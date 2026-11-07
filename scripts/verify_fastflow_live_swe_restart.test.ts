@@ -157,6 +157,25 @@ function renderWorker(input: {
 
     const mode = process.argv[2];
     const config = JSON.parse(readFileSync(process.argv[3], "utf8"));
+    // The scheduler runtime descriptor requires its parent chain to be real
+    // (non-symlinked) directories; /tmp on macOS is a symlink factory, so pin
+    // the descriptor path to its realpath before the authority touches it.
+    await import("node:fs").then(async ({ mkdirSync, realpathSync, writeFileSync: write }) => {
+      const path = await import("node:path");
+      const fs = await import("node:fs");
+      const dir = path.dirname(config.descriptorPath);
+      mkdirSync(dir, { recursive: true });
+      config.descriptorPath = path.join(realpathSync(dir), path.basename(config.descriptorPath));
+    });
+    // Catalog compilation signs its bundle; tests parent-supply their
+    // ephemeral signing key through the environment.
+    if (!process.env.LOOPSHIP_CATALOG_SIGNING_KEY) {
+      const { generateKeyPairSync } = await import("node:crypto");
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY = generateKeyPairSync("ed25519")
+        .privateKey.export({ format: "der", type: "pkcs8" })
+        .subarray(-32)
+        .toString("base64");
+    }
     // Adapter-owned normalization must be active before the stable YAML is
     // compiled. The hard-cut IR only accepts executable verification effects
     // through exact AFN contracts, so the Loopship script checks must be
@@ -273,13 +292,27 @@ function renderWorker(input: {
         catalogResolver: catalog.resolver,
       },
     });
+    // Realpath-pin the descriptor parent chain: macOS /tmp resolves through
+    // symlinks, which the scheduler runtime descriptor rejects.
+    const authorityDescriptorPath = (() => {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const dir = path.dirname(config.descriptorPath);
+      fs.mkdirSync(dir, { recursive: true });
+      return path.join(fs.realpathSync(dir), path.basename(config.descriptorPath));
+    })();
     const authority = createLocalDurableSchedulerAuthority({
       dbPath: config.dbPath,
-      descriptorPath: config.descriptorPath,
+      descriptorPath: authorityDescriptorPath,
       // Exercise the production default while keeping SIGKILL, rather than an
       // artificially tiny expiry, as the restart boundary under test.
       leaseMs: 30_000,
       ownerId: mode === "before" ? "loopship-live-before" : "loopship-live-after",
+      // Producer durable-resource-lease rule: a resourceLeasePort requires a
+      // stable coordinator nodeIdentity so the adapter's lease authority survives
+      // worker restarts. The identity is fixed across restarts; only 
+      // ownerId (the wake/lease fence owner) changes per incarnation.
+      nodeIdentity: "loopship/scheduler",
       catalogRegistry: catalog.registry,
       catalogResolver: catalog.resolver,
       executorPort: adapters.executorDispatch,
@@ -300,7 +333,7 @@ function renderWorker(input: {
       writeFileSync(config.authorityFailurePath, JSON.stringify(serializeError(error)));
     });
     const control = createSchedulerControlClient({
-      descriptorPath: config.descriptorPath,
+      descriptorPath: authorityDescriptorPath,
     });
     const options = {
       schedulerMode: "local-durable",
@@ -312,7 +345,7 @@ function renderWorker(input: {
       runtimeReconstructionPort: {
         createExecutionContext: configuredRuntime.createExecutionContext.bind(configuredRuntime),
       },
-      schedulerDescriptorPath: config.descriptorPath,
+      schedulerDescriptorPath: authorityDescriptorPath,
       executorDispatchPort: adapters.executorDispatch,
       resolveWorkflowRecord,
       resourceLeasePort: adapters.resourceLeasePort,
@@ -716,6 +749,10 @@ describe("Loopship live SWE durable restart", () => {
     const dbPath = join(fixture.root, "scheduler.sqlite");
     const missingInferenceCommand = join(fixture.root, "missing-codex-cli");
     mkdirSync(join(fixture.root, "home"), { recursive: true });
+    // The scheduler runtime descriptor requires its parent chain to be real
+    // directories; fixture.root is already the mounted temp root, and this
+    // directory is where the descriptor file lands.
+    mkdirSync(join(fixture.root, "scheduler"), { recursive: true });
     writeFileSync(
       workerPath,
       renderWorker({ fastflowRoot, loopshipRoot: process.cwd() }),
