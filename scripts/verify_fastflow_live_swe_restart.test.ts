@@ -856,7 +856,9 @@ describe("Loopship live SWE durable restart", () => {
       });
       await waitForChildExit(
         after,
-        Number(process.env.FASTFLOW_LIVE_SWE_AFTER_TIMEOUT_MS || "420000"),
+        // Observed post-restart recovery ranges from ~420s to ~470s on an
+        // otherwise idle machine, so the previous ceiling sat on the boundary.
+        Number(process.env.FASTFLOW_LIVE_SWE_AFTER_TIMEOUT_MS || "600000"),
         (afterStdout, afterStderr) =>
           readLiveDiagnostics({
             authorityFailurePath,

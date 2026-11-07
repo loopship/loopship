@@ -5406,6 +5406,10 @@ describe("Loopship Fastflow-native bridge", () => {
       const startedExecutionId = String(started.executionId || "");
       expect(startedExecutionId).toMatch(/^loopship-[0-9a-f]{64}$/);
 
+      // Restarting while the first dispatch is still in flight loses nothing,
+      // but the scenario under test is recovery of a persisted execution. Wait
+      // for the scheduler to record its first suspension first.
+      await waitForNativeExecutionAwaiting(schedulerDb, startedExecutionId);
       await scheduler.stop();
       scheduler = await startLoopshipTestScheduler({
         dbPath: schedulerDb,
@@ -5448,7 +5452,9 @@ describe("Loopship Fastflow-native bridge", () => {
       await scheduler?.stop();
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  }, 120_000);
+    // Full local-durable submission plus restart recovery legitimately takes
+    // ~100s; the old 120s ceiling failed under suite load.
+  }, 240_000);
 
   test("production daemon Connect preserves legacy_execution_unsupported", async () => {
     const fixture = createGitFixture("loopship-native-connect-legacy-");
