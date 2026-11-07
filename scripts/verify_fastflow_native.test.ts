@@ -941,6 +941,36 @@ async function startQuestStage(
   return result;
 }
 
+async function waitForNativeExecutionAwaiting(
+  schedulerDb: string,
+  executionId: string,
+  timeoutMs = 60_000,
+): Promise<void> {
+  const database = new Database(schedulerDb, { readonly: true });
+  const deadline = Date.now() + timeoutMs;
+  try {
+    // The live daemon holds the write lock while it advances the execution, so
+    // a read from this side connection can race into SQLITE_BUSY.
+    database.exec("PRAGMA busy_timeout = 5000");
+    const awaiting = database.query(
+      "select sequence from execution_events where execution_id = ? and event_type = 'execution.awaiting' limit 1",
+    );
+    while (Date.now() < deadline) {
+      try {
+        if (awaiting.get(executionId)) return;
+      } catch (error) {
+        if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
+      }
+      await Bun.sleep(25);
+    }
+  } finally {
+    database.close();
+  }
+  throw new Error(
+    `Native execution ${executionId} did not reach a durable awaiting checkpoint before daemon restart`,
+  );
+}
+
 function interactionPause(value: Record<string, unknown>): Record<string, unknown> | null {
   if (value.schemaVersion !== "fastflow/interaction-response/v2") return null;
   const nextCall =
@@ -5535,6 +5565,12 @@ describe("Loopship Fastflow-native bridge", () => {
       const executionId = String(started.executionId || "");
       expect(executionId).toMatch(/^loopship-[0-9a-f]{64}$/);
 
+      // The initial Connect response only proves durable submission. Let the
+      // scheduler persist its first suspension before restarting it; otherwise
+      // recovery races the still-running first dispatch and may correctly
+      // return a transient `running` artifact instead of the persisted handoff
+      // checkpoint this test is about.
+      await waitForNativeExecutionAwaiting(schedulerDb, executionId);
       await scheduler.stop();
       scheduler = null;
       const copiedReadme = join(packageRoot, "README.md");
@@ -5572,7 +5608,7 @@ describe("Loopship Fastflow-native bridge", () => {
       await scheduler?.stop();
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, 240_000);
 
   test(
     "records the actual coordinator branch when source branch differs",
