@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { generateKeyPairSync } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -310,8 +311,8 @@ function renderWorker(input: {
       ownerId: mode === "before" ? "loopship-live-before" : "loopship-live-after",
       // Producer durable-resource-lease rule: a resourceLeasePort requires a
       // stable coordinator nodeIdentity so the adapter's lease authority survives
-      // worker restarts. The identity is fixed across restarts; only 
-      // ownerId (the wake/lease fence owner) changes per incarnation.
+      // worker restarts. The identity stays fixed across restarts; ownerId is the
+      // wake/lease fence owner and changes per incarnation.
       nodeIdentity: "loopship/scheduler",
       catalogRegistry: catalog.registry,
       catalogResolver: catalog.resolver,
@@ -786,11 +787,18 @@ describe("Loopship live SWE durable restart", () => {
       "utf8",
     );
     expect(existsSync(missingInferenceCommand)).toBe(false);
+    const catalogSigningKey =
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY ||
+      generateKeyPairSync("ed25519").privateKey
+        .export({ format: "der", type: "pkcs8" })
+        .subarray(-32)
+        .toString("base64");
     const env = {
       ...process.env,
       HOME: join(fixture.root, "home"),
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: dbPath,
+      LOOPSHIP_CATALOG_SIGNING_KEY: catalogSigningKey,
     };
     let stdout = "";
     let stderr = "";
@@ -947,5 +955,10 @@ describe("Loopship live SWE durable restart", () => {
         console.error("LIVE_SWE_FIXTURE_RETAINED", fixture.root);
       }
     }
-  }, Number(process.env.FASTFLOW_LIVE_SWE_TIMEOUT_MS || "480000"));
+  }, Math.max(
+    Number(process.env.FASTFLOW_LIVE_SWE_TIMEOUT_MS || "480000"),
+    // Reserve three minutes for setup, pre-restart work, and final assertions
+    // beyond the complete post-restart worker recovery deadline.
+    Number(process.env.FASTFLOW_LIVE_SWE_AFTER_TIMEOUT_MS || "600000") + 180_000,
+  ));
 });

@@ -1364,7 +1364,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const proc = runCommand(
         "npm",
         ["pack", "--dry-run", "--json", "--ignore-scripts"],
-        { cwd: process.cwd(), timeoutMs: 30_000 },
+        { cwd: process.cwd(), timeoutMs: 120_000 },
       );
       expect(proc.status, proc.stderr || proc.stdout).toBe(0);
       const result = JSON.parse(proc.stdout) as Record<
@@ -5619,9 +5619,10 @@ describe("Loopship Fastflow-native bridge", () => {
   test(
     "records the actual coordinator branch when source branch differs",
     async () => {
-      process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralLoopshipCatalogSigningKey();
+      const previousCatalogSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
       const fixture = createGitFixture("loopship-native-source-branch-state-");
       try {
+        process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralLoopshipCatalogSigningKey();
         const wtree = "source-branch-state";
         await startQuestStage(fixture.repo, "loopship: build demo", wtree, [
           "--source-branch",
@@ -5639,6 +5640,11 @@ describe("Loopship Fastflow-native bridge", () => {
           true,
         );
       } finally {
+        if (previousCatalogSigningKey === undefined) {
+          delete process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
+        } else {
+          process.env.LOOPSHIP_CATALOG_SIGNING_KEY = previousCatalogSigningKey;
+        }
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
@@ -9471,8 +9477,9 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
     // requires the ephemeral signing-key seam. The scheduler is not involved
     // in promotion; tests pass their own throwaway key and no key persists.
     const ephemeralSigningKey = ephemeralLoopshipCatalogSigningKey();
-    process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralSigningKey;
+    const previousCatalogSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
     try {
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralSigningKey;
       cpSync(LOOPSHIP_CALL_CATALOG_ROOT, join(fixture.repo, "call-catalog"), {
         recursive: true,
       });
@@ -9518,6 +9525,11 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
       expect(result.devPath).toBe(stablePath.replace(".stable.yaml", ".dev.yaml"));
       expect(existsSync(String(result.devPath))).toBe(true);
     } finally {
+      if (previousCatalogSigningKey === undefined) {
+        delete process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
+      } else {
+        process.env.LOOPSHIP_CATALOG_SIGNING_KEY = previousCatalogSigningKey;
+      }
       rmSync(fixture.root, { recursive: true, force: true });
     }
     // Seeds the catalog through a Bun subprocess (measured ~20s here), so the
