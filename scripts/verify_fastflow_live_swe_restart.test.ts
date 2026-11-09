@@ -441,18 +441,17 @@ function renderWorker(input: {
     async function waitForWorkflowResult() {
       const deadline = Date.now() + 180_000;
       while (true) {
-        let result;
-        result = await recoverNativeWorkflow({
-          executionId: config.executionId,
-          options,
-        });
-        if (!["pending", "queued", "running"].includes(result.status)) {
-          return result;
+        const handle = await control.inspect({ executionId: config.executionId });
+        if (!["pending", "queued", "running"].includes(handle.status)) {
+          return recoverNativeWorkflow({
+            executionId: config.executionId,
+            options,
+          });
         }
         if (Date.now() >= deadline) {
           throw new Error("timed out waiting for the local-durable workflow result");
         }
-        await Bun.sleep(20);
+        await Bun.sleep(100);
       }
     }
     const reportPhase = (phase) => writeFileSync(
