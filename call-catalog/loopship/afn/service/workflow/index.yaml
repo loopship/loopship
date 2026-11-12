@@ -1,0 +1,132 @@
+schemaVersion: fastflow/call-catalog-scope/v2
+calls:
+  - call: loopship.afn.service.workflow.execute-script
+    summary: "Execute one signed Loopship workflow script on the enrolled executor."
+    inputs:
+      required:
+        - mode
+        - source
+      optional:
+        - timeout_ms
+        - inputs
+        - state
+        - env
+        - workflow
+        - step
+        - identity
+        - action
+        - post
+        - args
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - mode
+          - source
+        properties:
+          mode:
+            enum:
+              - action
+              - check
+          source:
+            type: string
+            minLength: 1
+          timeout_ms:
+            type: integer
+            minimum: 1
+          inputs: {}
+          state: {}
+          env: {}
+          workflow: {}
+          step: {}
+          identity: {}
+          action: {}
+          post: {}
+          args: {}
+    preferWhen:
+      - "A signed Loopship workflow rule or executor-local script must run at an AFN boundary."
+    avoidWhen:
+      - "The scheduler itself can express the operation as portable control flow or a schema."
+    metadata:
+      allowed_phases:
+        - action
+        - validation
+        - verification
+      effects:
+        - workflow.script.read
+  - call: loopship.afn.service.workflow.infer
+    summary: "Resolve one Loopship inference request through the executor-owned inference provider."
+    inputs:
+      required:
+        - inference_ref
+      optional:
+        - message
+        - instruction
+        - request_schema
+        - decision_schema
+        - request_builder
+        - timeout_ms
+        - inputs
+        - state
+        - env
+        - workflow
+        - step
+        - identity
+        - action
+        - post
+        - args
+        - runtime
+        - native_execution_id
+        - native_invocation_id
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - inference_ref
+        properties:
+          inference_ref:
+            type: string
+            minLength: 1
+          message:
+            type: string
+          instruction:
+            type: string
+          request_schema: {}
+          decision_schema: {}
+          request_builder:
+            type: object
+            additionalProperties: true
+          timeout_ms:
+            type: integer
+            minimum: 1
+          inputs: {}
+          state: {}
+          env: {}
+          workflow:
+            type: object
+            additionalProperties: true
+          step:
+            type: object
+            additionalProperties: true
+          identity: {}
+          action: {}
+          post: {}
+          args: {}
+          runtime:
+            type: object
+            additionalProperties: true
+          native_execution_id:
+            type: string
+            minLength: 1
+          native_invocation_id:
+            type: string
+            minLength: 1
+    preferWhen:
+      - "A Loopship workflow inference step must cross an authenticated AFN executor boundary."
+    avoidWhen:
+      - "The scheduler can express the decision as portable control flow or an exact validation AFN."
+    metadata:
+      allowed_phases:
+        - action
+      effects:
+        - inference.request

@@ -1,6 +1,8 @@
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -9,7 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,7 +19,6 @@ import {
   assertLocalDurableFilesystem,
   completedDecision,
   createAfnDispatchPort,
-  digestCallContract,
   digestNativeContract,
   failedDecision,
   type AfnDispatchPort,
@@ -25,8 +26,10 @@ import {
   type CallDescriptor,
   type ExecutionDecision,
   type JsonValue,
-  type NativeRef,
 } from "@cueintent/fastflow";
+import * as Fastflow from "@cueintent/fastflow";
+import type { CatalogAfnContract, CatalogBundleMountResolver, CatalogBundleRegistry } from "@cueintent/fastflow/catalog-bundle";
+import type { RegistryMountTable, WorkflowIrBinding } from "@cueintent/fastflow/workflow-ir";
 import { parse as parseYaml } from "yaml";
 import {
   applyLandingReceipt,
@@ -259,6 +262,8 @@ const STAGE_RESULT_BUILD_SCHEMA = {
 } as const;
 
 export const LOOPSHIP_AFN_CALLS = Object.freeze({
+  workflowExecuteScript: "loopship.afn.service.workflow.execute-script",
+  workflowInfer: "loopship.afn.service.workflow.infer",
   childPrepareWorktree: "loopship.afn.service.child.prepare-worktree",
   childValidateDag: "loopship.afn.service.child.validate-dag",
   childRecordLifecycle: "loopship.afn.service.child.record-lifecycle",
@@ -280,6 +285,100 @@ export const LOOPSHIP_DATA_CALLS = Object.freeze({
 });
 
 export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
+  {
+    call: LOOPSHIP_AFN_CALLS.workflowExecuteScript,
+    summary: "Execute one signed Loopship workflow script on the enrolled executor.",
+    inputs: {
+      required: ["mode", "source"],
+      optional: ["timeout_ms", "inputs", "state", "env", "workflow", "step", "identity", "action", "post", "args"],
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["mode", "source"],
+        properties: {
+          mode: { enum: ["action", "check"] },
+          source: { type: "string", minLength: 1 },
+          timeout_ms: { type: "integer", minimum: 1 },
+          inputs: {},
+          state: {},
+          env: {},
+          workflow: {},
+          step: {},
+          identity: {},
+          action: {},
+          post: {},
+          args: {},
+        },
+      },
+    },
+    tags: ["loopship", "workflow", "executor", "script"],
+    preferWhen: ["A signed Loopship workflow rule or executor-local script must run at an AFN boundary."],
+    avoidWhen: ["The scheduler itself can express the operation as portable control flow or a schema."],
+    metadata: {
+      allowed_phases: ["action", "validation", "verification"],
+      effects: ["workflow.script.read"],
+    },
+  },
+  {
+    call: LOOPSHIP_AFN_CALLS.workflowInfer,
+    summary: "Resolve one Loopship inference request through the executor-owned inference provider.",
+    inputs: {
+      required: ["inference_ref"],
+      optional: [
+        "message",
+        "instruction",
+        "request_schema",
+        "decision_schema",
+        "request_builder",
+        "timeout_ms",
+        "inputs",
+        "state",
+        "env",
+        "workflow",
+        "step",
+        "identity",
+        "action",
+        "post",
+        "args",
+        "runtime",
+        "native_execution_id",
+        "native_invocation_id",
+      ],
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["inference_ref"],
+        properties: {
+          inference_ref: { type: "string", minLength: 1 },
+          message: { type: "string" },
+          instruction: { type: "string" },
+          request_schema: {},
+          decision_schema: {},
+          request_builder: { type: "object", additionalProperties: true },
+          timeout_ms: { type: "integer", minimum: 1 },
+          inputs: {},
+          state: {},
+          env: {},
+          workflow: { type: "object", additionalProperties: true },
+          step: { type: "object", additionalProperties: true },
+          identity: {},
+          action: {},
+          post: {},
+          args: {},
+          runtime: { type: "object", additionalProperties: true },
+          native_execution_id: { type: "string", minLength: 1 },
+          native_invocation_id: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    tags: ["loopship", "workflow", "executor", "inference"],
+    preferWhen: ["A Loopship workflow inference step must cross an authenticated AFN executor boundary."],
+    avoidWhen: ["The scheduler can express the decision as portable control flow or an exact validation AFN."],
+    metadata: {
+      allowed_phases: ["action"],
+      effects: ["inference.request"],
+    },
+  },
   {
     call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
     summary: "Prepare one Native DAG child quest and worktree at node dispatch time.",
@@ -599,8 +698,8 @@ const DESCRIPTOR_BY_CALL = new Map(
   LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => [descriptor.call, descriptor]),
 );
 
-export const LOOPSHIP_AFN_HOST_ID = `loopship/host/${createHash("sha256")
-  .update(`${PACKAGE_JSON.name || "@omar391/loopship"}:native-v1`)
+export const LOOPSHIP_EXECUTOR_NODE_ID = `loopship-executor-${createHash("sha256")
+  .update(`${PACKAGE_JSON.name || "@omar391/loopship"}:fastflow-v2`)
   .digest("hex")
   .slice(0, 24)}`;
 
@@ -1366,6 +1465,563 @@ export async function ensureLoopshipFastflowWorkflowCatalog(
   return LOOPSHIP_CALL_CATALOG_ROOT;
 }
 
+type LoopshipFastflowCatalogRuntime = {
+  registry: CatalogBundleRegistry;
+  mounts: RegistryMountTable;
+  resolver: CatalogBundleMountResolver;
+  bundleDigest: string;
+  bytes: Uint8Array;
+};
+
+type FastflowRuntimeApi = {
+  loadWorkflowRecord: (
+    filePath: string,
+    store?: string,
+    reference?: string | null,
+  ) => Promise<Record<string, unknown>>;
+  resolveWorkflowReference?: (
+    reference: string,
+    workspaceRoot?: string | null,
+    options?: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+  resolveWorkflowTupleReference?: (
+    reference: Record<string, unknown>,
+    workspaceRoot?: string | null,
+    options?: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+  bindNativeWorkflow: (
+    rootRecord: Record<string, unknown>,
+    options?: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+};
+
+type LoopshipFastflowPortApi = {
+  createAfnDispatchPort: typeof createAfnDispatchPort;
+  digestAfnContract: (value: Record<string, unknown>) => string;
+  createResourceHandle: (input: Record<string, unknown>) => unknown;
+  createResourceLeaseManager: (input: Record<string, unknown>) => LoopshipResourceLeaseManager;
+  createResourceLease: (input: Record<string, unknown>) => LoopshipResourceLease;
+  validateResourceLease: (value: unknown) => LoopshipResourceLease;
+};
+
+type BuildFilesystemCatalogBundle = (input: {
+  registryId: string;
+  catalogRoot: string;
+  releaseVersion: string;
+  registryMounts: RegistryMountTable;
+  workflowBindings: Array<{ binding: WorkflowIrBinding; sourcePath: string }>;
+  afnContracts: Array<{ contract: CatalogAfnContract }>;
+  signPayload?: (input: {
+    payload: string;
+    payloadDigest: string;
+    registryId: string;
+    releaseVersion: string;
+  }) => Array<Record<string, unknown>> | Promise<Array<Record<string, unknown>>>;
+}) => Promise<{ bytes: Uint8Array; bundle: { bundleDigest: string } }>;
+
+function requireFastflowFunction<T extends (...args: never[]) => unknown>(
+  value: Record<string, unknown>,
+  name: string,
+): T {
+  const candidate = value[name];
+  if (typeof candidate !== "function") {
+    throw new Error(`Fastflow runtime does not expose ${name}`);
+  }
+  return candidate as T;
+}
+
+function resolveLoopshipFastflowPortApi(
+  value: Record<string, unknown> | null = null,
+): LoopshipFastflowPortApi {
+  const source = value || Fastflow as unknown as Record<string, unknown>;
+  return {
+    createAfnDispatchPort: requireFastflowFunction(source, "createAfnDispatchPort") as typeof createAfnDispatchPort,
+    digestAfnContract: requireFastflowFunction(source, "digestAfnContract") as LoopshipFastflowPortApi["digestAfnContract"],
+    createResourceHandle: requireFastflowFunction(source, "createResourceHandle") as LoopshipFastflowPortApi["createResourceHandle"],
+    createResourceLeaseManager: requireFastflowFunction(source, "createResourceLeaseManager") as LoopshipFastflowPortApi["createResourceLeaseManager"],
+    createResourceLease: requireFastflowFunction(source, "createResourceLease") as LoopshipFastflowPortApi["createResourceLease"],
+    validateResourceLease: requireFastflowFunction(source, "validateResourceLease") as LoopshipFastflowPortApi["validateResourceLease"],
+  };
+}
+
+function resolveFastflowRuntimeApi(value: Record<string, unknown>): FastflowRuntimeApi {
+  const loadWorkflowRecord = value.loadWorkflowRecord;
+  const bindNativeWorkflow = value.bindNativeWorkflow;
+  if (
+    typeof loadWorkflowRecord !== "function" ||
+    typeof bindNativeWorkflow !== "function"
+  ) {
+    throw new Error("Fastflow runtime does not expose the catalog compilation API");
+  }
+  return {
+    loadWorkflowRecord: loadWorkflowRecord as FastflowRuntimeApi["loadWorkflowRecord"],
+    resolveWorkflowReference: typeof value.resolveWorkflowReference === "function"
+      ? value.resolveWorkflowReference as FastflowRuntimeApi["resolveWorkflowReference"]
+      : undefined,
+    resolveWorkflowTupleReference: typeof value.resolveWorkflowTupleReference === "function"
+      ? value.resolveWorkflowTupleReference as FastflowRuntimeApi["resolveWorkflowTupleReference"]
+      : undefined,
+    bindNativeWorkflow: bindNativeWorkflow as FastflowRuntimeApi["bindNativeWorkflow"],
+  };
+}
+
+export function normalizeLoopshipWorkflowRecord(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  const workflow = isPlainObject(record.workflow)
+    ? normalizeLoopshipWorkflowDocument(record.workflow)
+    : record.workflow;
+  return { ...record, workflow };
+}
+
+function normalizeLoopshipWorkflowDocument(
+  workflow: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalized = structuredClone(workflow);
+  normalized.steps = normalizeLoopshipWorkflowSteps(normalized.steps, normalized);
+  rewriteLoopshipWorkflowReferences(normalized.steps);
+  return normalized;
+}
+
+function rewriteLoopshipWorkflowReferences(value: unknown): void {
+  if (Array.isArray(value)) {
+    value.forEach(rewriteLoopshipWorkflowReferences);
+    return;
+  }
+  if (!isPlainObject(value)) return;
+  if (typeof value.call === "string" && value.call.startsWith("external.workflow.")) {
+    value.call = `loopship.${value.call.slice("external.".length)}`;
+  }
+  if (isPlainObject(value.workflow_ref) && value.workflow_ref.registry === "external") {
+    value.workflow_ref.registry = LOOPSHIP_WORKFLOW_REGISTRY;
+  }
+  Object.values(value).forEach(rewriteLoopshipWorkflowReferences);
+}
+
+function normalizeLoopshipWorkflowSteps(
+  value: unknown,
+  workflow: Record<string, unknown> | null = null,
+): unknown[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((stepValue) => {
+    if (!isPlainObject(stepValue)) return stepValue;
+    const step = normalizeLoopshipWorkflowStep({ step: stepValue, workflow });
+    const action = isPlainObject(step.action) ? step.action : null;
+    if (!action) return step;
+    if (action.kind === "do" || action.kind === "for") {
+      action.steps = normalizeLoopshipWorkflowSteps(action.steps, workflow);
+    } else if (action.kind === "try") {
+      action.try_steps = normalizeLoopshipWorkflowSteps(action.try_steps, workflow);
+      if (isPlainObject(action.catch)) {
+        action.catch.steps = normalizeLoopshipWorkflowSteps(action.catch.steps, workflow);
+      }
+    }
+    return step;
+  });
+}
+
+function resolveLoopshipCatalogWorkflowPath(
+  catalogRoot: string,
+  workflowRef: Record<string, unknown>,
+  channel = "stable",
+): string {
+  const callId = String(workflowRef.call_id || "").trim();
+  const parts = callId.split(".");
+  if (
+    parts.length !== 5 ||
+    parts[0] !== LOOPSHIP_WORKFLOW_REGISTRY ||
+    parts[1] !== "workflow" ||
+    parts[2] !== LOOPSHIP_WORKFLOW_TARGET ||
+    !parts[3] ||
+    !parts[4]
+  ) {
+    throw new Error(`Loopship workflow reference '${callId}' is not a catalog workflow call`);
+  }
+  const fileName = (name: string, selectedChannel: string) =>
+    `${name.replace(/_/g, "-")}.${selectedChannel}.yaml`;
+  const channels = channel === "dev" ? ["dev", "stable"] : ["stable"];
+  for (const selectedChannel of channels) {
+    const candidate = resolve(
+      catalogRoot,
+      LOOPSHIP_WORKFLOW_REGISTRY,
+      "workflow",
+      LOOPSHIP_WORKFLOW_TARGET,
+      parts[3],
+      fileName(parts[4], selectedChannel),
+    );
+    const candidateRelative = relative(catalogRoot, candidate).split("\\").join("/");
+    if (
+      !candidateRelative ||
+      candidateRelative.startsWith("../") ||
+      isAbsolute(candidateRelative) ||
+      !existsSync(candidate)
+    ) {
+      continue;
+    }
+    return candidate;
+  }
+  throw new Error(`Loopship workflow '${callId}' was not found in '${catalogRoot}'`);
+}
+
+async function loadLoopshipCatalogWorkflowRecord(
+  api: FastflowRuntimeApi,
+  catalogRoot: string,
+  workflowRef: Record<string, unknown>,
+  channel = "stable",
+): Promise<Record<string, unknown>> {
+  const filePath = resolveLoopshipCatalogWorkflowPath(catalogRoot, workflowRef, channel);
+  const loaded = await api.loadWorkflowRecord(
+    filePath,
+    "external",
+    String(workflowRef.call_id || ""),
+  );
+  const callId = String(workflowRef.call_id || "");
+  const summary = isPlainObject(loaded.summary)
+    ? { ...loaded.summary, id: callId, reference: callId, store: "mounted" }
+    : loaded.summary;
+  return normalizeLoopshipWorkflowRecord({
+    ...loaded,
+    store: "mounted",
+    reference: callId,
+    sourceReference: callId,
+    workflow_call_id: callId,
+    ...(summary ? { summary } : {}),
+  });
+}
+
+const LOOPSHIP_CATALOG_SIGNER_ID = "loopship";
+const LOOPSHIP_CATALOG_SIGNING_ENV = "LOOPSHIP_CATALOG_SIGNING_KEY";
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+const ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+
+/**
+ * Sign freshly built Loopship catalog bundles with the operator-supplied
+ * Ed25519 key from LOOPSHIP_CATALOG_SIGNING_KEY (raw base64 key bytes).
+ * The signing key never persists to disk; it is read for one signature and
+ * then released. The public half of the same key becomes the trust root,
+ * which the scheduler admits through the producer production policy.
+ */
+function derivedPublicKeyBytes(rawPrivateKeyBytes: Buffer): Buffer {
+  // Ed25519 public keys are not derivable from raw private bytes in Node's
+  // crypto workspace, so the verifier key is always derived from the signing
+  // key at signing time: createPrivateKey + export() the public half, then
+  // keep only its raw 32 bytes. This is the sole source of trust roots.
+  const { createPrivateKey, createPublicKey } = require("node:crypto") as {
+    createPrivateKey: (input: Record<string, unknown>) => unknown;
+    createPublicKey: (input: unknown) => { export: (input: Record<string, unknown>) => Buffer };
+  };
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, rawPrivateKeyBytes]),
+    format: "der",
+    type: "pkcs8",
+  });
+  const derivedPublicKey = createPublicKey(privateKey as never);
+  const spki = derivedPublicKey.export({ format: "der", type: "spki" });
+  const raw = spki.subarray(-32);
+  if (raw.length !== 32) {
+    throw new Error("derived Ed25519 public key is malformed");
+  }
+  return Buffer.from(raw);
+}
+
+/**
+ * Resolve the catalog signing key material. Operators supply
+ * LOOPSHIP_CATALOG_SIGNING_KEY as raw Ed25519 private-key bytes in base64.
+ * Integration fixtures and tests that never reach a durable authority (for
+ * example the lifecycle promotion tool and unit-level catalog checks) pass
+ * an explicit ephemeral key through this caller-controlled seam instead of
+ * ambient environment state. The signed-content guarantee is unchanged: a
+ * bundle is always signed, and the scheduler admits it only through the
+ * matching production trust policy.
+ */
+export function resolveLoopshipCatalogSigningKey(
+  explicit?: string | null,
+): Buffer {
+  const rawKey = String(
+    explicit ?? process.env[LOOPSHIP_CATALOG_SIGNING_ENV] ?? "",
+  ).trim();
+  if (!rawKey) {
+    throw new Error(
+      `catalog signing requires ${LOOPSHIP_CATALOG_SIGNING_ENV} (raw Ed25519 private key in base64) or an ephemeral key from the caller; Loopship catalogs are signed content and cannot be admitted unsigned`,
+    );
+  }
+  const keyBytes = Buffer.from(rawKey, "base64");
+  if (keyBytes.length !== 32 || keyBytes.toString("base64") !== rawKey) {
+    throw new Error(`${LOOPSHIP_CATALOG_SIGNING_ENV} must be canonical base64 for a raw Ed25519 key`);
+  }
+  return keyBytes;
+}
+
+export function requireLoopshipCatalogTrustSigningPayload(
+  { payload }: { payload: string },
+  signingKey?: string | null,
+): Array<Record<string, unknown>> {
+  const keyBytes = resolveLoopshipCatalogSigningKey(signingKey);
+  const { sign, createPrivateKey } = require("node:crypto") as {
+    sign: (algorithm: null, data: Buffer, key: unknown) => Buffer;
+    createPrivateKey: (input: Record<string, unknown>) => unknown;
+  };
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, keyBytes]),
+    format: "der",
+    type: "pkcs8",
+  });
+  return [{
+    kind: "release-signature",
+    signerId: LOOPSHIP_CATALOG_SIGNER_ID,
+    algorithm: "Ed25519",
+    signature: sign(null, Buffer.from(payload), privateKey).toString("base64"),
+  }];
+}
+
+export function createLoopshipCatalogTrustPolicy(
+  { signerId = LOOPSHIP_CATALOG_SIGNER_ID, signingKey = null }: {
+    signerId?: string;
+    signingKey?: string | null;
+  } = {},
+): { mode: "production"; trustedSignerIds: string[]; verifyEvidence: (input: Record<string, unknown>) => boolean } {
+  const keyBytes = resolveLoopshipCatalogSigningKey(signingKey);
+  const { createPublicKey, verify } = require("node:crypto") as {
+    createPublicKey: (input: Record<string, unknown>) => { toString: (format: string) => string };
+    verify: (algorithm: null, data: Buffer, key: unknown, signature: Buffer) => boolean;
+  };
+  const publicKey = createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, derivedPublicKeyBytes(keyBytes)]),
+    format: "der",
+    type: "spki",
+  });
+  return {
+    mode: "production",
+    trustedSignerIds: [signerId],
+    verifyEvidence({ evidence, payload }: Record<string, unknown>) {
+      const candidate = evidence as Record<string, unknown> | null;
+      if (!candidate || candidate.kind !== "release-signature" || candidate.algorithm !== "Ed25519" || typeof candidate.signature !== "string") return false;
+      if (candidate.signerId !== signerId) return false;
+      const signature = Buffer.from(candidate.signature, "base64");
+      if (signature.length !== 64 || signature.toString("base64") !== candidate.signature) return false;
+      try {
+        return verify(null, Buffer.from(payload as string), publicKey, signature);
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+export async function prepareLoopshipFastflowCatalog({
+  fastflowRoot,
+  fastflowApi = null,
+  catalogRoot = LOOPSHIP_CALL_CATALOG_ROOT,
+  workspaceRoot = LOOPSHIP_ROOT,
+  signingKey = null,
+}: {
+  fastflowRoot: string;
+  fastflowApi?: Record<string, unknown> | null;
+  catalogRoot?: string;
+  workspaceRoot?: string;
+  signingKey?: string | null;
+}): Promise<LoopshipFastflowCatalogRuntime> {
+  const loadedApi = fastflowApi || await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href,
+  );
+  const api = resolveFastflowRuntimeApi(loadedApi);
+  const buildFilesystemCatalogBundle = typeof loadedApi.buildFilesystemCatalogBundle === "function"
+    ? loadedApi.buildFilesystemCatalogBundle as BuildFilesystemCatalogBundle
+    : (await import(
+      pathToFileURL(resolve(fastflowRoot, "src", "lib", "catalog-bundle-filesystem.mjs")).href,
+    )).buildFilesystemCatalogBundle as BuildFilesystemCatalogBundle;
+  const createMemoryCatalogBundleRegistry = requireFastflowFunction<() => CatalogBundleRegistry>(
+    loadedApi,
+    "createMemoryCatalogBundleRegistry",
+  );
+  const createCatalogBundleMountResolver = requireFastflowFunction<(
+    input: { registry: CatalogBundleRegistry; mounts: RegistryMountTable },
+  ) => CatalogBundleMountResolver>(
+    loadedApi,
+    "createCatalogBundleMountResolver",
+  );
+  const createRegistryMountTable = requireFastflowFunction<(
+    entries: Array<{ registryId: string; bundleDigest: string }>,
+  ) => RegistryMountTable>(
+    loadedApi,
+    "createRegistryMountTable",
+  );
+  const workflowPath = resolve(
+    catalogRoot,
+    LOOPSHIP_WORKFLOW_REGISTRY,
+    "workflow",
+    LOOPSHIP_WORKFLOW_TARGET,
+    LOOPSHIP_FLOW_SCOPE,
+    "swe.stable.yaml",
+  );
+  const normalizedRootRecord = await loadLoopshipCatalogWorkflowRecord(
+    api,
+    catalogRoot,
+    { registry: LOOPSHIP_WORKFLOW_REGISTRY, call_id: loopshipFlowWorkflowRef("swe") },
+  );
+  const bindOptions: Record<string, unknown> = {
+    workspaceRoot,
+  };
+  const resolveWorkflowTupleReference = api.resolveWorkflowTupleReference;
+  bindOptions.resolveWorkflowRecord = async (
+    workflowRef: Record<string, unknown>,
+    nestedWorkspaceRoot: string,
+    options: Record<string, unknown> = {},
+  ) => {
+    if (
+      workflowRef.registry === LOOPSHIP_WORKFLOW_REGISTRY ||
+      workflowRef.registry === "external"
+    ) {
+      const loopshipWorkflowRef = workflowRef.registry === LOOPSHIP_WORKFLOW_REGISTRY
+        ? workflowRef
+        : { ...workflowRef, registry: LOOPSHIP_WORKFLOW_REGISTRY };
+      const normalized = await loadLoopshipCatalogWorkflowRecord(
+        api,
+        catalogRoot,
+        loopshipWorkflowRef,
+        typeof options.channel === "string" ? options.channel : undefined,
+      );
+      if (workflowRef.range) {
+        normalized.invocation_range = structuredClone(workflowRef.range);
+      }
+      return normalized;
+    }
+    if (resolveWorkflowTupleReference) {
+      const resolved = await resolveWorkflowTupleReference(
+        workflowRef,
+        nestedWorkspaceRoot,
+        { channel: options.channel },
+      );
+      const normalized = normalizeLoopshipWorkflowRecord(resolved);
+      if (workflowRef.range) {
+        normalized.invocation_range = structuredClone(workflowRef.range);
+      }
+      return normalized;
+    }
+    throw new Error(`Fastflow cannot resolve workflow registry '${String(workflowRef.registry || "")}'`);
+  };
+  const digestAfnContract = requireFastflowFunction<LoopshipFastflowPortApi["digestAfnContract"]>(
+    loadedApi,
+    "digestAfnContract",
+  );
+  bindOptions.resolveCallDescriptor = ({ call }: { call: string }) => {
+    const descriptor = DESCRIPTOR_BY_CALL.get(call);
+    if (!descriptor) {
+      if (call.startsWith("loopship.afn.")) {
+        throw new Error(`Loopship catalog has no AFN descriptor for '${call}'`);
+      }
+      return null;
+    }
+    return {
+      ...clone(descriptor),
+      contractDigest: loopshipAfnContractDigest(descriptor, digestAfnContract),
+    };
+  };
+  const binding = await api.bindNativeWorkflow(
+    normalizedRootRecord,
+    bindOptions,
+  );
+  const sourcePathForBindingEntry = async (entry: {
+    callId: string;
+    version: string;
+    digest: string;
+  }): Promise<string> => {
+    const filePath = entry.digest === binding.rootDigest
+      ? workflowPath
+      : resolveLoopshipCatalogWorkflowPath(catalogRoot, {
+          registry: LOOPSHIP_WORKFLOW_REGISTRY,
+          call_id: entry.callId,
+          version: entry.version,
+          digest: entry.digest,
+        });
+    const sourcePath = relative(catalogRoot, filePath).split("\\").join("/");
+    if (!sourcePath || sourcePath.startsWith("../") || isAbsolute(sourcePath)) {
+      throw new Error(
+        `Loopship workflow '${entry.callId}@${entry.version}' is outside catalog root '${catalogRoot}'`,
+      );
+    }
+    return sourcePath;
+  };
+  const bindingRecords = Array.isArray(binding.records)
+    ? binding.records as Array<{
+        callId: string;
+        version: string;
+        digest: string;
+        record: Record<string, unknown>;
+      }>
+    : [];
+  const rootBindingRecord = bindingRecords.find((entry) =>
+    entry.digest === String(binding.rootDigest));
+  if (!rootBindingRecord) {
+    throw new Error("Loopship native binding has no root workflow record");
+  }
+  const workflowBindings = [] as Array<{
+    binding: WorkflowIrBinding;
+    sourcePath: string;
+  }>;
+  for (const entry of bindingRecords) {
+    const isRoot = entry.digest === binding.rootDigest;
+    const childBindingContent = {
+      schemaVersion: binding.schemaVersion,
+      rootDigest: entry.digest,
+      records: binding.records,
+      calls: binding.calls,
+    };
+    workflowBindings.push({
+      binding: (isRoot
+        ? binding
+        : {
+            ...childBindingContent,
+            bindingDigest: digestNativeContract(childBindingContent as unknown as JsonValue),
+          }) as unknown as WorkflowIrBinding,
+      sourcePath: await sourcePathForBindingEntry({
+        callId: entry.callId,
+        version: entry.version,
+        digest: entry.digest,
+      }),
+    });
+  }
+  const placeholderDigest = `sha256:${"0".repeat(64)}`;
+  const placeholderMounts = createRegistryMountTable([
+    { registryId: LOOPSHIP_WORKFLOW_REGISTRY, bundleDigest: placeholderDigest },
+  ]);
+  const built = await buildFilesystemCatalogBundle({
+    registryId: LOOPSHIP_WORKFLOW_REGISTRY,
+    catalogRoot,
+    releaseVersion: PACKAGE_JSON.version || "0.0.0",
+    registryMounts: placeholderMounts,
+    workflowBindings,
+    afnContracts: LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => ({
+      contract: createLoopshipAfnContract(
+        descriptor,
+        requireFastflowFunction<LoopshipFastflowPortApi["digestAfnContract"]>(loadedApi, "digestAfnContract"),
+      ),
+    })),
+    signPayload: (input: { payload: string }) =>
+      requireLoopshipCatalogTrustSigningPayload(input, signingKey),
+  });
+  const registry = createMemoryCatalogBundleRegistry();
+  await registry.registerCatalogBundle({
+    bytes: built.bytes,
+    expectedDigest: built.bundle.bundleDigest,
+    trustPolicy: { mode: "local-development" },
+  });
+  const mounts = createRegistryMountTable([
+    {
+      registryId: LOOPSHIP_WORKFLOW_REGISTRY,
+      bundleDigest: built.bundle.bundleDigest,
+    },
+  ]);
+  const resolver = createCatalogBundleMountResolver({ registry, mounts });
+  return Object.freeze({
+    registry,
+    mounts,
+    resolver,
+    bundleDigest: built.bundle.bundleDigest,
+    bytes: built.bytes,
+  });
+}
+
 function runFastflowSession(input: {
   repoRoot: string;
   workspaceRoot?: string;
@@ -1381,6 +2037,11 @@ function runFastflowSession(input: {
   const requestPath = join(tempDir, "request.json");
   const scriptPath = join(tempDir, "run.mjs");
   const fastflowRoot = resolveLoopshipFastflowRoot();
+  const selectedFastflowPackage = JSON.parse(
+    readFileSync(resolve(fastflowRoot, "package.json"), "utf8"),
+  ) as { name?: string };
+  const selectedFastflowIsTestDouble =
+    selectedFastflowPackage.name !== "@cueintent/fastflow";
   const workspaceRoot = resolve(input.workspaceRoot || input.repoRoot);
   writeFileSync(requestPath, JSON.stringify(input.request), "utf8");
   writeFileSync(
@@ -1388,38 +2049,80 @@ function runFastflowSession(input: {
     `
       import { readFileSync } from "node:fs";
       import * as Fastflow from ${JSON.stringify(pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href)};
+      import { configureFastflowRuntime } from ${JSON.stringify(pathToFileURL(resolve(fastflowRoot, "src", "lib", "runtime-shell.mjs")).href)};
       import {
+        createLoopshipCatalogTrustPolicy,
         LOOPSHIP_CALL_CATALOG_ROOT,
         LOOPSHIP_SUPERVISOR_GUIDANCE,
         LOOPSHIP_WORKFLOW_RESUME_COMMAND,
-        createLoopshipFastflowAdapters,
+        createLoopshipRuntimeIntegrations,
+        prepareLoopshipFastflowCatalog,
+        resolveLoopshipCatalogSigningKey,
       } from ${JSON.stringify(pathToFileURL(fileURLToPath(import.meta.url)).href)};
 
       const request = JSON.parse(readFileSync(process.argv[2], "utf8"));
       try {
         process.env.LOOPSHIP_WORKSPACE_ROOT = ${JSON.stringify(workspaceRoot)};
-        Fastflow.configureFastflowApp({
+        // Client sessions stamp/verify catalogs with the same production
+        // policy the signed scheduler admits; the trust root is the public
+        // half of the signing key, so client and authority agree without
+        // sharing trust roots over disk.
+        const catalogTrustPolicy = ${selectedFastflowIsTestDouble ? "null" : "createLoopshipCatalogTrustPolicy()"};
+        const catalogSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY
+          ? process.env.LOOPSHIP_CATALOG_SIGNING_KEY
+          : null;
+        const baseRuntime = createLoopshipRuntimeIntegrations(${selectedFastflowIsTestDouble ? "" : "Fastflow"});
+        const catalog = ${selectedFastflowIsTestDouble ? "null" : `await prepareLoopshipFastflowCatalog({
+          fastflowRoot: ${JSON.stringify(fastflowRoot)},
+          fastflowApi: Fastflow,
+          catalogRoot: ${JSON.stringify(input.catalogRoot)},
+          workspaceRoot: ${JSON.stringify(workspaceRoot)},
+          signingKey: catalogSigningKey,
+        })`};
+        // verify the freshly compiled catalog under the production policy
+        // before submitting any harness against it. The test double has no
+        // real catalog, so verification is skipped there — this keeps the
+        // synthetic-failure tests exercising the submission path instead
+        // of failing at catalog admission.
+        if (catalog) {
+        const verifiedCatalog = await Fastflow.verifyCatalogBundle({
+          bytes: catalog.bytes,
+          expectedDigest: catalog.bundleDigest,
+          trustPolicy: catalogTrustPolicy,
+        });
+        if (!verifiedCatalog || verifiedCatalog.bundleDigest !== catalog.bundleDigest) {
+          throw new Error("compiled Loopship catalog failed production trust verification");
+        }
+        }
+        const hostRuntime = configureFastflowRuntime({
           appName: "loopship",
-          systemWorkflowsDir: ${JSON.stringify(input.catalogRoot)},
-          callCatalogRoots: [${JSON.stringify(input.catalogRoot)}, LOOPSHIP_CALL_CATALOG_ROOT],
           supervisorGuidance: LOOPSHIP_SUPERVISOR_GUIDANCE,
           workflowResumeCommand: LOOPSHIP_WORKFLOW_RESUME_COMMAND,
-          adapters: createLoopshipFastflowAdapters(),
+          integrations: {
+            ...baseRuntime,
+            ...(catalog
+              ? {
+                  catalogRegistry: catalog.registry,
+                  catalogMounts: catalog.mounts,
+                  catalogResolver: catalog.resolver,
+                }
+              : {}),
+          },
         });
         const operation = ${JSON.stringify(input.operation)};
         let result;
         if (operation === "run") {
-          result = await Fastflow.executeFastflowWorkflowRunRequest(request);
+          result = await Fastflow.executeFastflowWorkflowRunRequest(request, hostRuntime);
         } else if (operation === "resume") {
-          result = await Fastflow.executeFastflowWorkflowResumeRequest(request);
+          result = await Fastflow.executeFastflowWorkflowResumeRequest(request, hostRuntime);
         } else {
           try {
             result = await Fastflow.executeFastflowWorkflowRecoverRequest({
               executionId: request.executionId,
-            });
+            }, hostRuntime);
           } catch (error) {
             if (error?.code !== "FASTFLOW_EXECUTION_NOT_FOUND") throw error;
-            result = await Fastflow.executeFastflowWorkflowRunRequest(request);
+            result = await Fastflow.executeFastflowWorkflowRunRequest(request, hostRuntime);
           }
         }
         await new Promise((resolve) => process.stdout.write(JSON.stringify(result) + "\\n", resolve));
@@ -1503,7 +2206,7 @@ function fastflowChildError(
   const guidance = failure.code === "FASTFLOW_PLAN_INCOMPATIBLE"
     ? ` ${executionId} is pinned to a different runtime closure. Restore the exact prior Loopship/Fastflow release to finish or cancel it, then deploy this release and resubmit as a new Native execution.`
     : failure.code === "legacy_execution_unsupported"
-      ? " Legacy executions are unsupported and must be resubmitted as new Native v1 executions."
+      ? " Legacy executions are unsupported and must be resubmitted as new Fastflow executions."
       : "";
   return Object.assign(new Error(`${failure.message}${guidance}`), {
     code: failure.code,
@@ -3048,6 +3751,9 @@ type LoopshipLandingOperation = {
 
 type LoopshipAfnEffectContext = {
   landingRecoverySnapshot?: LoopshipLandingRecoverySnapshot;
+  executorBinding?: Record<string, unknown>;
+  nativeExecutionId?: string;
+  nativeInvocationId?: string;
 };
 
 function resolveLoopshipLandingOperation(
@@ -3380,6 +4086,356 @@ function executeLandingCleanupLandedWorktrees(body: Record<string, unknown>): Re
   });
 }
 
+const LOOPSHIP_WORKFLOW_SCRIPT_ARG_NAMES = [
+  "inputs",
+  "state",
+  "env",
+  "workflow",
+  "step",
+  "identity",
+  "action",
+  "post",
+  "args",
+] as const;
+
+async function executeLoopshipWorkflowScript(
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const mode = requireString(body.mode, "workflow script mode");
+  const source = requireString(body.source, "workflow script source");
+  const workflowScriptRunner = await import(
+    pathToFileURL(resolve(resolveLoopshipFastflowRoot(), "src", "lib", "workflow-script-runner.mjs")).href,
+  ) as unknown as {
+    runSandboxedWorkflowScript(input: Record<string, unknown>): Promise<unknown>;
+  };
+  const value = await workflowScriptRunner.runSandboxedWorkflowScript({
+    label: `loopship workflow ${mode}`,
+    source,
+    timeoutMs: Number.isInteger(body.timeout_ms) ? Number(body.timeout_ms) : undefined,
+    argNames: [...LOOPSHIP_WORKFLOW_SCRIPT_ARG_NAMES],
+    args: LOOPSHIP_WORKFLOW_SCRIPT_ARG_NAMES.map((name) => body[name]),
+  });
+  if (mode === "action") {
+    return { ok: true, value: value as JsonValue };
+  }
+  if (isPlainObject(value)) return value;
+  return { ok: Boolean(value), value: value as JsonValue };
+}
+
+async function executeLoopshipWorkflowInference(
+  body: Record<string, unknown>,
+  effectContext: LoopshipAfnEffectContext = {},
+): Promise<Record<string, unknown>> {
+  const fastflowRoot = resolveLoopshipFastflowRoot();
+  const inferenceModule = await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "lib", "inference-action.mjs")).href,
+  ) as unknown as {
+    executeInferenceAction(input: Record<string, unknown>): Promise<{
+      kind: string;
+      actionResult?: Record<string, unknown> | null;
+      pending?: Record<string, unknown> | null;
+    }>;
+  };
+  const workflow = isPlainObject(body.workflow)
+    ? body.workflow
+    : { name: "loopship", metadata: {} };
+  const step = isPlainObject(body.step)
+    ? body.step
+    : { id: "inference" };
+  const resolvedAction = {
+    inference_ref: requireString(body.inference_ref, "inference_ref"),
+    ...(typeof body.message === "string" ? { message: body.message } : {}),
+    ...(typeof body.instruction === "string" ? { instruction: body.instruction } : {}),
+    ...(Object.prototype.hasOwnProperty.call(body, "request_schema")
+      ? { request_schema: body.request_schema }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(body, "decision_schema")
+      ? { decision_schema: body.decision_schema }
+      : {}),
+    ...(isPlainObject(body.request_builder)
+      ? { request_builder: body.request_builder }
+      : {}),
+    ...(Number.isInteger(body.timeout_ms) ? { timeout_ms: Number(body.timeout_ms) } : {}),
+  };
+  const context = {
+    inputs: isPlainObject(body.inputs) ? body.inputs : {},
+    args: isPlainObject(body.args) ? body.args : body.inputs || {},
+    state: isPlainObject(body.state) ? body.state : {},
+    env: isPlainObject(body.env) ? body.env : {},
+    ...(typeof body.native_execution_id === "string"
+      ? { nativeExecutionId: body.native_execution_id }
+      : {}),
+    ...(typeof body.native_invocation_id === "string"
+      ? { nativeInvocationId: body.native_invocation_id }
+      : {}),
+    ...(typeof effectContext.nativeExecutionId === "string"
+      ? { nativeExecutionId: effectContext.nativeExecutionId }
+      : {}),
+    ...(typeof effectContext.nativeInvocationId === "string"
+      ? { nativeInvocationId: effectContext.nativeInvocationId }
+      : {}),
+  };
+  const runtime = {
+    ...(isPlainObject(body.runtime) ? body.runtime : {}),
+    ...(effectContext.executorBinding
+      ? { executionBinding: clone(effectContext.executorBinding) }
+      : {}),
+  };
+  const materializeRequestPayloadFn = async ({
+    context: requestContext,
+    resolvedAction: action,
+  }: {
+    context?: Record<string, unknown>;
+    resolvedAction?: Record<string, unknown>;
+  }) => {
+    const builder = action?.request_builder;
+    if (!isPlainObject(builder) || builder.kind !== "js" || typeof builder.code !== "string") {
+      return {};
+    }
+    const using = Array.isArray(builder.using) ? builder.using : [];
+    const args = using.map((name) => {
+      switch (name) {
+        case "inputs": return clone(requestContext?.inputs || requestContext?.args || {});
+        case "state": return clone(requestContext?.state || {});
+        case "env": return clone(requestContext?.env || {});
+        case "workflow": return clone({
+          name: workflow.name || null,
+          namespace: workflow.namespace || null,
+          version: workflow.version || null,
+        });
+        case "step": return clone({ id: step.id || null, description: step.description || null });
+        case "args": return clone(requestContext?.args || requestContext?.inputs || {});
+        default: throw new Error(`Unsupported inference request builder binding '${String(name)}'`);
+      }
+    });
+    const runner = await import(
+      pathToFileURL(resolve(fastflowRoot, "src", "lib", "workflow-script-runner.mjs")).href,
+    ) as unknown as {
+      runSandboxedWorkflowScript(input: Record<string, unknown>): Promise<unknown>;
+    };
+    return runner.runSandboxedWorkflowScript({
+      label: `request.build for step ${String(step.id || "inference")}`,
+      source: builder.code,
+      argNames: using,
+      args,
+      timeoutMs: Number.isInteger(builder.timeout_ms)
+        ? Number(builder.timeout_ms)
+        : resolvedAction?.timeout_ms,
+    });
+  };
+  const outcome = await inferenceModule.executeInferenceAction({
+    runtime,
+    workflow,
+    step,
+    context,
+    resolvedAction,
+    logger: null,
+    runCheckFn: async () => ({ ok: false }),
+    materializeRequestPayloadFn,
+  });
+  if (outcome.kind === "resolved") return outcome.actionResult || { ok: true };
+  if (outcome.kind === "pending") {
+    // The scheduler persists AFN decisions as portable JSON. The inference
+    // helper also returns its live relay control so an in-process workflow can
+    // close it, but that control contains functions and must never cross the
+    // AFN decision boundary. The durable pause carries the public session and
+    // resume data; the executor-local control remains private to the helper.
+    const pending = isPlainObject(outcome.pending)
+      ? { ...outcome.pending }
+      : outcome.pending;
+    if (isPlainObject(pending)) delete pending.control;
+    return {
+      ...(outcome.actionResult || {}),
+      __fastFlowPendingInference: pending,
+    };
+  }
+  if (outcome.actionResult && isPlainObject(outcome.actionResult)) {
+    return outcome.actionResult;
+  }
+  throw new Error(`Inference execution was ${outcome.kind}.`);
+}
+
+function loopshipWorkflowScriptContext(
+  { check = false }: { check?: boolean } = {},
+): Record<string, unknown> {
+  return {
+    inputs: "${inputs}",
+    state: "${state}",
+    env: {},
+    workflow: {},
+    step: {},
+    identity: {},
+    action: check ? "${action}" : "${result}",
+    post: check ? "${post}" : "${result}",
+    args: "${args}",
+  };
+}
+
+function normalizeLoopshipScriptCheck(check: unknown): unknown {
+  if (!isPlainObject(check) || check.kind !== "js" || typeof check.expression !== "string") {
+    return check;
+  }
+  return {
+    kind: "call",
+    call: LOOPSHIP_AFN_CALLS.workflowExecuteScript,
+    with: {
+      body: {
+        mode: "check",
+        source: check.expression,
+        ...(check.timeoutMs !== undefined ? { timeout_ms: check.timeoutMs } : {}),
+        ...loopshipWorkflowScriptContext({ check: true }),
+      },
+    },
+  };
+}
+
+function normalizeLoopshipVerification(verification: unknown): unknown {
+  if (!isPlainObject(verification) || !Array.isArray(verification.assertions)) {
+    return verification;
+  }
+  return {
+    ...verification,
+    assertions: verification.assertions.map((assertion) => {
+      if (!isPlainObject(assertion) || !isPlainObject(assertion.check)) return assertion;
+      const check = assertion.check;
+      const script = isPlainObject(check.script)
+        ? check.script
+        : check.kind === "js"
+          ? check
+          : null;
+      if (!script || typeof script.code !== "string" || !script.code.trim()) {
+        return assertion;
+      }
+      return {
+        ...assertion,
+        check: {
+          call: LOOPSHIP_AFN_CALLS.workflowExecuteScript,
+          with: {
+            body: {
+              mode: "check",
+              source: script.code,
+              ...(script.timeoutMs !== undefined ? { timeout_ms: script.timeoutMs } : {}),
+              ...loopshipWorkflowScriptContext({ check: true }),
+            },
+          },
+        },
+      };
+    }),
+  };
+}
+
+function normalizeLoopshipWorkflowStep({
+  step,
+  workflow = null,
+}: {
+  step: Record<string, unknown>;
+  workflow?: Record<string, unknown> | null;
+}): Record<string, unknown> {
+  const normalized = structuredClone(step);
+  const action = isPlainObject(normalized.action) ? normalized.action : null;
+  const workflowMetadata = isPlainObject(workflow?.metadata)
+    ? workflow.metadata
+    : {};
+  const inferenceMetadata = isPlainObject(workflowMetadata.inference)
+    ? { inference: structuredClone(workflowMetadata.inference) }
+    : {};
+  const inferenceWorkflowContext = {
+    name: workflow?.name || null,
+    namespace: workflow?.namespace || null,
+    version: workflow?.version || null,
+    metadata: inferenceMetadata,
+  };
+  if (action?.kind === "run" && isPlainObject(action.run) && isPlainObject(action.run.script)) {
+    const script = action.run.script;
+    if (typeof script.code === "string" && script.code.trim()) {
+      normalized.action = {
+        kind: "extension",
+        call: LOOPSHIP_AFN_CALLS.workflowExecuteScript,
+        with: {
+          body: {
+            mode: "action",
+            source: script.code,
+            ...(script.timeoutMs !== undefined ? { timeout_ms: script.timeoutMs } : {}),
+            ...loopshipWorkflowScriptContext(),
+          },
+        },
+      };
+    }
+  }
+  if (action?.kind === "inference") {
+    const inferenceAction = action;
+    normalized.action = {
+      kind: "extension",
+      call: LOOPSHIP_AFN_CALLS.workflowInfer,
+      with: {
+        body: {
+          inference_ref: requireString(inferenceAction.inference_ref, "inference_ref"),
+          ...(typeof inferenceAction.message === "string"
+            ? { message: inferenceAction.message }
+            : {}),
+          ...(typeof inferenceAction.instruction === "string"
+            ? { instruction: inferenceAction.instruction }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(inferenceAction, "request_schema")
+            ? { request_schema: structuredClone(inferenceAction.request_schema) }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(inferenceAction, "decision_schema")
+            ? { decision_schema: structuredClone(inferenceAction.decision_schema) }
+            : {}),
+          ...(isPlainObject(inferenceAction.request_builder)
+            ? { request_builder: structuredClone(inferenceAction.request_builder) }
+            : {}),
+          ...(Number.isInteger(inferenceAction.timeout_ms)
+            ? { timeout_ms: Number(inferenceAction.timeout_ms) }
+            : {}),
+          inputs: "${inputs}",
+          state: "${state}",
+          args: "${args}",
+          workflow: inferenceWorkflowContext,
+          step: {
+            id: normalized.id || null,
+            description: normalized.description || null,
+          },
+          env: {},
+          identity: {},
+          action: "${result}",
+          post: "${result}",
+        },
+      },
+    };
+  } else if (
+    action?.kind === "extension" &&
+    action.call === LOOPSHIP_AFN_CALLS.workflowInfer
+  ) {
+    const existingWith = isPlainObject(action.with) ? action.with : {};
+    const existingBody = isPlainObject(existingWith.body) ? existingWith.body : {};
+    normalized.action = {
+      ...action,
+      with: {
+        ...existingWith,
+        body: {
+          ...existingBody,
+          workflow: inferenceWorkflowContext,
+        },
+      },
+    };
+  }
+  normalized.pre_condition_check = normalizeLoopshipScriptCheck(
+    normalized.pre_condition_check,
+  );
+  normalized.post_condition_check = normalizeLoopshipScriptCheck(
+    normalized.post_condition_check,
+  );
+  normalized.verification = normalizeLoopshipVerification(normalized.verification);
+  if (isPlainObject(normalized.runtime_metadata)) {
+    normalized.runtime_metadata = {
+      ...normalized.runtime_metadata,
+      verification: normalizeLoopshipVerification(normalized.runtime_metadata.verification),
+    };
+  }
+  return normalized;
+}
+
 type LoopshipAfnHandler = (
   body: Record<string, unknown>,
   context?: LoopshipAfnEffectContext,
@@ -3479,8 +4535,11 @@ function bindNativeEffectRequestId(
 
 function descriptorHasDurableEffects(descriptor: CallDescriptor): boolean {
   const effects = descriptor.metadata?.effects;
+  const requiredInputs = descriptor.inputs?.required;
   return (
     Array.isArray(effects) &&
+    Array.isArray(requiredInputs) &&
+    requiredInputs.includes("repo") &&
     effects.some((effect) => typeof effect === "string" && !effect.endsWith(".read"))
   );
 }
@@ -3549,7 +4608,7 @@ function readLoopshipAfnEffectReceipt(path: string): LoopshipAfnEffectReceipt | 
   }
   if (parsed.schemaVersion === "loopship.afn-effect-receipt/v1") {
     throw legacyExecutionUnsupported(
-      `AFN effect receipt v1 at ${path} cannot be interpreted; resubmit it as a new Native v1 execution`,
+      `AFN effect receipt v1 at ${path} cannot be interpreted; resubmit it as a new Fastflow execution`,
     );
   }
   if (parsed.schemaVersion !== LOOPSHIP_AFN_EFFECT_RECEIPT_SCHEMA) {
@@ -4113,6 +5172,7 @@ async function executeLoopshipAfnEffect(input: {
   invocation: { call: { callId: string }; effectKey: string };
   body: Record<string, unknown>;
   handler: LoopshipAfnHandler;
+  context?: LoopshipAfnEffectContext;
 }): Promise<Record<string, unknown>> {
   if (
     !descriptorHasDurableEffects(input.descriptor) ||
@@ -4120,7 +5180,7 @@ async function executeLoopshipAfnEffect(input: {
     (input.invocation.call.callId === LOOPSHIP_AFN_CALLS.runtimeCommitQuestState &&
       input.body.as_check === true)
   ) {
-    return input.handler(input.body);
+    return input.handler(input.body, input.context);
   }
   const repo = requireString(input.body.repo, "repo");
   const receiptPath = resolve(
@@ -4189,6 +5249,7 @@ async function executeLoopshipAfnEffect(input: {
         }
       }
       const output = await input.handler(input.body, {
+        ...(input.context || {}),
         ...(started.recoverySnapshot
           ? { landingRecoverySnapshot: started.recoverySnapshot }
           : {}),
@@ -4208,6 +5269,8 @@ async function executeLoopshipAfnEffect(input: {
 
 function createLoopshipAfnHandlerRegistry(): ReadonlyMap<string, LoopshipAfnHandler> {
   return new Map<string, LoopshipAfnHandler>([
+    [LOOPSHIP_AFN_CALLS.workflowExecuteScript, executeLoopshipWorkflowScript],
+    [LOOPSHIP_AFN_CALLS.workflowInfer, executeLoopshipWorkflowInference],
     [LOOPSHIP_AFN_CALLS.childPrepareWorktree, prepareLoopshipNativeChild],
     [LOOPSHIP_AFN_CALLS.childValidateDag, validateLoopshipChildDag],
     [LOOPSHIP_AFN_CALLS.childRecordLifecycle, recordLoopshipNativeChildLifecycle],
@@ -4221,8 +5284,47 @@ function createLoopshipAfnHandlerRegistry(): ReadonlyMap<string, LoopshipAfnHand
   ]);
 }
 
-function loopshipAfnHostRef(): NativeRef {
-  return { kind: "afn-host", ref: LOOPSHIP_AFN_HOST_ID };
+function createLoopshipAfnContract(
+  descriptor: CallDescriptor,
+  digestAfnContractImpl?: LoopshipFastflowPortApi["digestAfnContract"],
+): CatalogAfnContract {
+  const content = {
+    schemaVersion: "fastflow.afn-contract/v1",
+    callId: descriptor.call,
+    inputSchema: structuredClone(descriptor.inputs?.schema || {
+      type: "object",
+      additionalProperties: false,
+    }),
+    outputSchema: { type: "object" },
+    effects: [...new Set(descriptor.metadata?.effects || ["loopship"])].sort(),
+    grantRequirements: [],
+    // Worktree identity is derived from the invocation's canonical repo/wtree
+    // inputs by the executor binding. The binding supplies the typed handle at
+    // dispatch time, where its owning executor is known; the signed catalog
+    // contract remains portable across repositories and worktrees.
+    resourceRequirements: [],
+    qualifierSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    },
+    replayPolicy: "assigned-executor-only",
+  };
+  const contractDigest = digestNativeContract(content as unknown as JsonValue);
+  return Object.freeze({
+    ...content,
+    contractDigest: (digestAfnContractImpl || resolveLoopshipFastflowPortApi().digestAfnContract)({
+      ...content,
+      contractDigest,
+    }),
+  }) as unknown as CatalogAfnContract;
+}
+
+function loopshipAfnContractDigest(
+  descriptor: CallDescriptor,
+  digestAfnContractImpl?: LoopshipFastflowPortApi["digestAfnContract"],
+): string {
+  return String(createLoopshipAfnContract(descriptor, digestAfnContractImpl).contractDigest);
 }
 
 function prepareLoopshipAfnInvocation(
@@ -4250,22 +5352,91 @@ function prepareLoopshipAfnInvocation(
   return { descriptor, handler, body };
 }
 
-function createLoopshipAfnDispatchPort(): AfnDispatchPort {
+function createLoopshipAfnDispatchPort(
+  fastflowApi: Record<string, unknown> | null = null,
+): AfnDispatchPort {
+  const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
   const handlers = createLoopshipAfnHandlerRegistry();
   const activeInvocations = new Map<string, AfnInvocation>();
+  const executorBindings = new Map<string, Record<string, unknown>>();
+  const executorContexts = new Map<string, Pick<LoopshipAfnEffectContext, "nativeExecutionId" | "nativeInvocationId">>();
   const implementationDigest = String(
     loopshipAfnImplementationEvidence(
       LOOPSHIP_AFN_DESCRIPTORS[0]?.call || "loopship.afn.service.step.unknown",
     ).implementation_digest,
   );
-  const port = createAfnDispatchPort({
-    bind: async () => ({ affinityRefs: [loopshipAfnHostRef()] }),
-    routes: LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => ({
-      callId: descriptor.call,
-      contractDigest: digestCallContract(descriptor as unknown as JsonValue),
-      implementationDigest,
-      routeId: `loopship:host:${descriptor.call}`,
-      async handler(invocation): Promise<ExecutionDecision> {
+  const createDispatchPort = portApi.createAfnDispatchPort as unknown as (
+    input: Record<string, unknown>
+  ) => AfnDispatchPort;
+  const port = createDispatchPort({
+    executorNodeId: LOOPSHIP_EXECUTOR_NODE_ID,
+    sessionId: `loopship-executor-session-${LOOPSHIP_EXECUTOR_NODE_ID.split("/").at(-1)}`,
+    sessionEpoch: 1,
+    offerId: `loopship-executor-offer-${LOOPSHIP_EXECUTOR_NODE_ID.split("/").at(-1)}`,
+    bind: async (input: Parameters<AfnDispatchPort["bind"]>[0]) => {
+      const bindingContext = isPlainObject(input.bindingContext)
+        ? input.bindingContext
+        : {};
+      const executorBinding = bindingContext.runtimeBinding ||
+        bindingContext.executionBinding ||
+        null;
+      if (isPlainObject(executorBinding)) {
+        executorBindings.set(input.effectKey, clone(executorBinding));
+      }
+      const bindingContextState = isPlainObject(bindingContext.context)
+        ? bindingContext.context
+        : {};
+      const nativeExecutionId = typeof bindingContextState.nativeExecutionId === "string"
+        ? bindingContextState.nativeExecutionId
+        : null;
+      const nativeInvocationId = typeof bindingContextState.nativeInvocationId === "string"
+        ? bindingContextState.nativeInvocationId
+        : null;
+      if (nativeExecutionId || nativeInvocationId) {
+        executorContexts.set(input.effectKey, {
+          ...(nativeExecutionId ? { nativeExecutionId } : {}),
+          ...(nativeInvocationId ? { nativeInvocationId } : {}),
+        });
+      }
+      const descriptor = DESCRIPTOR_BY_CALL.get(String(input.call?.callId || ""));
+      const bindingInputs = {
+        ...bindingContext,
+        ...(isPlainObject(bindingContext.inputs) ? bindingContext.inputs : {}),
+        ...(isPlainObject(input.input) ? input.input : {}),
+      };
+      const binding = resolveLoopshipExecutionBinding({
+        inputs: bindingInputs,
+      });
+      return binding
+        ? {
+            bindingRefs: binding.bindingRefs,
+            resourceHandles: binding.resourceHandles,
+            ...(descriptor
+              ? { replayPolicy: createLoopshipAfnContract(descriptor, portApi.digestAfnContract).replayPolicy }
+              : {}),
+          }
+        : {
+            bindingRefs: [],
+            resourceHandles: [],
+            grants: [],
+            ...(descriptor
+              ? { replayPolicy: createLoopshipAfnContract(descriptor, portApi.digestAfnContract).replayPolicy }
+              : {}),
+          };
+    },
+    routes: LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => {
+      const contractDigest = loopshipAfnContractDigest(descriptor, portApi.digestAfnContract);
+      return {
+        callId: descriptor.call,
+        contractDigest,
+        descriptor: clone({
+          ...clone(descriptor),
+          contractDigest,
+        }) as unknown as JsonValue,
+        implementationDigest,
+        routeId: `loopship:executor:${descriptor.call}`,
+        replayPolicy: createLoopshipAfnContract(descriptor, portApi.digestAfnContract).replayPolicy,
+        async handler(invocation: AfnInvocation): Promise<ExecutionDecision> {
         const active = activeInvocations.get(invocation.invocationId);
         if (active) {
           const equivalent = nativeValuesMatch(active, invocation);
@@ -4291,6 +5462,14 @@ function createLoopshipAfnDispatchPort(): AfnDispatchPort {
             invocation,
             body: prepared.body,
             handler: prepared.handler,
+            context: executorBindings.has(invocation.effectKey)
+              ? {
+                  executorBinding: clone(executorBindings.get(invocation.effectKey)),
+                  ...(executorContexts.get(invocation.effectKey) || {}),
+                }
+              : executorContexts.has(invocation.effectKey)
+                ? { ...executorContexts.get(invocation.effectKey) }
+                : undefined,
           });
           return completedDecision({
             invocationId: invocation.invocationId,
@@ -4318,10 +5497,13 @@ function createLoopshipAfnDispatchPort(): AfnDispatchPort {
           if (activeInvocations.get(invocation.invocationId) === invocation) {
             activeInvocations.delete(invocation.invocationId);
           }
+          executorBindings.delete(invocation.effectKey);
+          executorContexts.delete(invocation.effectKey);
         }
-      },
-    })),
-    async cancel(request) {
+        },
+      };
+    }),
+    async cancel(request: Parameters<AfnDispatchPort["cancel"]>[0]) {
       const cancellation = request as typeof request & { attempt?: number };
       const active = activeInvocations.get(request.invocationId);
       if (!active) {
@@ -4330,6 +5512,8 @@ function createLoopshipAfnDispatchPort(): AfnDispatchPort {
           reason: "Loopship AFN invocation is not active on this host.",
         };
       }
+      const requestWithResources = request as typeof request & { resourceHandles?: unknown };
+      const activeWithResources = active as typeof active & { resourceHandles?: unknown };
       const exactIdentity =
         request.executionId === active.executionId &&
         request.nodeId === active.nodeId &&
@@ -4337,11 +5521,11 @@ function createLoopshipAfnDispatchPort(): AfnDispatchPort {
         request.effectKey === active.effectKey &&
         nativeValuesMatch(request.call, active.call) &&
         nativeValuesMatch(request.bindingRefs, active.bindingRefs) &&
-        nativeValuesMatch(request.affinityRefs, active.affinityRefs);
+        nativeValuesMatch(requestWithResources.resourceHandles, activeWithResources.resourceHandles);
       if (!exactIdentity) {
         return {
           accepted: false,
-          reason: "Loopship AFN cancellation identity does not match the active invocation.",
+          reason: "Loopship executor cancellation identity does not match the active invocation.",
         };
       }
       return {
@@ -4352,7 +5536,16 @@ function createLoopshipAfnDispatchPort(): AfnDispatchPort {
     },
   });
   return Object.freeze({
-    listRoutes: () => port.listRoutes(),
+    ...port,
+    listRoutes: () => port.listRoutes().map((route) => {
+      const descriptor = DESCRIPTOR_BY_CALL.get(route.callId);
+      return descriptor
+        ? {
+            ...route,
+            replayPolicy: createLoopshipAfnContract(descriptor, portApi.digestAfnContract).replayPolicy,
+          }
+        : route;
+    }),
     bind: (input: Parameters<AfnDispatchPort["bind"]>[0]) => port.bind(input),
     preflight(invocation: AfnInvocation) {
       prepareLoopshipAfnInvocation(invocation, handlers);
@@ -4373,9 +5566,17 @@ function createLoopshipAfnBindingPort(dispatchPort: AfnDispatchPort): Pick<
   });
 }
 
+type LoopshipExecutionBinding = {
+  schemaVersion: "loopship.execution-binding/v1";
+  repositoryRef: string;
+  worktreeRef: string;
+  bindingRefs: Array<{ kind: string; ref: string }>;
+  resourceHandles: Array<{ type: string; handleId: string }>;
+};
+
 function resolveLoopshipExecutionBinding(
   request: Record<string, unknown> = {},
-): Record<string, unknown> | null {
+): LoopshipExecutionBinding | null {
   const inputs = isPlainObject(request.inputs) ? request.inputs : {};
   const repoValue = inputs.repoRoot ?? inputs.repo;
   const wtreeValue = inputs.wtree;
@@ -4395,83 +5596,394 @@ function resolveLoopshipExecutionBinding(
     repositoryRef,
     worktreeRef,
     bindingRefs: [{ kind: "git-worktree", ref: worktreeRef }],
-    affinityRefs: [
-      loopshipAfnHostRef(),
-      { kind: "git-worktree", ref: worktreeRef },
-    ],
+    resourceHandles: [{ type: "git-worktree", handleId: worktreeRef }],
   };
 }
 
-export function createLoopshipFastflowAdapters(): Record<string, unknown> {
-  const adapterIdentity = PACKAGE_JSON.name || "@omar391/loopship";
-  const adapterVersion = PACKAGE_JSON.version || "0.0.0";
-  const dispatchPort = createLoopshipAfnDispatchPort();
+type LoopshipResourceLeaseManager = {
+  acquire(input: unknown): unknown;
+  release(input: unknown): unknown;
+};
+type LoopshipResourceLeaseAcquireInput = Parameters<LoopshipResourceLeaseManager["acquire"]>[0];
+type LoopshipResourceLeaseReleaseInput = Parameters<LoopshipResourceLeaseManager["release"]>[0];
+
+type LoopshipResourceLease = {
+  handle: Record<string, unknown> & {
+    handleDigest: string;
+    resourceType: string;
+    resourceId: string;
+  };
+  leaseId: string;
+  authorityId: string;
+  state: "active" | "released" | "expired" | "fenced";
+  validFrom: string;
+  validUntil: string;
+  fencingGeneration: number;
+  leaseDigest: string;
+};
+
+type LoopshipResourceLeaseState = {
+  schemaVersion: "loopship.resource-lease-state/v1";
+  authorityId: string;
+  generations: Record<string, number>;
+  leases: Record<string, LoopshipResourceLease>;
+};
+
+function loopshipResourceLeaseStatePath(): string | null {
+  const schedulerDbPath = optionalString(process.env.FASTFLOW_SCHEDULER_DB);
+  if (!schedulerDbPath) return null;
+  if (!isAbsolute(schedulerDbPath)) {
+    throw new Error("FASTFLOW_SCHEDULER_DB must be an absolute path for Loopship resource leases");
+  }
+  return `${resolve(schedulerDbPath)}.resource-leases.json`;
+}
+
+function readLoopshipResourceLeaseState(
+  statePath: string,
+  portApi: LoopshipFastflowPortApi,
+): LoopshipResourceLeaseState {
+  let fileStat: ReturnType<typeof lstatSync>;
+  try {
+    fileStat = lstatSync(statePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        schemaVersion: "loopship.resource-lease-state/v1",
+        authorityId: `loopship-resource-authority-${randomUUID()}`,
+        generations: {},
+        leases: {},
+      };
+    }
+    throw error;
+  }
+  if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
+    throw new Error(`Loopship resource lease state must be a regular file: ${statePath}`);
+  }
+
+  const parsed: unknown = JSON.parse(readFileSync(statePath, "utf8"));
+  if (
+    !isPlainObject(parsed) ||
+    Object.keys(parsed).sort().join(",") !== "authorityId,generations,leases,schemaVersion" ||
+    parsed.schemaVersion !== "loopship.resource-lease-state/v1" ||
+    typeof parsed.authorityId !== "string" ||
+    !isPlainObject(parsed.generations) ||
+    !isPlainObject(parsed.leases)
+  ) {
+    throw new Error(`Loopship resource lease state is invalid: ${statePath}`);
+  }
+  const state: LoopshipResourceLeaseState = {
+    schemaVersion: "loopship.resource-lease-state/v1",
+    authorityId: parsed.authorityId,
+    generations: {},
+    leases: {},
+  };
+  for (const [key, generation] of Object.entries(parsed.generations)) {
+    if (!Number.isSafeInteger(generation) || Number(generation) < 1) {
+      throw new Error(`Loopship resource lease generation is invalid: ${statePath}`);
+    }
+    state.generations[key] = Number(generation);
+  }
+  for (const [key, value] of Object.entries(parsed.leases)) {
+    const lease = portApi.validateResourceLease(value);
+    const handleKey = `${lease.handle.resourceType}@${lease.handle.resourceId}`;
+    if (
+      key !== lease.leaseId ||
+      lease.authorityId !== state.authorityId ||
+      (state.generations[handleKey] ?? 0) < lease.fencingGeneration
+    ) {
+      throw new Error(`Loopship resource lease ownership is invalid: ${statePath}`);
+    }
+    state.leases[key] = lease;
+  }
+  return state;
+}
+
+function withLoopshipResourceLeaseState<T>(
+  statePath: string,
+  portApi: LoopshipFastflowPortApi,
+  action: (state: LoopshipResourceLeaseState) => T,
+): T {
+  const absolutePath = resolve(statePath);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  const releaseLock = acquireCrashSafeFileLock(`${absolutePath}.lock`, 30_000);
+  try {
+    const state = readLoopshipResourceLeaseState(absolutePath, portApi);
+    const result = action(state);
+    writeText(absolutePath, `${JSON.stringify(state)}\n`);
+    return result;
+  } finally {
+    releaseLock();
+  }
+}
+
+function transitionLoopshipResourceLease(
+  portApi: LoopshipFastflowPortApi,
+  lease: LoopshipResourceLease,
+  state: LoopshipResourceLease["state"],
+): LoopshipResourceLease {
+  const { leaseDigest: _leaseDigest, ...content } = lease;
+  return portApi.createResourceLease({ ...content, state });
+}
+
+function leaseError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+function createDurableLoopshipResourceLeasePort(
+  portApi: LoopshipFastflowPortApi,
+  statePath: string,
+) {
+  const validator = portApi.createResourceLeaseManager({
+    authorityId: "loopship-resource-lease-validator",
+    leaseIdFactory: randomUUID,
+  });
+
+  return Object.freeze({
+    leaseTtlMs: 60_000,
+    acquire(input: LoopshipResourceLeaseAcquireInput) {
+      const candidate = portApi.validateResourceLease(validator.acquire(input));
+      validator.release({
+        leaseId: candidate.leaseId,
+        fencingGeneration: candidate.fencingGeneration,
+      });
+      const handleKey = `${candidate.handle.resourceType}@${candidate.handle.resourceId}`;
+      return withLoopshipResourceLeaseState(statePath, portApi, (state) => {
+        const now = Date.now();
+        for (const [leaseId, current] of Object.entries(state.leases)) {
+          if (current.state !== "active" ||
+              `${current.handle.resourceType}@${current.handle.resourceId}` !== handleKey) {
+            continue;
+          }
+          if (Date.parse(current.validUntil) <= now) {
+            state.leases[leaseId] = transitionLoopshipResourceLease(portApi, current, "expired");
+            continue;
+          }
+          throw leaseError("FASTFLOW_RESOURCE_BUSY", `resource '${handleKey}' already has an active lease`);
+        }
+        const fencingGeneration = (state.generations[handleKey] ?? 0) + 1;
+        if (!Number.isSafeInteger(fencingGeneration)) {
+          throw leaseError("FASTFLOW_RESOURCE_LEASE_INVALID", "resource fencing generation is exhausted");
+        }
+        state.generations[handleKey] = fencingGeneration;
+        const { leaseDigest: _leaseDigest, ...candidateContent } = candidate;
+        const lease = portApi.createResourceLease({
+          ...candidateContent,
+          leaseId: randomUUID(),
+          authorityId: state.authorityId,
+          state: "active",
+          fencingGeneration,
+        });
+        state.leases[lease.leaseId] = lease;
+        return structuredClone(lease);
+      });
+    },
+    release(input: LoopshipResourceLeaseReleaseInput) {
+      if (!isPlainObject(input)) {
+        throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", "resource lease release input is invalid");
+      }
+      const leaseId = input.leaseId;
+      const fencingGeneration = input.fencingGeneration;
+      if (typeof leaseId !== "string" || !Number.isSafeInteger(fencingGeneration)) {
+        throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", "resource lease release identity is invalid");
+      }
+      return withLoopshipResourceLeaseState(statePath, portApi, (state) => {
+        const lease = state.leases[leaseId];
+        if (!lease || lease.fencingGeneration !== fencingGeneration) {
+          throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", `lease '${leaseId}' is stale or unknown`);
+        }
+        const suppliedLease = input.lease;
+        if (suppliedLease !== undefined) {
+          const supplied = portApi.validateResourceLease(suppliedLease);
+          if (
+            supplied.leaseId !== lease.leaseId ||
+            supplied.authorityId !== lease.authorityId ||
+            supplied.fencingGeneration !== lease.fencingGeneration ||
+            supplied.handle.handleDigest !== lease.handle.handleDigest ||
+            supplied.validFrom !== lease.validFrom ||
+            supplied.validUntil !== lease.validUntil
+          ) {
+            throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", `lease '${leaseId}' ownership does not match`);
+          }
+        }
+        if (lease.state !== "active") return structuredClone(lease);
+        const handleKey = `${lease.handle.resourceType}@${lease.handle.resourceId}`;
+        if (state.generations[handleKey] !== lease.fencingGeneration) {
+          throw leaseError("FASTFLOW_RESOURCE_LEASE_FENCED", `lease '${leaseId}' is superseded`);
+        }
+        const nextState = Date.parse(lease.validUntil) <= Date.now() ? "expired" : "released";
+        const released = transitionLoopshipResourceLease(portApi, lease, nextState);
+        state.leases[leaseId] = released;
+        return structuredClone(released);
+      });
+    },
+  });
+}
+
+function createLoopshipResourceLeasePort(
+  fastflowApi: Record<string, unknown> | null = null,
+  requestedStatePath?: string | null,
+) {
+  const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
+  const statePath = requestedStatePath === undefined
+    ? loopshipResourceLeaseStatePath()
+    : requestedStatePath;
+  if (statePath !== null && statePath !== undefined) {
+    if (!isAbsolute(statePath)) {
+      throw new Error("Loopship resource lease state path must be absolute");
+    }
+    return Object.freeze({
+      ...createDurableLoopshipResourceLeasePort(portApi, statePath),
+      resolveHandle(ref: Record<string, unknown>, context: Record<string, unknown> = {}) {
+        return resolveLoopshipResourceHandle(portApi, ref, context);
+      },
+    });
+  }
+  const manager = portApi.createResourceLeaseManager({
+    authorityId: `loopship-local-resource-authority-${randomUUID()}`,
+    leaseIdFactory: randomUUID,
+  });
+  return Object.freeze({
+    leaseTtlMs: 60_000,
+    resolveHandle(ref: Record<string, unknown>, context: Record<string, unknown> = {}) {
+      return resolveLoopshipResourceHandle(portApi, ref, context);
+    },
+    acquire(input: LoopshipResourceLeaseAcquireInput) {
+      return manager.acquire(input);
+    },
+    release(input: LoopshipResourceLeaseReleaseInput) {
+      return manager.release(input);
+    },
+  });
+}
+
+function resolveLoopshipResourceHandle(
+  portApi: LoopshipFastflowPortApi,
+  ref: Record<string, unknown>,
+  context: Record<string, unknown> = {},
+) {
+  if (
+    !ref ||
+    typeof ref !== "object" ||
+    Array.isArray(ref) ||
+    Object.keys(ref).length !== 2 ||
+    ref.type !== "git-worktree" ||
+    typeof ref.handleId !== "string" ||
+    !ref.handleId.trim()
+  ) {
+    throw Object.assign(
+      new TypeError("Loopship resource references must contain only a git-worktree type and handleId"),
+      { code: "LOOPSHIP_RESOURCE_HANDLE_INVALID" },
+    );
+  }
+  const executorNodeId = context.executorNodeId;
+  if (typeof executorNodeId !== "string" || !executorNodeId.trim()) {
+    throw Object.assign(
+      new TypeError("Loopship resource resolution requires an executor node"),
+      { code: "LOOPSHIP_RESOURCE_OWNER_REQUIRED" },
+    );
+  }
+  return portApi.createResourceHandle({
+    resourceType: "git-worktree",
+    resourceId: ref.handleId,
+    ownerExecutorNodeId: executorNodeId,
+    affinityScope: { kind: "executor", scopeId: executorNodeId },
+    permittedOperations: ["use"],
+    recoveryPolicy: "preserve",
+    replayPolicy: "assigned-executor-only",
+  });
+}
+
+export function createLoopshipExecutorPorts(
+  fastflowApi: Record<string, unknown> | null = null,
+  options: { resourceLeaseStatePath?: string | null } = {},
+): {
+  executorPort: AfnDispatchPort;
+  resourceLeasePort: ReturnType<typeof createLoopshipResourceLeasePort>;
+} {
   return {
-    adapterIdentity,
-    adapterVersion,
-    validatorIdentity: `${adapterIdentity}.fastflow-native`,
-    validatorVersion: adapterVersion,
-    adapterRoot: LOOPSHIP_ROOT,
-    afnBindingPort: createLoopshipAfnBindingPort(dispatchPort),
-    afnHost: Object.freeze({
-      hostId: LOOPSHIP_AFN_HOST_ID,
+    executorPort: createLoopshipAfnDispatchPort(fastflowApi),
+    resourceLeasePort: createLoopshipResourceLeasePort(
+      fastflowApi,
+      options.resourceLeaseStatePath,
+    ),
+  };
+}
+
+export function validateLoopshipCallInvocation({
+  call,
+  with: withValue,
+  phase,
+}: {
+  call?: string;
+  with?: { body?: Record<string, unknown> };
+  phase?: string;
+} = {}): void {
+  const descriptor = DESCRIPTOR_BY_CALL.get(String(call || ""));
+  if (!descriptor) return;
+  const allowed = descriptor.metadata?.allowed_phases;
+  if (Array.isArray(allowed) && phase && !allowed.includes(phase as never)) {
+    throw new Error(`Loopship call '${call}' is not allowed during ${phase}.`);
+  }
+  const body = withValue?.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error(`Loopship call '${call}' requires with.body.`);
+  }
+  validateBodyAgainstDescriptor(descriptor, body);
+}
+
+export function createLoopshipRuntimeIntegrations(
+  fastflowApi: Record<string, unknown> | null = null,
+  options: { resourceLeaseStatePath?: string | null } = {},
+): Record<string, unknown> {
+  const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
+  const runtimeIdentity = PACKAGE_JSON.name || "@omar391/loopship";
+  const runtimeVersion = PACKAGE_JSON.version || "0.0.0";
+  const ports = createLoopshipExecutorPorts(fastflowApi, options);
+  const dispatchPort = ports.executorPort;
+  const resourceLeasePort = ports.resourceLeasePort;
+  return {
+    runtimeIdentity,
+    runtimeVersion,
+    validatorIdentity: `${runtimeIdentity}.fastflow-native`,
+    validatorVersion: runtimeVersion,
+    runtimeRoot: LOOPSHIP_ROOT,
+    executorBindingPort: createLoopshipAfnBindingPort(dispatchPort),
+    executorDispatch: dispatchPort,
+    resourceLeasePort,
+    executor: Object.freeze({
+      executorNodeId: LOOPSHIP_EXECUTOR_NODE_ID,
       dispatchPort,
-      hostFacts: [
-        {
-          name: "runtime",
-          value: loopshipApplicationRuntimeRef(),
-        },
-        { name: "platform", value: process.platform },
-        { name: "security-worker", value: "node:26" },
-      ],
-      affinity: [{ kind: "git-worktree", refs: ["*"] }],
-      acceptedGrantKinds: ["filesystem", "git", "process"],
       maxInFlight: LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
+      runtime: loopshipApplicationRuntimeRef(),
     }),
     resolveExecutionBinding: resolveLoopshipExecutionBinding,
-    registeredCalls: clone(LOOPSHIP_AFN_DESCRIPTORS),
-    resolveCallDescriptor({ call }: { call?: string } = {}) {
+    catalogCalls: clone(LOOPSHIP_AFN_DESCRIPTORS),
+    resolveCatalogCall({ call }: { call?: string } = {}) {
       const descriptor = DESCRIPTOR_BY_CALL.get(String(call || ""));
-      return descriptor ? clone(descriptor) : null;
+      return descriptor
+        ? {
+            ...clone(descriptor),
+            contractDigest: loopshipAfnContractDigest(descriptor, portApi.digestAfnContract),
+          }
+        : null;
     },
-    validateCallInvocation({
-      call,
-      with: withValue,
-      phase,
-    }: {
-      call?: string;
-      with?: { body?: Record<string, unknown> };
-      phase?: string;
-    } = {}) {
-      const descriptor = DESCRIPTOR_BY_CALL.get(String(call || ""));
-      if (!descriptor) return;
-      const allowed = descriptor.metadata?.allowed_phases;
-      if (Array.isArray(allowed) && phase && !allowed.includes(phase as never)) {
-        throw new Error(`Loopship call '${call}' is not allowed during ${phase}.`);
-      }
-      const body = withValue?.body;
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
-        throw new Error(`Loopship call '${call}' requires with.body.`);
-      }
-      validateBodyAgainstDescriptor(descriptor, body);
-    },
-    describeCallImplementation({ call }: { call?: string } = {}) {
+    describeExecutorImplementation({ call }: { call?: string } = {}) {
       if (!DESCRIPTOR_BY_CALL.has(String(call || ""))) return null;
       const callId = String(call || "");
       return {
         schemaVersion: "loopship/call-implementation/v1",
         call: callId,
         implementation: "loopship.fastflow.adapter",
-        adapter_identity: adapterIdentity,
-        adapter_version: adapterVersion,
+        adapter_identity: runtimeIdentity,
+        adapter_version: runtimeVersion,
         ...loopshipAfnImplementationEvidence(callId),
       };
     },
-    describeAdapterImplementation() {
+    describeRuntimeImplementation() {
       return {
         schemaVersion: "loopship/adapter-implementation/v1",
-        adapter_identity: adapterIdentity,
-        adapter_version: adapterVersion,
+        adapter_identity: runtimeIdentity,
+        adapter_version: runtimeVersion,
         catalog_root: LOOPSHIP_CALL_CATALOG_ROOT,
       };
     },
@@ -4497,27 +6009,42 @@ export function createLoopshipFastflowAdapters(): Record<string, unknown> {
 }
 
 export async function configureFastflowForLoopship(
-  _repoRoot: string = LOOPSHIP_ROOT,
+  repoRoot: string = LOOPSHIP_ROOT,
 ): Promise<Record<string, unknown>> {
+  const authoringRoot = resolve(repoRoot);
   const fastflowRoot = resolveLoopshipFastflowRoot(["src/index.mjs"]);
-  const { configureFastflowApp } = await import(
-    pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href
+  const fastflowApi = await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href,
+  );
+  const { configureFastflowRuntime } = await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "lib", "runtime-shell.mjs")).href,
   );
   const workflowCatalogRoot = await ensureLoopshipFastflowWorkflowCatalog(LOOPSHIP_ROOT);
-  return configureFastflowApp({
+  const applicationOptions = {
     appName: "loopship",
-    systemWorkflowsDir: workflowCatalogRoot,
-    callCatalogRoots: [workflowCatalogRoot, LOOPSHIP_CALL_CATALOG_ROOT],
     supervisorGuidance: LOOPSHIP_SUPERVISOR_GUIDANCE,
     workflowResumeCommand: LOOPSHIP_WORKFLOW_RESUME_COMMAND,
-    adapters: createLoopshipFastflowAdapters(),
+  };
+  const baseRuntime = configureFastflowRuntime({
+    ...applicationOptions,
+    integrations: {
+      ...createLoopshipRuntimeIntegrations(fastflowApi),
+      authoringRoot,
+    },
   });
-}
-
-export async function getLoopshipFastflowAdapters(): Promise<Record<string, unknown>> {
-  const fastflowRoot = resolveLoopshipFastflowRoot(["src/index.mjs"]);
-  const { getFastflowAdapters } = await import(
-    pathToFileURL(resolve(fastflowRoot, "src", "index.mjs")).href
-  );
-  return getFastflowAdapters();
+  const catalog = await prepareLoopshipFastflowCatalog({
+    fastflowRoot,
+    catalogRoot: workflowCatalogRoot,
+    workspaceRoot: authoringRoot,
+  });
+  return configureFastflowRuntime({
+    ...applicationOptions,
+    integrations: {
+      ...baseRuntime,
+      catalogRegistry: catalog.registry,
+      catalogMounts: catalog.mounts,
+      catalogResolver: catalog.resolver,
+      authoringRoot,
+    },
+  });
 }

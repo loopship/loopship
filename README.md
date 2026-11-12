@@ -43,7 +43,7 @@ is the consumer layer: CLI parsing, repo/runtime bootstrap, Fastflow app
 configuration, and Loopship AFN adapter registration.
 
 The reusable Fastflow consumer facade is exported at `@omar391/loopship/fastflow`.
-Native v1 is the sole execution path. Each stage request binds one immutable
+Fastflow is the sole execution path. Each stage request binds one immutable
 Fastflow `PinnedPlan`, keeps the same execution and effect identities across its waits
 and recovery, and receives a fresh execution identity only after the preceding
 stage reaches a terminal result. Loopship does not expose an `executeAfn`
@@ -67,12 +67,12 @@ descriptor-backed parsing, generated help, protobuf validation, dispatch, and th
 canonical machine-error envelope for `init`, `resume`, `hook`, `doctor`, and
 `handbook`. Human invocations and `cmdproto execjson <path> <payload>` reach the
 same typed command services; JSON sources may be inline, `@file`, or `@-`.
-Local guided stepping remains CLI-only via `loopship stepper` and emits native
-Fastflow run/resume responses.
+Local guided stepping remains CLI-only via `loopship stepper` and emits Fastflow
+run/resume responses.
 Every `loopship.v1.LoopshipService` method remains local and default-deny for
 remote access. Loopship is a client only of Fastflow's six descriptor-derived,
 allowlisted `fastflow.scheduler.v1.SchedulerControlService` unary Connect methods.
-AFN-host bootstrap uses `CreateAfnSessionTicket`; Loopship does not reimplement
+Executor-session bootstrap uses the authenticated Fastflow session; Loopship does not reimplement
 the service or expose REST aliases.
 Fastflow workflow run/resume responses, the Loopship Fastflow consumer adapter,
 and JSON Schema payload contracts are the lifecycle contract.
@@ -92,19 +92,19 @@ There is no response-size switch: `responseMode` is removed, while
 `sessionId`, `nonce`, `workspaceRoot`, and exact `response` envelope from a Fastflow
 handoff response. `--wtree` starts a new Fastflow process against an existing
 canonical quest after an unexpected inline-process interruption. It resubmits
-the exact pending Native request from the durable per-request ledger with the
+the exact pending Fastflow request from the durable per-request ledger with the
 same idempotency key; Loopship never retries a failed submission automatically.
-Loopship writes only quest-state schema v5 and Native execution-ledger/identity
+Loopship writes only quest-state schema v5 and Fastflow execution-ledger/identity
 schema v2. State from earlier releases, including task schema v4 or execution
-ledger v1, fails with `legacy_execution_unsupported`; it must be abandoned or
-cancelled and resubmitted as a new Native execution.
+ledger v1, fails closed with `legacy_execution_unsupported`; it must be abandoned
+or cancelled and resubmitted as a new Fastflow execution.
 
 Production uses Fastflow's `local-durable` scheduler profile and requires a
 supervised scheduler daemon. Start Loopship's packaged daemon before accepting
 work. Configure the daemon's SQLite path before startup:
 
 ```bash
-export FASTFLOW_SCHEDULER_DB=/durable/path/native-v1.sqlite
+export FASTFLOW_SCHEDULER_DB=/durable/path/fastflow.sqlite
 loopship-fastflow-daemon
 ```
 
@@ -113,10 +113,9 @@ atomically published runtime descriptor and is the only process that opens the
 scheduler database. Loopship commands discover that descriptor and use
 Fastflow's six allowlisted finite unary Connect controls; they never open or
 advance scheduler SQLite directly. The daemon registers Loopship's exact finite
-AFN handler offer under one package-identity-derived logical host id, obtains a
-short-lived single-use ticket through the descriptor-derived Connect method,
-and initiates an authenticated binary `fastflow.afn.v1` session back to that
-authority. AFN invocations, cancellations, receipts, capacity, and decisions
+AFN handler offer under its enrolled executor identity and initiates an
+authenticated binary `fastflow.afn.v2` session back to that authority. AFN
+invocations, cancellations, receipts, capacity, and decisions
 never use newline JSON, generic LoopshipService commands, or an ad hoc HTTP
 route. LoopshipService remains local and default-deny.
 

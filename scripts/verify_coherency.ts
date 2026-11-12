@@ -463,8 +463,9 @@ function assertFastflowSessionTimeout(): void {
 
   const lifecycleText = readText(resolve(PACKAGE_ROOT, "scripts", "loopship_fastflow_lifecycle.ts"));
   const lifecycleScope = "Loopship Fastflow lifecycle wrapper";
-  assertContains(lifecycleText, "systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT", lifecycleScope);
-  assertContains(lifecycleText, "callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT]", lifecycleScope);
+  assertContains(lifecycleText, "configureFastflowForLoopship", lifecycleScope);
+  assertNotContains(lifecycleText, "systemWorkflowsDir", lifecycleScope);
+  assertNotContains(lifecycleText, "callCatalogRoots", lifecycleScope);
   for (const needle of [
     "SCRATCH_CALL_CATALOG_ROOT",
     "syncPromotedWorkspaceRelease",

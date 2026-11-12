@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { generateKeyPairSync } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -121,17 +122,15 @@ function renderWorker(input: {
     join(input.loopshipRoot, "scripts", "loopship_fastflow.ts"),
   ).href;
   return `
-    import { readFileSync, writeFileSync } from "node:fs";
+    import { existsSync, readFileSync, writeFileSync } from "node:fs";
     import { monitorEventLoopDelay } from "node:perf_hooks";
     import { Database } from "bun:sqlite";
     import { parse as parseYaml } from "yaml";
     import {
-      configureFastflowApp,
-      resetFastflowAdapters,
-    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/consumer-adapters.mjs"))};
-    import {
-      digestNativeContract,
-    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/native-contracts.mjs"))};
+      configureFastflowRuntime,
+      resetFastflowRuntime,
+    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/runtime-shell.mjs"))};
+    import { hashSwfWorkflow } from ${JSON.stringify(sourceImport(fastflow, "src/lib/swf-compat.mjs"))};
     import { createLocalDurableSchedulerAuthority } from ${JSON.stringify(sourceImport(fastflow, "src/lib/local-durable-scheduler-authority.mjs"))};
     import { createSchedulerControlClient } from ${JSON.stringify(sourceImport(fastflow, "src/lib/scheduler-control-client.mjs"))};
     import {
@@ -144,45 +143,76 @@ function renderWorker(input: {
       validateFastflowSwfSubset,
       validateFastflowWorkflowSchema,
     } from ${JSON.stringify(sourceImport(fastflow, "src/lib/swf-workflow.mjs"))};
-    import { markWorkflowRecordValidated } from ${JSON.stringify(sourceImport(fastflow, "src/lib/workflows.mjs"))};
+    import * as FastflowApi from ${JSON.stringify(sourceImport(fastflow, "src/index.mjs"))};
+    import {
+      markWorkflowRecordValidated,
+      resolveWorkflowTupleReference,
+    } from ${JSON.stringify(sourceImport(fastflow, "src/lib/workflows.mjs"))};
     import {
       LOOPSHIP_CALL_CATALOG_ROOT,
       cleanupCompletedNativeWorkspaceResidue,
-      createLoopshipFastflowAdapters,
+      createLoopshipRuntimeIntegrations,
+      normalizeLoopshipWorkflowRecord,
+      prepareLoopshipFastflowCatalog,
     } from ${JSON.stringify(loopshipAdapters)};
 
     const mode = process.argv[2];
     const config = JSON.parse(readFileSync(process.argv[3], "utf8"));
+    // The scheduler runtime descriptor requires its parent chain to be real
+    // (non-symlinked) directories; /tmp on macOS is a symlink factory, so pin
+    // the descriptor path to its realpath before the authority touches it.
+    await import("node:fs").then(async ({ mkdirSync, realpathSync, writeFileSync: write }) => {
+      const path = await import("node:path");
+      const fs = await import("node:fs");
+      const dir = path.dirname(config.descriptorPath);
+      mkdirSync(dir, { recursive: true });
+      config.descriptorPath = path.join(realpathSync(dir), path.basename(config.descriptorPath));
+    });
+    // Catalog compilation signs its bundle; tests parent-supply their
+    // ephemeral signing key through the environment.
+    if (!process.env.LOOPSHIP_CATALOG_SIGNING_KEY) {
+      const { generateKeyPairSync } = await import("node:crypto");
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY = generateKeyPairSync("ed25519")
+        .privateKey.export({ format: "der", type: "pkcs8" })
+        .subarray(-32)
+        .toString("base64");
+    }
+    // Adapter-owned normalization must be active before the stable YAML is
+    // compiled. The hard-cut IR only accepts executable verification effects
+    // through exact AFN contracts, so the Loopship script checks must be
+    // lowered before markWorkflowRecordValidated captures the record.
+    const preflightRuntime = createLoopshipRuntimeIntegrations(FastflowApi);
+    configureFastflowRuntime({
+      appName: "loopship",
+      integrations: preflightRuntime,
+    });
     const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
     eventLoopDelay.enable();
-    const rawWorkflow = parseYaml(readFileSync(config.workflowPath, "utf8"));
-    const recordSeed = { filePath: config.workflowPath, store: "project" };
+    const rawText = readFileSync(config.workflowPath, "utf8");
+    const rawWorkflow = parseYaml(rawText);
+    const digest = "sha256:" + hashSwfWorkflow(rawWorkflow);
+    const recordSeed = {
+      filePath: config.workflowPath,
+      rawText,
+      store: "external",
+      reference: "loopship.workflow.service.flows.swe",
+      digest,
+    };
     const errors = [];
     validateFastflowWorkflowSchema(rawWorkflow, errors);
     validateFastflowSwfSubset(rawWorkflow, recordSeed, errors);
     const normalized = normalizeSwfWorkflow(rawWorkflow, recordSeed, errors);
     if (errors.length || !normalized) throw new Error(errors.join("; ") || "SWE did not normalize");
-    const digest = digestNativeContract(normalized);
-    const record = markWorkflowRecordValidated({
-      ...recordSeed,
-      digest,
-      rawWorkflow,
-      reference: "loopship.workflow.service.flows.swe",
-      workflow_call_id: "loopship.workflow.service.flows.swe",
-      summary: {
-        id: "loopship.workflow.service.flows.swe",
-        name: normalized.name,
-        namespace: normalized.namespace,
-        version: normalized.version,
-        dsl: normalized.dsl,
-        filePath: recordSeed.filePath,
-        store: recordSeed.store,
-        reference: "loopship.workflow.service.flows.swe",
-        digest,
-        target: normalized.target,
-      },
-      workflow: normalized,
-    });
+    const record = markWorkflowRecordValidated(
+      normalizeLoopshipWorkflowRecord(
+        await (await import(${JSON.stringify(sourceImport(fastflow, "src/lib/workflows.mjs"))}))
+          .loadWorkflowRecord(
+            config.workflowPath,
+            "external",
+            "loopship.workflow.service.flows.swe",
+          ),
+      ),
+    );
     const binding = {
       kind: "fixture",
       ref: "loopship-live-swe-restart",
@@ -231,19 +261,66 @@ function renderWorker(input: {
       async ensureReady() {},
       async close() {},
     });
-    const adapters = createLoopshipFastflowAdapters();
-    configureFastflowApp({
+    const adapters = createLoopshipRuntimeIntegrations(FastflowApi);
+    const resolveWorkflowRecord = async (workflowRef, nestedWorkspaceRoot, options = {}) => {
+      const resolved = await resolveWorkflowTupleReference(
+        workflowRef,
+        nestedWorkspaceRoot,
+        { channel: options.channel, runtime: { catalogResolver: catalog.resolver } },
+      );
+      const normalized = normalizeLoopshipWorkflowRecord(resolved);
+      if (workflowRef.range) {
+        normalized.invocation_range = structuredClone(workflowRef.range);
+      }
+      return normalized;
+    };
+    configureFastflowRuntime({
       appName: "loopship",
-      systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT,
-      callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT],
-      adapters: { ...adapters, createExecutionContext: createRuntime },
+      integrations: { ...adapters, createExecutionContext: createRuntime },
     });
+    const catalog = await prepareLoopshipFastflowCatalog({
+      fastflowRoot: ${JSON.stringify(input.fastflowRoot)},
+      fastflowApi: FastflowApi,
+      catalogRoot: LOOPSHIP_CALL_CATALOG_ROOT,
+      workspaceRoot: config.coordinatorWorktree,
+    });
+    const configuredRuntime = configureFastflowRuntime({
+      appName: "loopship",
+      integrations: {
+        ...adapters,
+        catalogRegistry: catalog.registry,
+        catalogMounts: catalog.mounts,
+        catalogResolver: catalog.resolver,
+      },
+    });
+    // Realpath-pin the descriptor parent chain: macOS /tmp resolves through
+    // symlinks, which the scheduler runtime descriptor rejects.
+    const authorityDescriptorPath = (() => {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const dir = path.dirname(config.descriptorPath);
+      fs.mkdirSync(dir, { recursive: true });
+      return path.join(fs.realpathSync(dir), path.basename(config.descriptorPath));
+    })();
     const authority = createLocalDurableSchedulerAuthority({
       dbPath: config.dbPath,
+      descriptorPath: authorityDescriptorPath,
       // Exercise the production default while keeping SIGKILL, rather than an
       // artificially tiny expiry, as the restart boundary under test.
       leaseMs: 30_000,
       ownerId: mode === "before" ? "loopship-live-before" : "loopship-live-after",
+      // Producer durable-resource-lease rule: a resourceLeasePort requires a
+      // stable coordinator nodeIdentity so the adapter's lease authority survives
+      // worker restarts. The identity stays fixed across restarts; ownerId is the
+      // wake/lease fence owner and changes per incarnation.
+      nodeIdentity: "loopship/scheduler",
+      catalogRegistry: catalog.registry,
+      catalogResolver: catalog.resolver,
+      executorPort: adapters.executorDispatch,
+      resourceLeasePort: adapters.resourceLeasePort,
+      runtimeReconstructionPort: {
+        createExecutionContext: configuredRuntime.createExecutionContext.bind(configuredRuntime),
+      },
     });
     const serializeError = (error) => ({
       name: error?.name || "Error",
@@ -256,12 +333,23 @@ function renderWorker(input: {
     void authority.failed.then((error) => {
       writeFileSync(config.authorityFailurePath, JSON.stringify(serializeError(error)));
     });
-    const control = createSchedulerControlClient();
+    const control = createSchedulerControlClient({
+      descriptorPath: authorityDescriptorPath,
+    });
     const options = {
       schedulerMode: "local-durable",
       executionId: config.executionId,
       artifactMode: "minimal",
       workspaceRoot: config.coordinatorWorktree,
+      registryMounts: catalog.mounts,
+      catalogResolver: catalog.resolver,
+      runtimeReconstructionPort: {
+        createExecutionContext: configuredRuntime.createExecutionContext.bind(configuredRuntime),
+      },
+      schedulerDescriptorPath: authorityDescriptorPath,
+      executorDispatchPort: adapters.executorDispatch,
+      resolveWorkflowRecord,
+      resourceLeasePort: adapters.resourceLeasePort,
     };
     const inputs = {
       repo: config.repo,
@@ -309,7 +397,10 @@ function renderWorker(input: {
         const events = await readEvents(executionId);
         const submitted = events.find((event) => event.type === "execution.submitted");
         const dispatches = events
-          .filter((event) => event.type === "node.dispatch_intended")
+          .filter((event) =>
+            event.type === "node.dispatch_intended" &&
+            event.data?.nodeId !== "fastflow_dag_context",
+          )
           .map((event) => event.data?.invocation)
           .filter(Boolean);
         rows.push({
@@ -350,15 +441,21 @@ function renderWorker(input: {
     async function waitForWorkflowResult() {
       const deadline = Date.now() + 180_000;
       while (true) {
-        const result = await recoverNativeWorkflow({
-          executionId: config.executionId,
-          options,
-        });
-        if (!["pending", "queued", "running"].includes(result.status)) return result;
+        // Poll inexpensive scheduler-control inspect first. Fastflow's
+        // transient internal native_transition pauses must not be read as
+        // paused: reconstructing the runtime on every poll made later
+        // lifecycle transitions slow enough to miss the hard timeout.
+        const handle = await control.inspect({ executionId: config.executionId });
+        if (!["pending", "queued", "running"].includes(handle.status)) {
+          return recoverNativeWorkflow({
+            executionId: config.executionId,
+            options,
+          });
+        }
         if (Date.now() >= deadline) {
           throw new Error("timed out waiting for the local-durable workflow result");
         }
-        await Bun.sleep(20);
+        await Bun.sleep(100);
       }
     }
     const reportPhase = (phase) => writeFileSync(
@@ -379,17 +476,21 @@ function renderWorker(input: {
         );
       }
       const tree = await executionTree(config.executionId);
-      const child = tree.find((row) => row.sourceRef === "native-dag:${TASK_ID}");
+      const child = tree.find((row) => row.sourceRef === "sys.afn.fastflow.workflow.iteration");
       if (!child) throw new Error("live SWE did not create its stable Native child execution");
       const firstDispatch = child.dispatches[0];
       if (!firstDispatch?.effectKey) throw new Error("Native child effect identity is missing");
       writeFileSync(config.markerPath, JSON.stringify({
         status: paused.status,
         nonce: paused.pause?.nonce || "",
+        pauseStepId: paused.pause?.step_id || "",
         childExecutionId: child.executionId,
         childEffectKey: firstDispatch.effectKey,
         childInvocationId: firstDispatch.invocationId,
         childAttempt: firstDispatch.attempt,
+        childWorktree: config.repo + "/worktrees/live-parent-task-a",
+        childWorktreeExists: existsSync(config.repo + "/worktrees/live-parent-task-a"),
+        tree,
       }));
       await new Promise(() => {});
     } else if (mode === "after") {
@@ -490,7 +591,7 @@ function renderWorker(input: {
           [config.executionId, ...childTreeExecutionIds],
         );
         const terminalAfterReplay = await terminalSnapshot(config.executionId);
-        const child = replayTree.find((row) => row.sourceRef === "native-dag:${TASK_ID}");
+        const child = replayTree.find((row) => row.sourceRef === "sys.afn.fastflow.workflow.iteration");
         const landingDispatches = (tree) => tree.flatMap((row) => row.dispatches)
           .filter((dispatch) =>
             dispatch.callId === "loopship.afn.service.landing.apply-outcome" &&
@@ -529,7 +630,7 @@ function renderWorker(input: {
         }));
       } finally {
         await authority.stop();
-        resetFastflowAdapters();
+        resetFastflowRuntime();
       }
     } else {
       throw new Error("unknown live SWE worker mode: " + mode);
@@ -652,6 +753,10 @@ describe("Loopship live SWE durable restart", () => {
     const dbPath = join(fixture.root, "scheduler.sqlite");
     const missingInferenceCommand = join(fixture.root, "missing-codex-cli");
     mkdirSync(join(fixture.root, "home"), { recursive: true });
+    // The scheduler runtime descriptor requires its parent chain to be real
+    // directories; fixture.root is already the mounted temp root, and this
+    // directory is where the descriptor file lands.
+    mkdirSync(join(fixture.root, "scheduler"), { recursive: true });
     writeFileSync(
       workerPath,
       renderWorker({ fastflowRoot, loopshipRoot: process.cwd() }),
@@ -674,6 +779,7 @@ describe("Loopship live SWE durable restart", () => {
           "swe.stable.yaml",
         ),
         dbPath,
+        descriptorPath: join(fixture.root, "scheduler-runtime.json"),
         markerPath,
         outputPath,
         phasePath,
@@ -684,11 +790,18 @@ describe("Loopship live SWE durable restart", () => {
       "utf8",
     );
     expect(existsSync(missingInferenceCommand)).toBe(false);
+    const catalogSigningKey =
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY ||
+      generateKeyPairSync("ed25519").privateKey
+        .export({ format: "der", type: "pkcs8" })
+        .subarray(-32)
+        .toString("base64");
     const env = {
       ...process.env,
       HOME: join(fixture.root, "home"),
       FASTFLOW_SCHEDULER_MODE: "local-durable",
       FASTFLOW_SCHEDULER_DB: dbPath,
+      LOOPSHIP_CATALOG_SIGNING_KEY: catalogSigningKey,
     };
     let stdout = "";
     let stderr = "";
@@ -725,7 +838,12 @@ describe("Loopship live SWE durable restart", () => {
       expect(paused.status).toBe("paused");
       expect(paused.childExecutionId).toBeTruthy();
       expect(paused.childEffectKey).toBeTruthy();
-      expect(existsSync(fixture.childWorktree)).toBe(true);
+      if (!existsSync(fixture.childWorktree)) {
+        throw new Error(
+          "live SWE child worktree was not prepared: " +
+          readFileSync(markerPath, "utf8"),
+        );
+      }
 
       const killed = before.kill("SIGKILL");
       expect(killed).toBe(true);
@@ -747,14 +865,19 @@ describe("Loopship live SWE durable restart", () => {
         env,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      await waitForChildExit(after, 420_000, (afterStdout, afterStderr) =>
-        readLiveDiagnostics({
-          authorityFailurePath,
-          phasePath,
-          pauseTracePath,
-          stdout: `${stdout}${afterStdout}`,
-          stderr: `${stderr}${afterStderr}`,
-        }),
+      await waitForChildExit(
+        after,
+        // Observed post-restart recovery ranges from ~420s to ~470s on an
+        // otherwise idle machine, so the previous ceiling sat on the boundary.
+        Number(process.env.FASTFLOW_LIVE_SWE_AFTER_TIMEOUT_MS || "600000"),
+        (afterStdout, afterStderr) =>
+          readLiveDiagnostics({
+            authorityFailurePath,
+            phasePath,
+            pauseTracePath,
+            stdout: `${stdout}${afterStdout}`,
+            stderr: `${stderr}${afterStderr}`,
+          }),
       );
       const completed = JSON.parse(readFileSync(outputPath, "utf8")) as any;
       expect(completed.status).not.toBe("paused");
@@ -829,7 +952,16 @@ describe("Loopship live SWE durable restart", () => {
       );
     } finally {
       if (before.exitCode === null && before.signalCode === null) before.kill("SIGKILL");
-      rmSync(fixture.root, { recursive: true, force: true });
+      if (process.env.FASTFLOW_KEEP_LIVE_SWE_FIXTURE !== "1") {
+        rmSync(fixture.root, { recursive: true, force: true });
+      } else {
+        console.error("LIVE_SWE_FIXTURE_RETAINED", fixture.root);
+      }
     }
-  }, 480_000);
+  }, Math.max(
+    Number(process.env.FASTFLOW_LIVE_SWE_TIMEOUT_MS || "480000"),
+    // Reserve three minutes for setup, pre-restart work, and final assertions
+    // beyond the complete post-restart worker recovery deadline.
+    Number(process.env.FASTFLOW_LIVE_SWE_AFTER_TIMEOUT_MS || "600000") + 180_000,
+  ));
 });

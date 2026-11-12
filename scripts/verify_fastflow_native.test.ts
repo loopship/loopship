@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import fs, {
   chmodSync,
   cpSync,
@@ -27,6 +27,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   createAfnInvocation,
   digestNativeContract,
+  resolveWorkflowReference,
   type JsonValue,
   validateExecutionDecision,
 } from "@cueintent/fastflow";
@@ -53,15 +54,17 @@ import {
 import {
   LOOPSHIP_AFN_CALLS,
   LOOPSHIP_AFN_DESCRIPTORS,
-  LOOPSHIP_AFN_HOST_ID,
+  LOOPSHIP_EXECUTOR_NODE_ID,
   LOOPSHIP_CALL_CATALOG_ROOT,
   LOOPSHIP_DEFAULT_CHILD_MAX_CONCURRENCY,
+  LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
   LOOPSHIP_DATA_CALLS,
   LOOPSHIP_SUPERVISOR_GUIDANCE,
   cleanupCompletedNativeWorkspaceResidue,
   buildLoopshipChildDagReconciliation,
   cleanupLandedWorktrees,
-  createLoopshipFastflowAdapters,
+  configureFastflowForLoopship,
+  createLoopshipRuntimeIntegrations,
   ensureLoopshipFastflowWorkflowCatalog,
   loopshipFlowWorkflowRef,
   recoverLoopshipFastflowWorkflow,
@@ -70,6 +73,7 @@ import {
   resumeLoopshipFastflowWorkflow,
   runLoopshipFastflowWorkflow,
   runLoopshipFastflowWorkflowRequest,
+  validateLoopshipCallInvocation,
   validateLoopshipChildDag,
 } from "./loopship_fastflow.ts";
 import { validateSchemaPath, validateV3Input } from "./loopship_schema.ts";
@@ -100,6 +104,16 @@ const FASTFLOW_RUNTIME_GITIGNORE =
 process.env.LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT = "1";
 let nativeInvocationSequence = 0;
 
+function writeFakeFastflowRuntimeShell(root: string): void {
+  const runtimeShellRoot = join(root, "src", "lib");
+  mkdirSync(runtimeShellRoot, { recursive: true });
+  writeFileSync(
+    join(runtimeShellRoot, "runtime-shell.mjs"),
+    "export function configureFastflowRuntime() {}\n",
+    "utf8",
+  );
+}
+
 type LoopshipTestAfnOutput = Record<string, unknown> & {
   actions?: Record<string, { args: string[] }>;
   branch_ref?: string;
@@ -107,20 +121,18 @@ type LoopshipTestAfnOutput = Record<string, unknown> & {
   prepared_children?: Array<Record<string, unknown>>;
 };
 
-function loopshipHostDispatch(adapters: Record<string, unknown>) {
-  const host = adapters.afnHost as {
-    dispatchPort?: {
-      listRoutes(): Array<{
-        callId: string;
-        contractDigest: string;
-        implementationDigest: string;
-      }>;
-      dispatch(invocation: Record<string, unknown>): Promise<Record<string, unknown>>;
-      cancel(request: Record<string, unknown>): Promise<Record<string, unknown>>;
-    };
-  };
-  if (!host?.dispatchPort) throw new Error("Loopship AFN host dispatch port is missing");
-  return host.dispatchPort;
+function loopshipExecutorDispatch(adapters: Record<string, unknown>) {
+  const dispatch = adapters.executorDispatch as {
+    listRoutes(): Array<{
+      callId: string;
+      contractDigest: string;
+      implementationDigest: string;
+    }>;
+    dispatch(invocation: Record<string, unknown>): Promise<Record<string, unknown>>;
+    cancel(request: Record<string, unknown>): Promise<Record<string, unknown>>;
+  } | undefined;
+  if (!dispatch) throw new Error("Loopship executor dispatch port is missing");
+  return dispatch;
 }
 
 async function executeLoopshipAfn(
@@ -131,7 +143,7 @@ async function executeLoopshipAfn(
   identity: { executionId?: string; effectKey?: string } = {},
 ): Promise<LoopshipTestAfnOutput> {
   const call = String(request.action?.call || "");
-  const dispatch = loopshipHostDispatch(adapters);
+  const dispatch = loopshipExecutorDispatch(adapters);
   const route = dispatch.listRoutes().find((entry) => entry.callId === call);
   if (!route) throw new Error(`Unknown Loopship Native AFN route: ${call}`);
   nativeInvocationSequence += 1;
@@ -144,12 +156,11 @@ async function executeLoopshipAfn(
     call: {
       callId: route.callId,
       contractDigest: route.contractDigest,
-      implementationDigest: route.implementationDigest,
     },
     input: (request.action?.with?.body || {}) as unknown as JsonValue,
     effectKey: identity.effectKey || digestNativeContract({ executionId, call, effect: 1 }),
     bindingRefs: [],
-    affinityRefs: [{ kind: "afn-host", ref: LOOPSHIP_AFN_HOST_ID }],
+    resourceHandles: [],
     grants: [],
   });
   const decision = validateExecutionDecision(
@@ -230,13 +241,13 @@ async function hardKillLoopshipLandingAt(input: {
       digestNativeContract,
     } from "@cueintent/fastflow";
     import {
-      createLoopshipFastflowAdapters,
+      createLoopshipRuntimeIntegrations,
       LOOPSHIP_AFN_CALLS,
     } from ${JSON.stringify(pathToFileURL(resolve(process.cwd(), "scripts", "loopship_fastflow.ts")).href)};
     const body = JSON.parse(process.env.LOOPSHIP_LANDING_BODY);
     const executionId = process.env.LOOPSHIP_LANDING_EXECUTION_ID;
     const effectKey = process.env.LOOPSHIP_LANDING_EFFECT_KEY;
-    const dispatch = createLoopshipFastflowAdapters().afnHost.dispatchPort;
+    const dispatch = createLoopshipRuntimeIntegrations().executorDispatch;
     const route = dispatch.listRoutes().find(
       (entry) => entry.callId === LOOPSHIP_AFN_CALLS.landingApplyOutcome,
     );
@@ -253,7 +264,7 @@ async function hardKillLoopshipLandingAt(input: {
       input: body,
       effectKey,
       bindingRefs: [],
-      affinityRefs: [],
+      resourceHandles: [],
       grants: [],
     });
     await dispatch.dispatch(invocation);
@@ -357,12 +368,14 @@ function runBunCheck(source: string, args: string[] = []): string {
   }
 }
 
-function fastflowImport(subpath: "root" | "workflow"): string {
+function fastflowImport(subpath: "root" | "workflow" | "runtime-shell"): string {
   const fastflowRoot = resolveFastflowRoot();
   const sourcePath =
     subpath === "root"
       ? join(fastflowRoot, "src", "index.mjs")
-      : join(fastflowRoot, "src", "workflow.mjs");
+      : subpath === "workflow"
+        ? join(fastflowRoot, "src", "workflow.mjs")
+        : join(fastflowRoot, "src", "lib", "runtime-shell.mjs");
   return pathToFileURL(sourcePath).href;
 }
 
@@ -440,7 +453,7 @@ function executeNativeWorkflow(
       `
         import { readFileSync } from "node:fs";
         import { parse as parseYaml } from "yaml";
-        import { configureFastflowApp } from ${JSON.stringify(fastflowImport("root"))};
+        import { configureFastflowRuntime } from ${JSON.stringify(fastflowImport("runtime-shell"))};
         import {
           normalizeSwfWorkflow,
           validateFastflowSwfSubset,
@@ -450,16 +463,14 @@ function executeNativeWorkflow(
         import { executeNativeWorkflow as executeWorkflow } from ${JSON.stringify(fastflowSourceImport("src/lib/native-workflow-runtime.mjs"))};
         import {
           LOOPSHIP_CALL_CATALOG_ROOT,
-          createLoopshipFastflowAdapters,
+          createLoopshipRuntimeIntegrations,
         } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "scripts", "loopship_fastflow.ts")).href)};
 
         const workflow = parseYaml(readFileSync(process.argv[2], "utf8"));
         const inputs = JSON.parse(readFileSync(process.argv[3], "utf8"));
-        configureFastflowApp({
+        const configuredRuntime = configureFastflowRuntime({
           appName: "loopship",
-          systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT,
-          callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT],
-          adapters: createLoopshipFastflowAdapters(),
+          integrations: createLoopshipRuntimeIntegrations(),
         });
         const recordSeed = {
           filePath: process.argv[2],
@@ -492,6 +503,7 @@ function executeNativeWorkflow(
           workflow: normalized,
         });
         const runtime = {
+          ...configuredRuntime,
           target: normalized.target,
           currentMode: "headed",
           preferredMode: "headed",
@@ -501,6 +513,10 @@ function executeNativeWorkflow(
           const result = await executeWorkflow(runtime, record, inputs, {
             workspaceRoot: process.cwd(),
             schedulerMode: "test",
+            executorDispatchPort: configuredRuntime.executorDispatch,
+            executorBindingPort: configuredRuntime.executorBindingPort,
+            runtimeReconstructionPort: configuredRuntime,
+            resourceLeasePort: configuredRuntime.resourceLeasePort,
           });
           console.log(JSON.stringify({
             output: result.output,
@@ -925,6 +941,36 @@ async function startQuestStage(
   return result;
 }
 
+async function waitForNativeExecutionAwaiting(
+  schedulerDb: string,
+  executionId: string,
+  timeoutMs = 60_000,
+): Promise<void> {
+  const database = new Database(schedulerDb, { readonly: true });
+  const deadline = Date.now() + timeoutMs;
+  try {
+    // The live daemon holds the write lock while it advances the execution, so
+    // a read from this side connection can race into SQLITE_BUSY.
+    database.exec("PRAGMA busy_timeout = 5000");
+    const awaiting = database.query(
+      "select sequence from execution_events where execution_id = ? and event_type = 'execution.awaiting' limit 1",
+    );
+    while (Date.now() < deadline) {
+      try {
+        if (awaiting.get(executionId)) return;
+      } catch (error) {
+        if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
+      }
+      await Bun.sleep(25);
+    }
+  } finally {
+    database.close();
+  }
+  throw new Error(
+    `Native execution ${executionId} did not reach a durable awaiting checkpoint before daemon restart`,
+  );
+}
+
 function interactionPause(value: Record<string, unknown>): Record<string, unknown> | null {
   if (value.schemaVersion !== "fastflow/interaction-response/v2") return null;
   const nextCall =
@@ -1158,8 +1204,8 @@ describe("Loopship Fastflow-native bridge", () => {
       ["scripts/loopship_fastflow_daemon.mjs"],
       { cwd: process.cwd() },
     );
-    expect(nodeDaemonModule.status).toBe(1);
-    expect(nodeDaemonModule.stderr).toContain("loopship_bun_runtime_required");
+    expect(nodeDaemonModule.status).toBe(0);
+    expect(nodeDaemonModule.stderr).toBe("");
 
     const bunCli = runCommand(process.execPath, ["bin/loopship", "--help"], {
       cwd: process.cwd(),
@@ -1251,23 +1297,20 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.version).toBe("3.0.0");
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
-    expect(packageJson.dependencies["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#b505478f30c3f3bcd82395e9676ac6f8841e4d76",
+    const fastflowPin = packageJson.dependencies["@cueintent/fastflow"];
+    expect(fastflowPin).toMatch(
+      /^git\+ssh:\/\/git@github\.com\/cueintent\/fastflow\.git#[0-9a-f]{40}$/,
     );
-    expect(packageJson.dependencies["@cueintent/secret-manager"]).toBe(
-      "git+ssh://git@github.com/cueintent/secret-manager.git#c87a28c10fe23ae2f00eeee3d82968b0241382d1",
-    );
-    expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(
-      "git+ssh://git@github.com/cueintent/fastflow.git#b505478f30c3f3bcd82395e9676ac6f8841e4d76",
-    );
+    expect(packageJson.dependencies["@cueintent/secret-manager"]).toBeUndefined();
+    expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(fastflowPin);
     expect(packageJson.bundledDependencies).toEqual([
       "@cueintent/fastflow",
-      "@cueintent/secret-manager",
       "cmdproto",
       "@bufbuild/protobuf",
       "@connectrpc/connect",
       "@connectrpc/connect-node",
       "@connectrpc/connect-web",
+      "yaml",
     ]);
     expect(packageJson.dependencies.cmdproto).toBe(
       "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
@@ -1282,7 +1325,7 @@ describe("Loopship Fastflow-native bridge", () => {
       "./scripts/loopship_fastflow_daemon.mjs",
     );
     const readme = readFileSync("README.md", "utf8");
-    expect(readme).toContain("Native v1 is the sole execution path");
+    expect(readme).toContain("Fastflow is the sole execution path");
     expect(readme).toContain("local-durable");
     expect(readme).toContain("legacy_execution_unsupported");
     expect(readme).toContain("Bun is the canonical application and daemon runtime");
@@ -1320,8 +1363,8 @@ describe("Loopship Fastflow-native bridge", () => {
     () => {
       const proc = runCommand(
         "npm",
-        ["publish", "--dry-run", "--json", "--ignore-scripts"],
-        { cwd: process.cwd(), timeoutMs: 30_000 },
+        ["pack", "--dry-run", "--json", "--ignore-scripts"],
+        { cwd: process.cwd(), timeoutMs: 120_000 },
       );
       expect(proc.status, proc.stderr || proc.stdout).toBe(0);
       const result = JSON.parse(proc.stdout) as Record<
@@ -1342,8 +1385,8 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(files.some((path) => path.startsWith(`${fastflowPrefix}test/`))).toBe(false);
       expect(files.some((path) => path.startsWith(`${fastflowPrefix}examples/`))).toBe(false);
 
-      const adapters = createLoopshipFastflowAdapters();
-      const implementation = (adapters.describeCallImplementation as Function)({
+      const adapters = createLoopshipRuntimeIntegrations();
+      const implementation = (adapters.describeExecutorImplementation as Function)({
         call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
       }) as Record<string, unknown>;
       const shippedLoopshipFiles = files
@@ -1367,7 +1410,7 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(implementation.dependency_lock_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(implementation.implementation_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(implementation.runtime_ref).toBe(`bun:${process.versions.bun}`);
-      const routeDigests = loopshipHostDispatch(adapters)
+      const routeDigests = loopshipExecutorDispatch(adapters)
         .listRoutes()
         .map((route) => route.implementationDigest);
       expect(new Set(routeDigests)).toEqual(
@@ -1404,10 +1447,33 @@ describe("Loopship Fastflow-native bridge", () => {
         expect(existsSync(tarball)).toBe(true);
         const installed = runCommand(
           "npm",
-          ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball],
+          ["install", "--no-audit", "--no-fund", tarball],
           { cwd: consumer, timeoutMs: 120_000 },
         );
         expect(installed.status, installed.stderr || installed.stdout).toBe(0);
+        const installedPackageRoot = join(consumer, "node_modules", "@omar391", "loopship");
+        const installedFlowRoot = join(
+          installedPackageRoot,
+          "call-catalog",
+          "loopship",
+          "workflow",
+          "service",
+          "flows",
+        );
+        const installedFlowIndexPath = join(installedFlowRoot, "index.yaml");
+        const installedSwePath = join(installedFlowRoot, "swe.stable.yaml");
+        expect(existsSync(installedFlowIndexPath)).toBe(true);
+        expect(existsSync(installedSwePath)).toBe(true);
+        const installedFlowIndex = parseYaml(
+          readFileSync(installedFlowIndexPath, "utf8"),
+        ) as {
+          workflows?: Record<string, { stable?: { release?: unknown; digest?: unknown } }>;
+        };
+        const installedSweRelease = installedFlowIndex.workflows?.swe?.stable;
+        expect(installedSweRelease?.release).toBe(75);
+        expect(installedSweRelease?.digest).toMatch(
+          /^sha256:[0-9a-f]{64}$/,
+        );
         const binPath = join(
           consumer,
           "node_modules",
@@ -1421,7 +1487,12 @@ describe("Loopship Fastflow-native bridge", () => {
           LOOPSHIP_FASTFLOW_ROOT: _ignoredFastflowRoot,
           ...baseEnv
         } = process.env;
-        const schedulerDb = join(root, "scheduler", "native-v1.sqlite");
+        const schedulerDb = join(root, "scheduler", "fastflow.sqlite");
+        // The packed daemon compiles a producer-signed catalog; supply an
+        // ephemeral signing key through the caller seam so admission uses
+        // the same production path production uses. The same key is then
+        // forwarded to the client session below.
+        const daemonCatalogSigningKey = ephemeralLoopshipCatalogSigningKey();
         daemon = Bun.spawn({
           cmd: [binPath],
           cwd: consumer,
@@ -1430,13 +1501,14 @@ describe("Loopship Fastflow-native bridge", () => {
             HOME: loopshipHome,
             LOOPSHIP_HOME: loopshipHome,
             FASTFLOW_SCHEDULER_DB: ` ${schedulerDb} `,
+            LOOPSHIP_CATALOG_SIGNING_KEY: daemonCatalogSigningKey,
             FASTFLOW_APP_MODULE: pathToFileURL(join(root, "wrong-app-module.mjs")).href,
           },
           stdout: "pipe",
           stderr: "pipe",
         });
         const ready = JSON.parse(
-          await readFirstLine(daemon.stdout as ReadableStream<Uint8Array>, 15_000),
+          await readFirstLine(daemon.stdout as ReadableStream<Uint8Array>, 30_000),
         ) as Record<string, unknown>;
         expect(ready).toMatchObject({
           ok: true,
@@ -1469,6 +1541,7 @@ describe("Loopship Fastflow-native bridge", () => {
               CODEX_THREAD_ID: "packed-native-session-test",
               FASTFLOW_SCHEDULER_MODE: "local-durable",
               FASTFLOW_SCHEDULER_DB: schedulerDb,
+              LOOPSHIP_CATALOG_SIGNING_KEY: daemonCatalogSigningKey,
               INFERENCE_CLIENT: undefined,
               INFERENCE_PROVIDER: undefined,
               INFERENCE_MODEL: undefined,
@@ -1513,13 +1586,13 @@ describe("Loopship Fastflow-native bridge", () => {
       );
       const requestLog = join(fakeFastflowRoot, "requests.jsonl");
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
       join(fakeFastflowRoot, "src", "index.mjs"),
       `
         import { appendFileSync, existsSync, readFileSync } from "node:fs";
-        export function configureFastflowApp() {}
         export async function executeFastflowWorkflowRunRequest(request) {
           const prior = existsSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG)
             ? readFileSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG, "utf8").trim()
@@ -1648,13 +1721,13 @@ describe("Loopship Fastflow-native bridge", () => {
     );
     const requestLog = join(fakeFastflowRoot, "requests.jsonl");
     mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+    writeFakeFastflowRuntimeShell(fakeFastflowRoot);
     writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
     writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
     writeFileSync(
       join(fakeFastflowRoot, "src", "index.mjs"),
       `
         import { appendFileSync } from "node:fs";
-        export function configureFastflowApp() {}
         export async function executeFastflowWorkflowRunRequest(request) {
           appendFileSync(process.env.LOOPSHIP_NATIVE_REQUEST_LOG, JSON.stringify(request) + "\\n");
           return {
@@ -2181,7 +2254,7 @@ describe("Loopship Fastflow-native bridge", () => {
       process.env.FASTFLOW_SCHEDULER_DB = join(
         fixture.root,
         "scheduler",
-        "native-v1.sqlite",
+        "fastflow.sqlite",
       );
       process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
       const remoteFilesystemType = process.platform === "darwin" ? 2 : 0x6969;
@@ -2288,13 +2361,13 @@ describe("Loopship Fastflow-native bridge", () => {
     const originalHookState = readFileSync(files.hook_state, "utf8");
     try {
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
           import { appendFileSync, writeFileSync } from "node:fs";
-          export function configureFastflowApp() {}
           function completed(executionId, operation) {
             appendFileSync(process.env.LOOPSHIP_REMOUNT_OPERATION_LOG, operation + "\\n");
             writeFileSync(process.env.LOOPSHIP_REMOUNT_MARKER, "remounted\\n");
@@ -2320,7 +2393,7 @@ describe("Loopship Fastflow-native bridge", () => {
       process.env.FASTFLOW_SCHEDULER_DB = join(
         fixture.root,
         "scheduler",
-        "native-v1.sqlite",
+        "fastflow.sqlite",
       );
       process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
       process.env.LOOPSHIP_FASTFLOW_ROOT = fakeFastflowRoot;
@@ -2438,7 +2511,7 @@ describe("Loopship Fastflow-native bridge", () => {
       process.env.FASTFLOW_SCHEDULER_DB = join(
         fixture.root,
         "scheduler",
-        "native-v1.sqlite",
+        "fastflow.sqlite",
       );
       process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
 
@@ -2816,7 +2889,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
     const wtree = "relative-scheduler-db";
     try {
-      process.env.FASTFLOW_SCHEDULER_DB = "./native-v1.sqlite";
+      process.env.FASTFLOW_SCHEDULER_DB = "./fastflow.sqlite";
       await expect(
         runLoopshipFastflowWorkflow({
           repoRoot: fixture.repo,
@@ -2834,7 +2907,7 @@ describe("Loopship Fastflow-native bridge", () => {
         [process.execPath, "--no-install", resolve(process.cwd(), "bin", "loopship-fastflow-daemon")],
         {
           cwd: fixture.repo,
-          env: { ...process.env, FASTFLOW_SCHEDULER_DB: "./native-v1.sqlite" },
+          env: { ...process.env, FASTFLOW_SCHEDULER_DB: "./fastflow.sqlite" },
           stdout: "pipe",
           stderr: "pipe",
         },
@@ -2844,7 +2917,7 @@ describe("Loopship Fastflow-native bridge", () => {
         "FASTFLOW_SCHEDULER_DB must be an absolute path",
       );
 
-      const canonicalDb = join(fixture.root, "scheduler", "native-v1.sqlite");
+      const canonicalDb = join(fixture.root, "scheduler", "fastflow.sqlite");
       process.env.FASTFLOW_SCHEDULER_DB = ` ${canonicalDb} `;
       await expect(
         runLoopshipFastflowWorkflow({
@@ -2876,21 +2949,29 @@ describe("Loopship Fastflow-native bridge", () => {
     const previousDb = process.env.FASTFLOW_SCHEDULER_DB;
     const previousHome = process.env.LOOPSHIP_HOME;
     const previousMode = process.env.FASTFLOW_SCHEDULER_MODE;
+    const previousSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
     const wtree = "unsupported-default-scheduler";
     try {
+      // The daemon signs its catalog before it opens the durable authority, so
+      // it needs the signing seam even when the database itself is rejected.
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY =
+        generateKeyPairSync("ed25519").privateKey
+          .export({ format: "der", type: "pkcs8" })
+          .subarray(-32)
+          .toString("base64");
       const schedulerRoot = join(fixture.root, "loopship-home", "scheduler");
       const target = join(fixture.root, "scheduler-target.sqlite");
       mkdirSync(schedulerRoot, { recursive: true });
       writeFileSync(target, "");
-      symlinkSync(target, join(schedulerRoot, "native-v1.sqlite"));
-      process.env.FASTFLOW_SCHEDULER_DB = join(schedulerRoot, "native-v1.sqlite");
+      symlinkSync(target, join(schedulerRoot, "fastflow.sqlite"));
+      process.env.FASTFLOW_SCHEDULER_DB = join(schedulerRoot, "fastflow.sqlite");
       process.env.LOOPSHIP_HOME = join(fixture.root, "loopship-home");
       process.env.FASTFLOW_SCHEDULER_MODE = " local-durable ";
 
       const daemon = runCommand(
         process.execPath,
         ["--no-install", resolve(process.cwd(), "bin", "loopship-fastflow-daemon")],
-        { cwd: fixture.repo, timeoutMs: 10_000 },
+        { cwd: fixture.repo, timeoutMs: 30_000 },
       );
       expect(daemon.status).not.toBe(0);
       expect(daemon.stderr).toContain("FASTFLOW_UNSUPPORTED_DURABLE_FILESYSTEM");
@@ -2902,9 +2983,14 @@ describe("Loopship Fastflow-native bridge", () => {
       else process.env.LOOPSHIP_HOME = previousHome;
       if (previousMode === undefined) delete process.env.FASTFLOW_SCHEDULER_MODE;
       else process.env.FASTFLOW_SCHEDULER_MODE = previousMode;
+      if (previousSigningKey === undefined) {
+        delete process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
+      } else {
+        process.env.LOOPSHIP_CATALOG_SIGNING_KEY = previousSigningKey;
+      }
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   test("rejects an unsupported prospective worktree before creating its branch", async () => {
     const fixture = createGitFixture("loopship-native-worktree-filesystem-");
@@ -2918,7 +3004,7 @@ describe("Loopship Fastflow-native bridge", () => {
       mkdirSync(worktreesRoot, { recursive: true });
       mkdirSync(target, { recursive: true });
       symlinkSync(target, prospective);
-      process.env.FASTFLOW_SCHEDULER_DB = join(fixture.root, "scheduler", "native-v1.sqlite");
+      process.env.FASTFLOW_SCHEDULER_DB = join(fixture.root, "scheduler", "fastflow.sqlite");
       process.env.FASTFLOW_SCHEDULER_MODE = "local-durable";
 
       await expect(
@@ -3089,12 +3175,12 @@ describe("Loopship Fastflow-native bridge", () => {
     };
     try {
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
-          export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRunRequest() {
             return {
               schemaVersion: "fastflow/workflow-run-artifact/v1",
@@ -3154,12 +3240,12 @@ describe("Loopship Fastflow-native bridge", () => {
     const workspace = ensureCoordinatorWorkspace(fixture.repo, wtree);
     try {
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
-          export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRunRequest(request) {
             return {
               schemaVersion: "fastflow/interaction-response/v2",
@@ -3302,7 +3388,7 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("rejects quest state without a Native v1 ledger before inspecting a tampered document", async () => {
+  test("rejects quest state without a Fastflow ledger before inspecting a tampered document", async () => {
     const fixture = createGitFixture("loopship-native-tampered-initial-prefix-");
     const wtree = "tampered-initial-prefix";
     const prompt = "loopship: reject a tampered initialization prefix";
@@ -3418,12 +3504,12 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       mkdirSync(subdirectory, { recursive: true });
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
-          export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRunRequest(request) {
             return {
               schemaVersion: "fastflow/workflow-run-artifact/v1",
@@ -3492,13 +3578,13 @@ describe("Loopship Fastflow-native bridge", () => {
     const prompt = "loopship: preserve a running Native recovery route";
     try {
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
           import { appendFileSync, existsSync } from "node:fs";
-          export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRecoverRequest({ executionId }) {
             const alreadyRunning = existsSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG);
             appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover\\n");
@@ -3624,13 +3710,13 @@ describe("Loopship Fastflow-native bridge", () => {
     const prompt = "loopship: recover the persisted pinned plan";
     try {
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export const changed = true;\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
           import { appendFileSync } from "node:fs";
-          export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRunRequest() {
             appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "run\\n");
             const error = new Error("current-source submit must not run");
@@ -3717,13 +3803,13 @@ describe("Loopship Fastflow-native bridge", () => {
     const prompt = "loopship: keep an incompatible pinned execution fail closed";
     try {
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
           import { appendFileSync } from "node:fs";
-          export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRecoverRequest() {
             appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover\\n");
             const error = new Error("pinned plan has no exact dispatch route");
@@ -3794,13 +3880,13 @@ describe("Loopship Fastflow-native bridge", () => {
     const prompt = "loopship: retire a failed durable execution";
     try {
       mkdirSync(join(fakeFastflowRoot, "src"), { recursive: true });
+      writeFakeFastflowRuntimeShell(fakeFastflowRoot);
       writeFileSync(join(fakeFastflowRoot, "package.json"), JSON.stringify({ type: "module" }));
       writeFileSync(join(fakeFastflowRoot, "src", "catalog.mjs"), "export {};\n");
       writeFileSync(
         join(fakeFastflowRoot, "src", "index.mjs"),
         `
           import { appendFileSync } from "node:fs";
-          export function configureFastflowApp() {}
           export async function executeFastflowWorkflowRecoverRequest({ executionId }) {
             appendFileSync(process.env.LOOPSHIP_NATIVE_RECOVERY_LOG, "recover:" + executionId + "\\n");
             return {
@@ -4211,6 +4297,8 @@ describe("Loopship Fastflow-native bridge", () => {
   test("registers exactly the minimal Loopship AFNs", () => {
     const calls = LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort();
     expect(calls).toEqual([
+      LOOPSHIP_AFN_CALLS.workflowExecuteScript,
+      LOOPSHIP_AFN_CALLS.workflowInfer,
       LOOPSHIP_AFN_CALLS.childBuildDagReconciliation,
       LOOPSHIP_AFN_CALLS.childPrepareWorktree,
       LOOPSHIP_AFN_CALLS.childRecordLifecycle,
@@ -4231,61 +4319,64 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("exposes exact Native Loopship routes only through its host session", () => {
-    const adapters = createLoopshipFastflowAdapters();
-    const dispatch = loopshipHostDispatch(adapters);
-    const bindingPort = adapters.afnBindingPort as {
+  test("exposes exact Loopship routes through its executor session", () => {
+    const adapters = createLoopshipRuntimeIntegrations();
+    const dispatch = loopshipExecutorDispatch(adapters);
+    const bindingPort = adapters.executorBindingPort as {
       listRoutes(): Array<{ callId: string }>;
     };
-    const host = adapters.afnHost as Record<string, unknown>;
+    const executor = adapters.executor as Record<string, unknown>;
     const routes = dispatch.listRoutes();
     expect(adapters.executeAfn).toBeUndefined();
-    expect(adapters.afnDispatch).toBeUndefined();
+    expect(adapters.executorDispatch).toBe(dispatch);
     expect(adapters.runtimeOffer).toBeUndefined();
-    expect(host.hostId).toBe(LOOPSHIP_AFN_HOST_ID);
-    expect(host.acceptedGrantKinds).toEqual(["filesystem", "git", "process"]);
-    expect(host.affinity).toEqual([{ kind: "git-worktree", refs: ["*"] }]);
+    expect(executor.executorNodeId).toBe(LOOPSHIP_EXECUTOR_NODE_ID);
+    expect(executor.maxInFlight).toBe(LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY);
     expect(routes.map((route) => route.callId).sort()).toEqual(
       LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort(),
     );
     expect(bindingPort.listRoutes()).toEqual(routes);
   });
 
-  test("pins one stable host and an opaque canonical worktree affinity", async () => {
-    const fixture = createGitFixture("loopship-native-host-binding-");
+  test("pins a typed canonical worktree resource handle", async () => {
+    const fixture = createGitFixture("loopship-executor-resource-binding-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const resolveBinding = adapters.resolveExecutionBinding as (
         input: Record<string, unknown>,
       ) => Record<string, unknown>;
       const binding = resolveBinding({
         inputs: {
           repoRoot: fixture.repo,
-          wtree: "host-binding",
+          wtree: "executor-binding",
         },
       });
       expect(binding).toMatchObject({
         schemaVersion: "loopship.execution-binding/v1",
-        affinityRefs: [
-          { kind: "afn-host", ref: LOOPSHIP_AFN_HOST_ID },
-          { kind: "git-worktree" },
-        ],
+        resourceHandles: [{ type: "git-worktree", handleId: expect.any(String) }],
       });
       expect(JSON.stringify(binding)).not.toContain(fixture.repo);
 
-      const bindingPort = adapters.afnBindingPort as {
+      const bindingPort = adapters.executorBindingPort as {
         bind(input: Record<string, unknown>): Promise<Record<string, unknown>>;
       };
-      const route = loopshipHostDispatch(adapters).listRoutes()[0]!;
+    const route = loopshipExecutorDispatch(adapters).listRoutes()[0]!;
       expect(await bindingPort.bind({
         executionId: "loopship-binding-test",
         nodeId: "afn",
         effectKey: "loopship-binding-effect",
         call: route,
         input: {},
-        bindingContext: {},
+        bindingContext: {
+          inputs: {
+            repoRoot: fixture.repo,
+            wtree: "executor-binding",
+          },
+        },
       })).toEqual({
-        affinityRefs: [{ kind: "afn-host", ref: LOOPSHIP_AFN_HOST_ID }],
+        bindingRefs: [{ kind: "git-worktree", ref: expect.any(String) }],
+        replayPolicy: "assigned-executor-only",
+        resourceHandles: [{ type: "git-worktree", handleId: expect.any(String) }],
       });
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
@@ -4299,7 +4390,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const root = parseYaml(
         readFileSync(join(fixture.repo, ".loopship", "system.yaml"), "utf8"),
       ) as Record<string, unknown>;
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const action = {
         call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
         with: {
@@ -4386,7 +4477,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const systemBefore = readFileSync(systemPath, "utf8");
       const signatureBefore = readFileSync(signaturePath, "utf8");
       const root = parseYaml(systemBefore) as Record<string, unknown>;
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       for (const status of ["started", "completed"] as const) {
         const identity = {
           executionId: `loopship-legacy-effect-${status}`,
@@ -4456,7 +4547,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const systemPath = join(fixture.repo, ".loopship", "system.yaml");
       const systemBefore = readFileSync(systemPath, "utf8");
       const root = parseYaml(systemBefore) as Record<string, unknown>;
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       for (const invalid of [
         "malformed",
         "unknown-version",
@@ -4620,7 +4711,7 @@ describe("Loopship Fastflow-native bridge", () => {
       );
       expect(verifyQuestManifest(quest.files).ok).toBe(false);
 
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const action = {
         call: LOOPSHIP_AFN_CALLS.runtimeCommitQuestState,
         with: {
@@ -4704,7 +4795,7 @@ describe("Loopship Fastflow-native bridge", () => {
       const root = parseYaml(
         readFileSync(join(fixture.repo, ".loopship", "system.yaml"), "utf8"),
       ) as Record<string, unknown>;
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const action = {
         call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
         with: {
@@ -4834,7 +4925,7 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("composes generic Loopship transition result envelopes", async () => {
-    const adapters = createLoopshipFastflowAdapters();
+    const adapters = createLoopshipRuntimeIntegrations();
     const result = await executeLoopshipAfn(adapters, {
       action: {
         call: LOOPSHIP_AFN_CALLS.flowComposeTransitionResult,
@@ -4904,7 +4995,7 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("verifies generic transition result composition inputs without inline JS checks", async () => {
-    const adapters = createLoopshipFastflowAdapters();
+    const adapters = createLoopshipRuntimeIntegrations();
     const result = await executeLoopshipAfn(adapters, {
       phase: "verification",
       action: {
@@ -5137,114 +5228,118 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
-  test("rejects unknown CLI arguments and missing option values", () => {
-    const fixture = createGitFixture("loopship-native-cli-args-");
-    try {
-      const unknownDoctor = runLoopshipCli(fixture.repo, ["doctor", "--fex"]);
-      expect(unknownDoctor.status).toBe(1);
-      expect(unknownDoctor.stderr).toContain("Unknown flag: --fex");
+  test(
+    "rejects unknown CLI arguments and missing option values",
+    () => {
+      const fixture = createGitFixture("loopship-native-cli-args-");
+      try {
+        const unknownDoctor = runLoopshipCli(fixture.repo, ["doctor", "--fex"]);
+        expect(unknownDoctor.status).toBe(1);
+        expect(unknownDoctor.stderr).toContain("Unknown flag: --fex");
 
-      const missingRepo = runLoopshipCli(fixture.repo, ["doctor", "--repo"]);
-      expect(missingRepo.status).toBe(1);
-      expect(missingRepo.stderr).toContain("Flag --repo requires a value");
+        const missingRepo = runLoopshipCli(fixture.repo, ["doctor", "--repo"]);
+        expect(missingRepo.status).toBe(1);
+        expect(missingRepo.stderr).toContain("Flag --repo requires a value");
 
-      const emptyRepo = runLoopshipCli(fixture.repo, ["doctor", "--repo="]);
-      expect(emptyRepo.status).toBe(1);
-      expect(emptyRepo.stderr).toContain("--repo requires a value");
+        const emptyRepo = runLoopshipCli(fixture.repo, ["doctor", "--repo="]);
+        expect(emptyRepo.status).toBe(1);
+        expect(emptyRepo.stderr).toContain("--repo requires a value");
 
-      const unknownResume = runLoopshipCli(fixture.repo, ["resume", "--fex"]);
-      expect(unknownResume.status).toBe(1);
-      expect(unknownResume.stderr).toContain("Unknown flag: --fex");
+        const unknownResume = runLoopshipCli(fixture.repo, ["resume", "--fex"]);
+        expect(unknownResume.status).toBe(1);
+        expect(unknownResume.stderr).toContain("Unknown flag: --fex");
 
-      const removedFullHook = runLoopshipCli(fixture.repo, ["hook", "--full"]);
-      expect(removedFullHook.status).toBe(1);
-      expect(removedFullHook.stderr).toContain("Unknown flag: --full");
+        const removedFullHook = runLoopshipCli(fixture.repo, ["hook", "--full"]);
+        expect(removedFullHook.status).toBe(1);
+        expect(removedFullHook.stderr).toContain("Unknown flag: --full");
 
-      const ambiguousResume = runLoopshipCli(fixture.repo, [
-        "resume",
-        "--wtree",
-        "task",
-        "--json",
-        "{}",
-      ]);
-      expect(ambiguousResume.status).toBe(1);
-      expect(ambiguousResume.stderr).toContain(
-        "loopship resume accepts either --wtree or --json, not both",
-      );
+        const ambiguousResume = runLoopshipCli(fixture.repo, [
+          "resume",
+          "--wtree",
+          "task",
+          "--json",
+          "{}",
+        ]);
+        expect(ambiguousResume.status).toBe(1);
+        expect(ambiguousResume.stderr).toContain(
+          "loopship resume accepts either --wtree or --json, not both",
+        );
 
-      const strayStepper = runLoopshipCli(fixture.repo, [
-        "stepper",
-        "step",
-        "unexpected",
-      ]);
-      expect(strayStepper.status).toBe(1);
-      expect(strayStepper.stderr).toContain("unknown stepper argument: unexpected");
+        const strayStepper = runLoopshipCli(fixture.repo, [
+          "stepper",
+          "step",
+          "unexpected",
+        ]);
+        expect(strayStepper.status).toBe(1);
+        expect(strayStepper.stderr).toContain("unknown stepper argument: unexpected");
 
-      const emptyStepperInitRepo = runLoopshipCli(fixture.repo, [
-        "stepper",
-        "init",
-        "loopship: test",
-        "--repo=",
-      ]);
-      expect(emptyStepperInitRepo.status).toBe(1);
-      expect(emptyStepperInitRepo.stderr).toContain("--repo requires a value");
+        const emptyStepperInitRepo = runLoopshipCli(fixture.repo, [
+          "stepper",
+          "init",
+          "loopship: test",
+          "--repo=",
+        ]);
+        expect(emptyStepperInitRepo.status).toBe(1);
+        expect(emptyStepperInitRepo.stderr).toContain("--repo requires a value");
 
-      const removedFullStepper = runLoopshipCli(fixture.repo, [
-        "stepper",
-        "init",
-        "loopship: test",
-        "--full",
-      ]);
-      expect(removedFullStepper.status).toBe(1);
-      expect(removedFullStepper.stderr).toContain("Unknown option for init: --full");
+        const removedFullStepper = runLoopshipCli(fixture.repo, [
+          "stepper",
+          "init",
+          "loopship: test",
+          "--full",
+        ]);
+        expect(removedFullStepper.status).toBe(1);
+        expect(removedFullStepper.stderr).toContain("Unknown option for init: --full");
 
-      const arrayHookPayload = runLoopshipCli(fixture.repo, [
-        "hook",
-        "--json",
-        "[]",
-      ]);
-      expect(arrayHookPayload.status).toBe(1);
-      expect(arrayHookPayload.stderr).toContain(
-        "cannot decode message google.protobuf.Struct from JSON Array(0)",
-      );
+        const arrayHookPayload = runLoopshipCli(fixture.repo, [
+          "hook",
+          "--json",
+          "[]",
+        ]);
+        expect(arrayHookPayload.status).toBe(1);
+        expect(arrayHookPayload.stderr).toContain(
+          "cannot decode message google.protobuf.Struct from JSON Array(0)",
+        );
 
-      const missingHandbookRepo = runLoopshipCli(fixture.repo, [
-        "handbook",
-        "--repo",
-      ]);
-      expect(missingHandbookRepo.status).toBe(1);
-      expect(missingHandbookRepo.stderr).toContain("--repo requires a value");
+        const missingHandbookRepo = runLoopshipCli(fixture.repo, [
+          "handbook",
+          "--repo",
+        ]);
+        expect(missingHandbookRepo.status).toBe(1);
+        expect(missingHandbookRepo.stderr).toContain("--repo requires a value");
 
-      const invalidHandbookMinimum = runLoopshipCli(fixture.repo, [
-        "handbook",
-        "--duplicates",
-        "--min-chars=0",
-      ]);
-      expect(invalidHandbookMinimum.status).toBe(1);
-      expect(invalidHandbookMinimum.stderr).toContain(
-        "min_chars must be a positive integer",
-      );
+        const invalidHandbookMinimum = runLoopshipCli(fixture.repo, [
+          "handbook",
+          "--duplicates",
+          "--min-chars=0",
+        ]);
+        expect(invalidHandbookMinimum.status).toBe(1);
+        expect(invalidHandbookMinimum.stderr).toContain(
+          "min_chars must be a positive integer",
+        );
 
-      const legacyHandbookJson = runLoopshipCli(fixture.repo, [
-        "handbook",
-        "--json",
-      ]);
-      expect(legacyHandbookJson.status).toBe(1);
-      expect(legacyHandbookJson.stderr).toContain("Unknown flag: --json");
+        const legacyHandbookJson = runLoopshipCli(fixture.repo, [
+          "handbook",
+          "--json",
+        ]);
+        expect(legacyHandbookJson.status).toBe(1);
+        expect(legacyHandbookJson.stderr).toContain("Unknown flag: --json");
 
-      const extraInitPositionals = runLoopshipCli(fixture.repo, [
-        "init",
-        "loopship: one objective",
-        "unexpected",
-      ]);
-      expect(extraInitPositionals.status).toBe(1);
-      expect(extraInitPositionals.stderr).toContain(
-        "Unexpected positional argument: unexpected",
-      );
-    } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
-    }
-  });
+        const extraInitPositionals = runLoopshipCli(fixture.repo, [
+          "init",
+          "loopship: one objective",
+          "unexpected",
+        ]);
+        expect(extraInitPositionals.status).toBe(1);
+        expect(extraInitPositionals.stderr).toContain(
+          "Unexpected positional argument: unexpected",
+        );
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    },
+    { timeout: 30_000 },
+  );
 
   test("init refuses an already initialized quest worktree with resume guidance", () => {
     const fixture = createGitFixture("loopship-native-init-resume-guard-");
@@ -5281,7 +5376,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
   test("resume recovers the canonical Native execution after a daemon restart", async () => {
     const fixture = createGitFixture("loopship-native-resume-canonical-");
-    const schedulerDb = join(fixture.root, "scheduler", "native-v1.sqlite");
+    const schedulerDb = join(fixture.root, "scheduler", "fastflow.sqlite");
     let scheduler: LoopshipTestScheduler | null = null;
     try {
       scheduler = await startLoopshipTestScheduler({
@@ -5291,7 +5386,7 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(scheduler.env.LOOPSHIP_HOME).toBeTruthy();
       expect(
         existsSync(
-          join(String(scheduler.env.LOOPSHIP_HOME), "scheduler", "native-v1.runtime.json"),
+          join(String(scheduler.env.LOOPSHIP_HOME), "scheduler", "fastflow.runtime.json"),
         ),
       ).toBe(true);
       const started = await startQuestStage(
@@ -5311,6 +5406,10 @@ describe("Loopship Fastflow-native bridge", () => {
       const startedExecutionId = String(started.executionId || "");
       expect(startedExecutionId).toMatch(/^loopship-[0-9a-f]{64}$/);
 
+      // Restarting while the first dispatch is still in flight loses nothing,
+      // but the scenario under test is recovery of a persisted execution. Wait
+      // for the scheduler to record its first suspension first.
+      await waitForNativeExecutionAwaiting(schedulerDb, startedExecutionId);
       await scheduler.stop();
       scheduler = await startLoopshipTestScheduler({
         dbPath: schedulerDb,
@@ -5353,11 +5452,13 @@ describe("Loopship Fastflow-native bridge", () => {
       await scheduler?.stop();
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  }, 120_000);
+    // Full local-durable submission plus restart recovery legitimately takes
+    // ~100s; the old 120s ceiling failed under suite load.
+  }, 240_000);
 
   test("production daemon Connect preserves legacy_execution_unsupported", async () => {
     const fixture = createGitFixture("loopship-native-connect-legacy-");
-    const schedulerDb = join(fixture.root, "scheduler", "native-v1.sqlite");
+    const schedulerDb = join(fixture.root, "scheduler", "fastflow.sqlite");
     let scheduler: LoopshipTestScheduler | null = null;
     try {
       scheduler = await startLoopshipTestScheduler({
@@ -5428,7 +5529,7 @@ describe("Loopship Fastflow-native bridge", () => {
         },
       });
       expect(String((probe.response.error as Record<string, unknown>).message)).toContain(
-        "must be resubmitted as new Native v1 executions",
+        "must be resubmitted as new Fastflow executions",
       );
       expect(readLoopshipNativeExecutionRequest(workspace.worktree_path)).toMatchObject({
         executionId: native.executionId,
@@ -5440,9 +5541,9 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   }, 120_000);
 
-  test("production daemon Connect preserves incompatible-plan recovery guidance", async () => {
+  test("production daemon Connect keeps unassigned v4 plans contract-pinned across artifact drift", async () => {
     const fixture = createGitFixture("loopship-native-connect-plan-incompatible-");
-    const schedulerDb = join(fixture.root, "scheduler", "native-v1.sqlite");
+    const schedulerDb = join(fixture.root, "scheduler", "fastflow.sqlite");
     const packageRoot = copyLoopshipPackageFixture(
       join(fixture.root, "loopship-package"),
     );
@@ -5470,6 +5571,12 @@ describe("Loopship Fastflow-native bridge", () => {
       const executionId = String(started.executionId || "");
       expect(executionId).toMatch(/^loopship-[0-9a-f]{64}$/);
 
+      // The initial Connect response only proves durable submission. Let the
+      // scheduler persist its first suspension before restarting it; otherwise
+      // recovery races the still-running first dispatch and may correctly
+      // return a transient `running` artifact instead of the persisted handoff
+      // checkpoint this test is about.
+      await waitForNativeExecutionAwaiting(schedulerDb, executionId);
       await scheduler.stop();
       scheduler = null;
       const copiedReadme = join(packageRoot, "README.md");
@@ -5491,18 +5598,14 @@ describe("Loopship Fastflow-native bridge", () => {
         cwd: workspaceRoot,
         env: scheduler.env,
       });
-      expect(probe.status, probe.stderr || probe.stdout).toBe(23);
+      expect(probe.status, probe.stderr || probe.stdout).toBe(0);
       expect(probe.response).toMatchObject({
-        ok: false,
-        error: {
-          code: "FASTFLOW_PLAN_INCOMPATIBLE",
-          retryable: false,
+        ok: true,
+        result: {
+          schemaVersion: "fastflow/interaction-response/v2",
+          kind: "handoff_answer",
         },
       });
-      const message = String((probe.response.error as Record<string, unknown>).message);
-      expect(message).toContain(executionId);
-      expect(message).toContain("Restore the exact prior Loopship/Fastflow release");
-      expect(message).toContain("resubmit as a new Native execution");
       expect(readLoopshipNativeExecutionRequest(workspaceRoot)).toMatchObject({
         executionId,
         status: "pending",
@@ -5511,13 +5614,15 @@ describe("Loopship Fastflow-native bridge", () => {
       await scheduler?.stop();
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, 240_000);
 
   test(
     "records the actual coordinator branch when source branch differs",
     async () => {
+      const previousCatalogSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
       const fixture = createGitFixture("loopship-native-source-branch-state-");
       try {
+        process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralLoopshipCatalogSigningKey();
         const wtree = "source-branch-state";
         await startQuestStage(fixture.repo, "loopship: build demo", wtree, [
           "--source-branch",
@@ -5535,6 +5640,11 @@ describe("Loopship Fastflow-native bridge", () => {
           true,
         );
       } finally {
+        if (previousCatalogSigningKey === undefined) {
+          delete process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
+        } else {
+          process.env.LOOPSHIP_CATALOG_SIGNING_KEY = previousCatalogSigningKey;
+        }
         rmSync(fixture.root, { recursive: true, force: true });
       }
     },
@@ -5809,18 +5919,18 @@ describe("Loopship Fastflow-native bridge", () => {
       `
         import { validateCallCatalogRoot } from ${JSON.stringify(fastflowImport("root"))};
         const result = await validateCallCatalogRoot(process.argv[2]);
-        if (!result.ok || result.calls !== 20) {
+        if (!result.ok || result.calls !== 22) {
           throw new Error(JSON.stringify(result));
         }
         console.log(JSON.stringify(result));
       `,
       [LOOPSHIP_CALL_CATALOG_ROOT],
     );
-    expect(JSON.parse(output).calls).toBe(20);
+    expect(JSON.parse(output).calls).toBe(22);
   });
 
   test("keeps static AFN call catalog descriptors in parity with adapter descriptors", async () => {
-    const adapters = createLoopshipFastflowAdapters();
+    const adapters = createLoopshipRuntimeIntegrations();
     for (const descriptor of LOOPSHIP_AFN_DESCRIPTORS) {
       const callId = parseCallId(descriptor.call);
       const catalogPath = join(
@@ -5840,9 +5950,9 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(catalog.calls.find((entry: Record<string, unknown>) => entry.call === descriptor.call)).toEqual(
         descriptorWithoutTags,
       );
-      expect(
-        (adapters.resolveCallDescriptor as Function)({ call: descriptor.call }),
-      ).toEqual(descriptor);
+      const resolved = (adapters.resolveCatalogCall as Function)({ call: descriptor.call });
+      expect(resolved).toMatchObject(descriptor);
+      expect(String(resolved.contractDigest || "")).toMatch(/^sha256:[0-9a-f]{64}$/);
     }
   });
 
@@ -5865,17 +5975,17 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).not.toContain("promotion-managed release artifacts");
     expect(LOOPSHIP_SUPERVISOR_GUIDANCE.summary).not.toContain("*.stable.yaml workflows");
     expect("command" in LOOPSHIP_SUPERVISOR_GUIDANCE).toBe(false);
-    const adapters = createLoopshipFastflowAdapters();
-    expect(adapters.adapterIdentity).toBe("@omar391/loopship");
+    const adapters = createLoopshipRuntimeIntegrations();
+    expect(adapters.runtimeIdentity).toBe("@omar391/loopship");
     expect("runtimeOffer" in adapters).toBe(false);
-    expect("afnDispatch" in adapters).toBe(false);
-    const host = adapters.afnHost as {
-      hostId: string;
+    expect("executorDispatch" in adapters).toBe(true);
+    const executor = adapters.executor as {
+      executorNodeId: string;
       dispatchPort: { listRoutes(): unknown[] };
     };
-    expect(host.hostId).toBe(LOOPSHIP_AFN_HOST_ID);
-    expect(host.dispatchPort.listRoutes()).toHaveLength(LOOPSHIP_AFN_DESCRIPTORS.length);
-    const descriptor = await (adapters.resolveCallDescriptor as Function)({
+    expect(executor.executorNodeId).toBe(LOOPSHIP_EXECUTOR_NODE_ID);
+    expect(executor.dispatchPort.listRoutes()).toHaveLength(LOOPSHIP_AFN_DESCRIPTORS.length);
+    const descriptor = await (adapters.resolveCatalogCall as Function)({
       call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
     });
     expect(descriptor.call).toBe(LOOPSHIP_AFN_CALLS.childPrepareWorktree);
@@ -5923,8 +6033,8 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("reports live AFN effects as non-cancellable and returns their late decision", async () => {
-    const adapters = createLoopshipFastflowAdapters();
-    const dispatch = loopshipHostDispatch(adapters);
+    const adapters = createLoopshipRuntimeIntegrations();
+    const dispatch = loopshipExecutorDispatch(adapters);
     const route = dispatch.listRoutes().find(
       (entry) => entry.callId === LOOPSHIP_AFN_CALLS.childValidateDag,
     );
@@ -5937,14 +6047,13 @@ describe("Loopship Fastflow-native bridge", () => {
       call: {
         callId: route!.callId,
         contractDigest: route!.contractDigest,
-        implementationDigest: route!.implementationDigest,
       },
       input: {
         tasks: [{ id: "task-a", dependencies: [], scope_files: ["src/a"] }],
       },
       effectKey: "loopship-cancel-live:validate-child-dag:effect",
       bindingRefs: [],
-      affinityRefs: [],
+      resourceHandles: [],
       grants: [],
     });
     const cancellationRequest = {
@@ -5955,7 +6064,7 @@ describe("Loopship Fastflow-native bridge", () => {
       effectKey: invocation.effectKey,
       call: invocation.call,
       bindingRefs: invocation.bindingRefs,
-      affinityRefs: invocation.affinityRefs,
+      resourceHandles: invocation.resourceHandles,
       reason: "cancel the Native execution",
     };
     const pendingDecision = dispatch.dispatch(
@@ -6141,7 +6250,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("rejects terminal child child.prepare requests before synthesizing nested child worktrees", async () => {
     const fixture = createGitFixture("loopship-terminal-child-prepare-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       await expect(
         executeLoopshipAfn(adapters, {
           action: {
@@ -6185,7 +6294,7 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(() => ensureCoordinatorWorkspace(fixture.repo, "../escaped")).toThrow(
         "wtree must use lowercase letters",
       );
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       await expect(
         executeLoopshipAfn(adapters, {
           action: {
@@ -6293,7 +6402,7 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("prepares exactly one Native DAG child without emitting a scheduler command", async () => {
-    const adapters = createLoopshipFastflowAdapters();
+    const adapters = createLoopshipRuntimeIntegrations();
     const prepared = await executeLoopshipAfn(adapters, {
       action: {
         call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
@@ -6326,7 +6435,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const fixture = createGitFixture("loopship-child-lifecycle-manifest-recovery-");
     try {
       createNativeQuest(fixture.repo, "parent");
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const prepared = await executeLoopshipAfn(adapters, {
         action: {
           call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
@@ -6439,7 +6548,7 @@ describe("Loopship Fastflow-native bridge", () => {
     const fixture = createGitFixture("loopship-child-replay-tamper-");
     try {
       createNativeQuest(fixture.repo, "parent");
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const prepareBody = {
         repo: fixture.repo,
         wtree: "parent",
@@ -7457,10 +7566,11 @@ describe("Loopship Fastflow-native bridge", () => {
 
   test("lifecycle promotion uses the Loopship registry directly", () => {
     const text = readFileSync(join(process.cwd(), "scripts", "loopship_fastflow_lifecycle.ts"), "utf8");
-    expect(text).toContain("FASTFLOW_INDEX");
-    expect(text).toContain("pathToFileURL(FASTFLOW_INDEX)");
-    expect(text).toContain("systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT");
-    expect(text).toContain("callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT]");
+    expect(text).toContain("resolveLoopshipFastflowRoot");
+    expect(text).toContain("FASTFLOW_LIFECYCLE_SCRIPT");
+    expect(text).toContain("configureFastflowForLoopship");
+    expect(text).not.toContain("systemWorkflowsDir: LOOPSHIP_CALL_CATALOG_ROOT");
+    expect(text).not.toContain("callCatalogRoots: [LOOPSHIP_CALL_CATALOG_ROOT]");
     expect(text).not.toContain("SCRATCH_CALL_CATALOG_ROOT");
     expect(text).not.toContain("syncPromotedWorkspaceRelease");
     expect(text).not.toContain("workspace.workflow.service");
@@ -7484,16 +7594,15 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("rejects missing required Loopship AFN fields at validation time", () => {
-    const adapters = createLoopshipFastflowAdapters();
     expect(() =>
-      (adapters.validateCallInvocation as Function)({
+      validateLoopshipCallInvocation({
         call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
         phase: "action",
         with: { body: { repo: "/tmp/repo" } },
       }),
     ).toThrow("requires body.wtree");
     expect(() =>
-      (adapters.validateCallInvocation as Function)({
+      validateLoopshipCallInvocation({
         call: LOOPSHIP_AFN_CALLS.childRecordLifecycle,
         phase: "action",
         with: {
@@ -7510,9 +7619,8 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("rejects unknown Loopship AFN body fields before promotion", () => {
-    const adapters = createLoopshipFastflowAdapters();
     expect(() =>
-      (adapters.validateCallInvocation as Function)({
+      validateLoopshipCallInvocation({
         call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
         phase: "action",
         with: {
@@ -7527,9 +7635,8 @@ describe("Loopship Fastflow-native bridge", () => {
   });
 
   test("rejects unknown nested Loopship AFN payload fields before promotion", () => {
-    const adapters = createLoopshipFastflowAdapters();
     expect(() =>
-      (adapters.validateCallInvocation as Function)({
+      validateLoopshipCallInvocation({
         call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
         phase: "action",
         with: {
@@ -7547,7 +7654,7 @@ describe("Loopship Fastflow-native bridge", () => {
       }),
     ).toThrow("body.task.shell is not allowed");
     expect(() =>
-      (adapters.validateCallInvocation as Function)({
+      validateLoopshipCallInvocation({
         call: LOOPSHIP_AFN_CALLS.systemApplyUpdate,
         phase: "action",
         with: {
@@ -7564,7 +7671,7 @@ describe("Loopship Fastflow-native bridge", () => {
       }),
     ).toThrow("body.update.unexpected is not allowed");
     expect(() =>
-      (adapters.validateCallInvocation as Function)({
+      validateLoopshipCallInvocation({
         call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
         phase: "action",
         with: {
@@ -7584,7 +7691,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("landing.apply preserves landing preflights and verifies recorded receipts", async () => {
     const fixture = createGitFixture("loopship-native-landing-preflight-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const { files, state } = createNativeQuest(fixture.repo, "demo");
       writeFileSync(
         files.tasks,
@@ -7712,7 +7819,7 @@ describe("Loopship Fastflow-native bridge", () => {
     try {
       mkdirSync(dirname(legacyTasks), { recursive: true });
       writeFileSync(legacyTasks, legacyState, "utf8");
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const action = {
         action: {
           call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
@@ -7745,7 +7852,7 @@ describe("Loopship Fastflow-native bridge", () => {
   test("landing.apply performs a real safe merge and archives canonical state", async () => {
     const fixture = createGitFixture("loopship-native-landing-merge-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -7856,14 +7963,14 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
           validateExecutionDecision,
         } from "@cueintent/fastflow";
         import {
-          createLoopshipFastflowAdapters,
+          createLoopshipRuntimeIntegrations,
           LOOPSHIP_AFN_CALLS,
         } from ${JSON.stringify(pathToFileURL(resolve(process.cwd(), "scripts", "loopship_fastflow.ts")).href)};
         const body = JSON.parse(process.env.LOOPSHIP_LANDING_BODY);
         const effectKey = process.env.LOOPSHIP_LANDING_EFFECT_KEY;
         const executionId = process.env.LOOPSHIP_LANDING_EXECUTION_ID;
-        const adapters = createLoopshipFastflowAdapters();
-        const dispatch = adapters.afnHost.dispatchPort;
+        const adapters = createLoopshipRuntimeIntegrations();
+        const dispatch = adapters.executorDispatch;
         const route = dispatch.listRoutes().find(
           (entry) => entry.callId === LOOPSHIP_AFN_CALLS.landingApplyOutcome,
         );
@@ -7875,12 +7982,11 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
           call: {
             callId: route.callId,
             contractDigest: route.contractDigest,
-            implementationDigest: route.implementationDigest,
           },
           input: body,
           effectKey,
           bindingRefs: [],
-          affinityRefs: [],
+          resourceHandles: [],
           grants: [],
         });
         const decision = validateExecutionDecision(await dispatch.dispatch(invocation));
@@ -7948,7 +8054,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
   test("landing.apply crash recovery retains the exact merge commit after target advancement", async () => {
     const fixture = createGitFixture("loopship-native-landing-receipt-recovery-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -8094,7 +8200,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
           expect(sourceAfterKill).toBe(sourceBefore);
         }
 
-        const adapters = createLoopshipFastflowAdapters();
+        const adapters = createLoopshipRuntimeIntegrations();
         const recovered = await executeLoopshipAfn(
           adapters,
           {
@@ -8176,7 +8282,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
         ).toBe(false);
 
         const recovered = await executeLoopshipAfn(
-          createLoopshipFastflowAdapters(),
+          createLoopshipRuntimeIntegrations(),
           {
             action: {
               call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
@@ -8241,7 +8347,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
         runGit(mutationRoot, ["commit", "-m", `move ${movedBranch} after prepared merge`]);
 
         const recovery = executeLoopshipAfn(
-          createLoopshipFastflowAdapters(),
+          createLoopshipRuntimeIntegrations(),
           {
             action: {
               call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
@@ -8271,7 +8377,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
   test("landing.apply rejects target branches checked out in external worktrees", async () => {
     const fixture = createGitFixture("loopship-native-landing-external-target-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -8332,7 +8438,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
   test("landing.apply rejects uncommitted durable Loopship target state", async () => {
     const fixture = createGitFixture("loopship-native-landing-dirty-target-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -8386,7 +8492,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
   test("cleanup skips quests without landing evidence", async () => {
     const fixture = createGitFixture("loopship-native-cleanup-unlanded-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -8571,7 +8677,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
   test("cleanup removes landed merged quest worktrees and branches", async () => {
     const fixture = createGitFixture("loopship-native-cleanup-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -8788,7 +8894,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
   test("landing.apply replaces an untracked target .loopship/.gitignore when the source lands a tracked version", async () => {
     const fixture = createGitFixture("loopship-native-landing-loopship-gitignore-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -8861,7 +8967,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
   test("landing.apply commits only canonical Loopship docs and preserves unrelated staged state", async () => {
     const fixture = createGitFixture("loopship-native-landing-durable-loopship-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -8958,7 +9064,7 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
       runGit(fixture.repo, ["add", ".gitignore"]);
       runGit(fixture.repo, ["commit", "-m", "ignore loopship runtime helpers"]);
 
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const workspace = ensureTaskWorkspace(
         fixture.repo,
         "codex/demo",
@@ -9208,12 +9314,14 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  });
+    // Spawns a Bun workflow subprocess; the 5s default is too tight when the
+    // suite runs alongside the live restart case.
+  }, 20_000);
 
   test("landing.apply preserves blocked landing without merging", async () => {
     const fixture = createGitFixture("loopship-native-landing-blocked-");
     try {
-      const adapters = createLoopshipFastflowAdapters();
+      const adapters = createLoopshipRuntimeIntegrations();
       const { files } = createNativeQuest(fixture.repo, "demo");
       const action = {
         call: LOOPSHIP_AFN_CALLS.landingApplyOutcome,
@@ -9290,4 +9398,141 @@ exec "$LOOPSHIP_REAL_GIT" "$@"
       log: "events",
     }));
   });
+
+  test("resource lease ownership and fencing survive manager lifetimes", () => {
+    const root = realpathSync(mkdtempSync(join(process.cwd(), "tmp", "loopship-resource-leases-")));
+    const statePath = join(root, "resource-leases.json");
+    const resourceRef = { type: "git-worktree", handleId: "lease-recovery-worktree" };
+    const createPort = () => createLoopshipRuntimeIntegrations(null, {
+      resourceLeaseStatePath: statePath,
+    }).resourceLeasePort as {
+      resolveHandle(ref: Record<string, unknown>, context: Record<string, unknown>): Record<string, unknown>;
+      acquire(input: Record<string, unknown>): unknown;
+      release(input: Record<string, unknown>): unknown;
+    };
+    const acquire = (port: ReturnType<typeof createPort>) => {
+      const executorNodeId = "lease-recovery-executor";
+      const handle = port.resolveHandle(resourceRef, { executorNodeId });
+      return port.acquire({ handle, executorNodeId, operations: ["use"] }) as {
+        leaseId: string;
+        authorityId: string;
+        fencingGeneration: number;
+        handle: { handleDigest: string };
+        state: string;
+      };
+    };
+
+    try {
+      const firstPort = createPort();
+      const firstLease = acquire(firstPort);
+      expect(firstLease.fencingGeneration).toBe(1);
+
+      const recoveredPort = createPort();
+      const executorNodeId = "lease-recovery-executor";
+      const handle = recoveredPort.resolveHandle(resourceRef, { executorNodeId });
+      expect(() => recoveredPort.acquire({ handle, executorNodeId, operations: ["use"] }))
+        .toThrow(/already has an active lease/u);
+
+      expect(recoveredPort.release({
+        leaseId: firstLease.leaseId,
+        fencingGeneration: firstLease.fencingGeneration,
+        lease: firstLease,
+      })).toMatchObject({ state: "released" });
+      const secondLease = acquire(recoveredPort);
+      expect(secondLease.fencingGeneration).toBe(2);
+      expect(secondLease.leaseId).not.toBe(firstLease.leaseId);
+      expect(secondLease.authorityId).toBe(firstLease.authorityId);
+
+      expect(firstPort.release({
+        leaseId: firstLease.leaseId,
+        fencingGeneration: firstLease.fencingGeneration,
+        lease: firstLease,
+      })).toMatchObject({ state: "released" });
+      expect(() => acquire(createPort())).toThrow(/already has an active lease/u);
+
+      expect(recoveredPort.release({
+        leaseId: secondLease.leaseId,
+        fencingGeneration: secondLease.fencingGeneration,
+        lease: secondLease,
+      })).toMatchObject({ state: "released" });
+      expect(acquire(createPort()).fencingGeneration).toBe(3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function ephemeralLoopshipCatalogSigningKey(): string {
+    // Loopship's signing seam expects raw Ed25519 private-key bytes as
+    // base64. Export the PKCS#8 DER of the freshly generated key and keep
+    // only the raw 32 bytes; the key is never written to disk.
+    return generateKeyPairSync("ed25519").privateKey
+      .export({ format: "der", type: "pkcs8" })
+      .subarray(-32)
+      .toString("base64");
+  }
+
+  test("Loopship lifecycle command seeds mounted workflows through mutable authoring files", async () => {
+    const fixture = createGitFixture("loopship-fastflow-lifecycle-");
+    // Lifecycle promotion compiles a signed catalog bundle in-process, so it
+    // requires the ephemeral signing-key seam. The scheduler is not involved
+    // in promotion; tests pass their own throwaway key and no key persists.
+    const ephemeralSigningKey = ephemeralLoopshipCatalogSigningKey();
+    const previousCatalogSigningKey = process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
+    try {
+      process.env.LOOPSHIP_CATALOG_SIGNING_KEY = ephemeralSigningKey;
+      cpSync(LOOPSHIP_CALL_CATALOG_ROOT, join(fixture.repo, "call-catalog"), {
+        recursive: true,
+      });
+      const workflowRef = loopshipFlowWorkflowRef("swe");
+      const runtime = await configureFastflowForLoopship(fixture.repo);
+      const mounted = await resolveWorkflowReference(workflowRef, fixture.repo, {
+        channel: "stable",
+        runtime,
+      }) as Record<string, unknown>;
+      const stablePath = join(
+        fixture.repo,
+        "call-catalog",
+        "loopship",
+        "workflow",
+        "service",
+        "flows",
+        "swe.stable.yaml",
+      );
+      expect(mounted.filePath).toStartWith("bundle://");
+      expect(mounted.authoringFilePath).toBe(stablePath);
+      expect(existsSync(stablePath)).toBe(true);
+
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--no-install",
+          join(process.cwd(), "scripts", "loopship_fastflow_lifecycle.ts"),
+          "internal",
+          "workflows",
+          "dev",
+          "seed",
+          workflowRef,
+        ],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env, LOOPSHIP_REPO_ROOT: fixture.repo },
+          encoding: "utf8",
+        },
+      );
+      const result = JSON.parse(output) as Record<string, unknown>;
+      expect(result).toMatchObject({ ok: true, workflowRef });
+      expect(result.stablePath).toBe(mounted.filePath);
+      expect(result.devPath).toBe(stablePath.replace(".stable.yaml", ".dev.yaml"));
+      expect(existsSync(String(result.devPath))).toBe(true);
+    } finally {
+      if (previousCatalogSigningKey === undefined) {
+        delete process.env.LOOPSHIP_CATALOG_SIGNING_KEY;
+      } else {
+        process.env.LOOPSHIP_CATALOG_SIGNING_KEY = previousCatalogSigningKey;
+      }
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+    // Seeds the catalog through a Bun subprocess (measured ~20s here), so the
+    // previous 30s ceiling failed under full-suite load.
+  }, 120_000);
 });

@@ -1565,17 +1565,17 @@ export function parseTasksYaml(text: string): Partial<QuestState> {
   const raw = parsed && typeof parsed === "object" ? parsed : {};
   if (raw.schema_version !== 5) {
     throw legacyQuestStateUnsupported(
-      `quest task state schema ${String(raw.schema_version ?? "<missing>")} is unsupported; resubmit it as a new Native v1 execution`,
+      `quest task state schema ${String(raw.schema_version ?? "<missing>")} is unsupported; resubmit it as a new Fastflow execution`,
     );
   }
   if (LEGACY_WTREE_KEY in raw || LEGACY_PARENT_WTREE_KEY in raw) {
     throw legacyQuestStateUnsupported(
-      "legacy quest state keys are unsupported; resubmit the quest as a new Native v1 execution",
+      "legacy quest state keys are unsupported; resubmit the quest as a new Fastflow execution",
     );
   }
   if ("answers" in raw) {
     throw legacyQuestStateUnsupported(
-      "legacy top-level answers are unsupported; resubmit the quest as a new Native v1 execution",
+      "legacy top-level answers are unsupported; resubmit the quest as a new Fastflow execution",
     );
   }
   const taskState: Partial<QuestState> = {

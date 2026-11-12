@@ -84,8 +84,8 @@ context:
     execjson mirrors the public CLI as a machine interface without replacing the lifecycle.
     Every LoopshipService method remains local and default-deny. Loopship is a client only of
     Fastflow's six descriptor-derived, allowlisted SchedulerControlService unary Connect methods.
-    AFN-host bootstrap uses CreateAfnSessionTicket, then runs exact handlers through the
-    authenticated binary fastflow.afn.v1 host session.
+    Executor bootstrap uses explicit node/runtime ports and the authenticated binary Fastflow
+    v2 WSS executor session; exact handlers remain private to the executor integration.
 solution_strategy: |-
   Loopship treats workflow steps, task payloads, Native child invocations, system updates,
   and route outputs as schema-backed contracts rather than loose prose conventions. Runtime
@@ -136,10 +136,10 @@ structure:
       content-addressed through interactionRef and verified on retrieval. artifactRef remains
       run evidence, and nextCall carries only the answer or decision needed for continuation.
     native-runtime: |-
-      The Fastflow facade binds promoted workflow and step contracts to Native v1 through a
+      The Fastflow facade binds promoted workflow and step contracts to the current native
       route-metadata-only binding port. The supervised Bun daemon alone owns scheduler SQLite,
       publishes the private runtime descriptor, and supervises Loopship's package-identity-derived
-      logical host over an authenticated local-durable AFN session. Loopship rejects incompatible
+      executor session over authenticated WSS. Loopship rejects incompatible
       persisted execution state without interpreting or migrating it. No AFN invocation or
       cancellation uses a raw newline-JSON or process-local production transport.
     system-update: |-
@@ -166,7 +166,8 @@ structure:
       generation, integrity-manifest writing, and system_update application logic.
     native-flow-runtime: |-
       scripts/loopship_fastflow.ts loads promoted workflow contracts, resolves their pinned
-      dependencies and schemas, and registers the Loopship adapters used by Native v1.
+      dependencies and schemas, and registers explicit Loopship executor integrations used by
+      the current native scheduler.
       scripts/loopship_native_execution.ts owns durable execution receipts and rejects legacy
       execution state.
     system-verifier: |-
@@ -281,9 +282,9 @@ interfaces:
       handbook. cmdproto execjson accepts one complete inline JSON, @file, or @- request source
       and reaches the same typed command service as the human CLI. Every LoopshipService method
       remains local and is never placed on a remote allowlist. Scheduler commands use Fastflow's
-      six descriptor-derived, allowlisted SchedulerControlService unary Connect methods; AFN-host
-      bootstrap specifically uses CreateAfnSessionTicket. Loopship does not implement REST aliases
-      or expose a second transport for these commands.
+      six descriptor-derived, allowlisted SchedulerControlService unary Connect methods; executor
+      admission uses the authenticated v2 WSS session boundary. Loopship does not implement REST
+      aliases or expose a second transport for these commands.
   task-yaml:
     kind: file
     text: |-

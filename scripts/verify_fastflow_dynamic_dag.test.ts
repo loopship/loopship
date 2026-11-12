@@ -52,17 +52,17 @@ function executeNativeDagFixture(input: {
     `
       import { readFileSync } from "node:fs";
       import {
-        configureFastflowApp,
-        resetFastflowAdapters,
-      } from ${JSON.stringify(sourceImport(fastflowRoot, "src/lib/consumer-adapters.mjs"))};
+        configureFastflowRuntime,
+        resetFastflowRuntime,
+      } from ${JSON.stringify(sourceImport(fastflowRoot, "src/lib/runtime-shell.mjs"))};
       import { createAfnDispatchPort } from ${JSON.stringify(sourceImport(fastflowRoot, "src/lib/afn-dispatch.mjs"))};
       import { createMemoryExecutionStore } from ${JSON.stringify(sourceImport(fastflowRoot, "src/lib/execution-store.mjs"))};
       import {
         completedDecision,
         failedDecision,
-        digestCallContract,
         digestNativeContract,
       } from ${JSON.stringify(sourceImport(fastflowRoot, "src/lib/native-contracts.mjs"))};
+      import { digestAfnContract } from ${JSON.stringify(sourceImport(fastflowRoot, "src/lib/afn-contract.mjs"))};
       import { executeNativeWorkflow } from ${JSON.stringify(sourceImport(fastflowRoot, "src/lib/native-workflow-runtime.mjs"))};
 
       const input = JSON.parse(readFileSync(process.argv[2], "utf8"));
@@ -71,7 +71,22 @@ function executeNativeDagFixture(input: {
         call: callId,
         metadata: { allowed_phases: ["action"] },
       };
-      const contractDigest = digestCallContract(descriptor);
+      const contractContent = {
+        schemaVersion: "fastflow.afn-contract/v1",
+        callId,
+        inputSchema: { type: "object", additionalProperties: true },
+        outputSchema: { type: "object" },
+        effects: ["loopship.child-lifecycle"],
+        grantRequirements: [],
+        resourceRequirements: [],
+        qualifierSchema: { type: "object", additionalProperties: false, properties: {} },
+        replayPolicy: "idempotent",
+      };
+      const contractDigest = digestAfnContract({
+        ...contractContent,
+        contractDigest: digestNativeContract(contractContent),
+      });
+      descriptor.contractDigest = contractDigest;
       const implementationDigest = digestNativeContract({ implementation: callId, version: 1 });
       const events = [];
       let active = 0;
@@ -81,6 +96,7 @@ function executeNativeDagFixture(input: {
         routes: [{
           callId,
           contractDigest,
+          descriptor,
           implementationDigest,
           routeId: "fixture:loopship-child-lifecycle",
           async handler(invocation) {
@@ -120,16 +136,24 @@ function executeNativeDagFixture(input: {
         target: "service",
         executionBinding: binding,
         options: { executionBinding: binding },
+        async beforeWorkflowRun() {},
+        async prepareWorkflowExecutionContext() {},
+        async prepareExecutionContextForStep() {},
+        async evaluateExecutionPolicy() {},
+        projectInvocationPolicyContext() { return null; },
+        validateExecutionScope() {},
+        async auditAfn() {},
+        async auditAction() {},
         async ensureReady() {},
         async close() {},
       });
-      configureFastflowApp({
+      configureFastflowRuntime({
         appName: "loopship-native-dag-test",
-        adapters: {
-          adapterIdentity: "loopship.native-dag-test",
-          adapterVersion: "1.0.0",
-          registeredCalls: [descriptor],
-          afnDispatch: dispatch,
+        integrations: {
+          runtimeIdentity: "loopship.native-dag-test",
+          runtimeVersion: "1.0.0",
+          catalogCalls: [descriptor],
+          executorDispatch: dispatch,
           createExecutionContext: createRuntime,
         },
       });
@@ -184,6 +208,9 @@ function executeNativeDagFixture(input: {
         executionId: input.executionId,
         allowUnvalidatedRecord: true,
         artifactMode: "minimal",
+        executorDispatchPort: dispatch,
+        runtimeReconstructionPort: { createExecutionContext: createRuntime },
+        resourceLeasePort: null,
       };
       const first = await executeNativeWorkflow(createRuntime(), record, { tasks: input.tasks }, options);
       const firstDispatchCount = dispatchCount;
@@ -192,7 +219,7 @@ function executeNativeDagFixture(input: {
       const iterationChildren = rootChildren.length === 1
         ? await store.listChildExecutions(rootChildren[0])
         : [];
-      resetFastflowAdapters();
+      resetFastflowRuntime();
       process.stdout.write(JSON.stringify({
         action: first.state.steps.stage_task_graph_ready.action,
         replayAction: replay.state.steps.stage_task_graph_ready.action,
@@ -207,13 +234,12 @@ function executeNativeDagFixture(input: {
     "utf8",
   );
   try {
-    return JSON.parse(
-      execFileSync(process.execPath, ["--no-install", scriptPath, inputPath], {
+    const output = execFileSync(process.execPath, ["--no-install", scriptPath, inputPath], {
         cwd: process.cwd(),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-      }),
-    ) as Record<string, unknown>;
+      });
+    return JSON.parse(output) as Record<string, unknown>;
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
     rmSync(join(process.cwd(), ".loopship-native-dag-test"), {
@@ -345,7 +371,7 @@ describe("Loopship Native dynamic child DAG", () => {
       .rejects.toThrow("loopship_child_implementation_commit_required:task-a");
     await expect(run(archived, "archived", {
       wtree: "live-parent-task-a",
-      summary: "Archived through Native v1.",
+      summary: "Archived through Fastflow.",
       tasks: [{ status: "child_archived" }],
       parent_wtree: "live-parent",
       landing_target_branch: "live-parent",

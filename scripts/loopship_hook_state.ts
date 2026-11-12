@@ -41,7 +41,7 @@ function hookStateError(code: string, message: string): Error {
 function legacyHookStateUnsupported(path: string): Error {
   return hookStateError(
     "legacy_execution_unsupported",
-    `hook route at ${path} predates the Native v1 nonce contract; resubmit it as a new Native execution`,
+    `hook route at ${path} predates the Fastflow nonce contract; resubmit it as a new Fastflow execution`,
   );
 }
 
@@ -163,7 +163,7 @@ function readState(path: string): HookRouteState | null {
   ) {
     throw hookStateError(
       "loopship_hook_state_corrupt",
-      `Native v1 hook route at ${path} is missing required routing fields`,
+      `Fastflow hook route at ${path} is missing required routing fields`,
     );
   }
   return state;

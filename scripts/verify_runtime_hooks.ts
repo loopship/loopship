@@ -228,7 +228,7 @@ async function main(): Promise<number> {
   try {
     const repo = createRepo(root);
     scheduler = await startLoopshipTestScheduler({
-      dbPath: join(root, "scheduler", "native-v1.sqlite"),
+      dbPath: join(root, "scheduler", "fastflow.sqlite"),
       home: join(root, "home"),
     });
     nativeRuntimeEnv = {
@@ -326,7 +326,7 @@ async function main(): Promise<number> {
       fail("new Native hook-route state must be owner-readable only");
     }
     if (hookState.schema_version !== 2) {
-      fail(`hook state must use the Native v1 route schema: ${JSON.stringify(hookState)}`);
+      fail(`hook state must use the Fastflow route schema: ${JSON.stringify(hookState)}`);
     }
     if (hookState.thread_id !== "codex-thread-a") {
       fail(`hook state must bind the Codex thread id: ${JSON.stringify(hookState)}`);
