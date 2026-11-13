@@ -100,9 +100,16 @@ function relativePackagePath(path: string): string {
 }
 
 function assertMinimalSkillRoot(): void {
-  const visibleEntries = readdirSync(SKILL_ROOT).filter((entry) => !entry.startsWith("."));
-  if (visibleEntries.length !== 1 || visibleEntries[0] !== "SKILL.md") {
-    throw new Error(`skills/loopship must stay launcher-only; found: ${visibleEntries.join(", ") || "(empty)"}`);
+  const visibleEntries = readdirSync(SKILL_ROOT, { withFileTypes: true }).filter(
+    (entry) => !entry.name.startsWith("."),
+  );
+  const allowed = new Set(["SKILL.md", "tests"]);
+  const unexpected = visibleEntries.filter(
+    (entry) => !allowed.has(entry.name) || (entry.name === "tests" && !entry.isDirectory()),
+  );
+  if (unexpected.length > 0) {
+    const names = visibleEntries.map((entry) => entry.name).join(", ");
+    throw new Error(`skills/loopship must stay launcher-only; found: ${names || "(empty)"}`);
   }
 }
 

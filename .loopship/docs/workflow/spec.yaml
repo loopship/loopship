@@ -34,7 +34,7 @@ participants:
     text: |-
       The Loopship runtime stores task state, validates step payloads, integrates Fastflow's
       current native scheduler, runs every exact AFN handler through an explicit executor
-      integration and authenticated v2 WSS session, and controls consumer lifecycle transitions.
+      integration and local Fastflow AFN v3 executor port, and controls consumer lifecycle transitions.
       Its LoopshipService cmdproto methods remain local and default-deny. Scheduler operations use
       only Fastflow's six descriptor-derived finite unary Connect methods.
 triggers:

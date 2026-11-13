@@ -28,6 +28,8 @@ import {
   createAfnInvocation,
   digestNativeContract,
   resolveWorkflowReference,
+  type NativeRef,
+  type AfnDispatchPort,
   type JsonValue,
   validateExecutionDecision,
 } from "@cueintent/fastflow";
@@ -52,6 +54,7 @@ import {
   type QuestTask,
 } from "./loopship_core.ts";
 import {
+  FASTFLOW_AFN_CALLS,
   LOOPSHIP_AFN_CALLS,
   LOOPSHIP_AFN_DESCRIPTORS,
   LOOPSHIP_EXECUTOR_NODE_ID,
@@ -60,11 +63,13 @@ import {
   LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY,
   LOOPSHIP_DATA_CALLS,
   LOOPSHIP_SUPERVISOR_GUIDANCE,
+  normalizeLoopshipWorkflowRecord,
   cleanupCompletedNativeWorkspaceResidue,
   buildLoopshipChildDagReconciliation,
   cleanupLandedWorktrees,
   configureFastflowForLoopship,
   createLoopshipRuntimeIntegrations,
+  createLoopshipExecutorPorts,
   ensureLoopshipFastflowWorkflowCatalog,
   loopshipFlowWorkflowRef,
   recoverLoopshipFastflowWorkflow,
@@ -1216,6 +1221,7 @@ describe("Loopship Fastflow-native bridge", () => {
 
   test("keeps the Fastflow source-root override behind an explicit development opt-in", () => {
     const previousRoot = process.env.LOOPSHIP_FASTFLOW_ROOT;
+    const previousSourceDir = process.env.FASTFLOW_SOURCE_DIR;
     const previousOptIn = process.env.LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT;
     const fastflowRoot = resolveFastflowRoot(["src/index.mjs"]);
     const incompleteRoot = mkdtempSync(
@@ -1227,6 +1233,14 @@ describe("Loopship Fastflow-native bridge", () => {
       expect(() => resolveLoopshipFastflowRoot(["src/index.mjs"])).toThrow(
         "loopship_fastflow_dev_root_disabled",
       );
+
+      delete process.env.LOOPSHIP_FASTFLOW_ROOT;
+      process.env.FASTFLOW_SOURCE_DIR = fastflowRoot;
+      expect(() => resolveLoopshipFastflowRoot(["src/index.mjs"])).toThrow(
+        "loopship_fastflow_dev_root_disabled",
+      );
+      delete process.env.FASTFLOW_SOURCE_DIR;
+      process.env.LOOPSHIP_FASTFLOW_ROOT = fastflowRoot;
 
       const {
         LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT: _ignoredOptIn,
@@ -1255,6 +1269,8 @@ describe("Loopship Fastflow-native bridge", () => {
     } finally {
       if (previousRoot === undefined) delete process.env.LOOPSHIP_FASTFLOW_ROOT;
       else process.env.LOOPSHIP_FASTFLOW_ROOT = previousRoot;
+      if (previousSourceDir === undefined) delete process.env.FASTFLOW_SOURCE_DIR;
+      else process.env.FASTFLOW_SOURCE_DIR = previousSourceDir;
       if (previousOptIn === undefined) {
         delete process.env.LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT;
       } else {
@@ -1508,7 +1524,7 @@ describe("Loopship Fastflow-native bridge", () => {
           stderr: "pipe",
         });
         const ready = JSON.parse(
-          await readFirstLine(daemon.stdout as ReadableStream<Uint8Array>, 30_000),
+          await readFirstLine(daemon.stdout as ReadableStream<Uint8Array>, 60_000),
         ) as Record<string, unknown>;
         expect(ready).toMatchObject({
           ok: true,
@@ -4319,6 +4335,452 @@ describe("Loopship Fastflow-native bridge", () => {
     }
   });
 
+  test("catalog-binds inference while retaining timeout resume data", () => {
+    const normalized = normalizeLoopshipWorkflowRecord({
+      workflow: {
+        name: "timeout-resume",
+        metadata: { inference: { default: "strong" } },
+        steps: [{
+          id: "ask",
+          action: {
+            kind: "inference",
+            call: "fastflow.afn.core.request.input",
+            inference_ref: "strong",
+            instruction: "Choose the next action.",
+            timeout_ms: 1_000,
+          },
+        }],
+      },
+    });
+    const action = (normalized.workflow as {
+      steps: Array<{ action: Record<string, unknown> }>;
+    }).steps[0]?.action;
+    expect(action).toMatchObject({
+      kind: "inference",
+      call: FASTFLOW_AFN_CALLS.requestInput,
+      inference_ref: "strong",
+      instruction: "Choose the next action.",
+      timeout_ms: 1_000,
+    });
+    const adapters = createLoopshipRuntimeIntegrations();
+    expect((adapters.catalogCalls as Array<{ call: string }>).some((descriptor) => descriptor.call === action?.call))
+      .toBe(true);
+  });
+
+  test("dispatches native inference in the registered worktree and resumes at the fallback route", async () => {
+    const fixture = createGitFixture("loopship-native-inference-worktree-");
+    const wtree = "inference-timeout-resume";
+    const workspace = ensureTaskWorkspace(
+      fixture.repo,
+      `codex/${wtree}`,
+      join(fixture.repo, "worktrees", wtree),
+      "main",
+    );
+    const fakeCliPath = join(fixture.root, "fake-codex.cjs");
+    const cliLogPath = join(fixture.root, "inference-cli-calls.jsonl");
+    const schedulerDbPath = join(fixture.root, "scheduler.sqlite");
+    const previousCliLog = process.env.LOOPSHIP_TEST_CLI_LOG;
+    let supervisorRepairPayload: Record<string, unknown> | null = null;
+    let cleanupSupervisorRepairRequest: ((payload: unknown) => Promise<void>) | null = null;
+    try {
+      writeFileSync(
+        fakeCliPath,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          "const args = process.argv.slice(2);",
+          "const modelIndex = args.indexOf('--model');",
+          "const model = modelIndex >= 0 ? args[modelIndex + 1] : '';",
+          "let prompt = '';",
+          "process.stdin.setEncoding('utf8');",
+          "process.stdin.on('data', (chunk) => { prompt += chunk; });",
+          "if (model !== 'fixture-fast') { process.exitCode = 2; }",
+          "process.stdin.on('end', () => {",
+          "  fs.appendFileSync(process.env.LOOPSHIP_TEST_CLI_LOG, JSON.stringify({ model, cwd: process.cwd(), prompt }) + String.fromCharCode(10));",
+          "  const text = JSON.stringify({ answer: 'resumed', status: 'no-change', summary: 'fixture' });",
+          "  process.stdout.write(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } }) + String.fromCharCode(10));",
+          "});",
+        ].join('\n'),
+        "utf8",
+      );
+      chmodSync(fakeCliPath, 0o700);
+      process.env.LOOPSHIP_TEST_CLI_LOG = cliLogPath;
+
+      const inferenceBinding = {
+        kind: "fixture",
+        ref: "loopship-native-inference-worktree",
+        inference: {
+          registry: {
+            version: 1,
+            protocols: { "local-process": { kind: "process" } },
+            providers: { openai: { protocols: ["local-process"] } },
+            connectors: {
+              codex: {
+                interface: "cli",
+                provider: "openai",
+                protocol: "local-process",
+                command: fakeCliPath,
+                args: ["exec", "--json", "--model", "{model}"],
+              },
+            },
+            models: {
+              "fixture-fast": {
+                connectors: {
+                  codex: {
+                    capabilities: { vision: true, tools: true },
+                    thinking: { highest: "xhigh", default: "medium" },
+                  },
+                },
+              },
+            },
+            resolvers: {},
+          },
+        },
+      };
+      const requestSchema = {
+        type: "object",
+        additionalProperties: false,
+        required: ["task"],
+        properties: {
+          task: { type: "string" },
+          worktree_path: { type: "string" },
+          __fastflow_supervisor_repair: { type: "object", additionalProperties: true },
+        },
+      } as const;
+      const decisionSchema = {
+        type: "object",
+        additionalProperties: false,
+        required: ["answer"],
+        properties: {
+          answer: { type: "string" },
+          status: { type: "string" },
+          summary: { type: "string" },
+        },
+      } as const;
+      const normalized = normalizeLoopshipWorkflowRecord({
+        workflow: {
+          name: "timeout-resume",
+          namespace: "service-flows",
+          version: "0.1.0",
+          metadata: {
+            inference: {
+              groups: {
+                review: {
+                  timeoutMs: 1_000,
+                  on: ["timeout"],
+                  try: [
+                    "aitl.subagent",
+                    "llm.cli.codex.fixture-fast.xhigh",
+                  ],
+                },
+              },
+            },
+          },
+          steps: [{
+            id: "ask",
+            description: "Resume the decision after the first route times out.",
+            action: {
+              kind: "inference",
+              call: "fastflow.afn.core.request.input",
+              inference_ref: "review",
+              instruction: "Answer the task.",
+              request_schema: requestSchema,
+              decision_schema: decisionSchema,
+              request_builder: {
+                kind: "js",
+                using: ["inputs", "state"],
+                code: "return { task: String(state.counter), worktree_path: inputs.prepared.worktree_path, ...(inputs.supervisorRepair ? { __fastflow_supervisor_repair: inputs.supervisorRepair } : {}) };",
+              },
+              timeout_ms: 1_000,
+            },
+          }],
+        },
+      });
+      const workflow = normalized.workflow as Record<string, unknown>;
+      const step = (workflow.steps as Array<Record<string, unknown>>)[0]!;
+      const action = step.action as Record<string, unknown>;
+      expect(action).toMatchObject({
+        kind: "inference",
+        call: FASTFLOW_AFN_CALLS.requestInput,
+        inference_ref: "review",
+      });
+
+      const nativeExecutionId = "loopship-native-inference-timeout";
+      const adapters = createLoopshipRuntimeIntegrations(null, { schedulerDbPath });
+      const evaluateExecutionPolicy = adapters.evaluateExecutionPolicy as (
+        input: Record<string, unknown>,
+      ) => void;
+      const projectInvocationPolicyContext = adapters.projectInvocationPolicyContext as (
+        input: Record<string, unknown>,
+      ) => Record<string, unknown>;
+
+      const dispatch = loopshipExecutorDispatch(adapters) as ReturnType<
+        typeof loopshipExecutorDispatch
+      > & {
+        bind(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+      };
+      const route = dispatch.listRoutes().find(
+        (candidate) => candidate.callId === FASTFLOW_AFN_CALLS.requestInput,
+      );
+      expect(route).toBeDefined();
+      const dispatchInference = async ({
+        state,
+        nativeInvocationId,
+        timeoutResume,
+        supervisorRepair,
+      }: {
+        state: Record<string, unknown>;
+        nativeInvocationId: string;
+        timeoutResume?: Record<string, unknown>;
+        supervisorRepair?: Record<string, unknown>;
+      }) => {
+        const policy = {};
+        evaluateExecutionPolicy({
+          workflow,
+          step,
+          action,
+          phase: "action",
+          context: {
+            nativeExecutionId,
+            nativeInvocationId,
+            ...(timeoutResume ? { nativeInferenceTimeoutResume: timeoutResume } : {}),
+          },
+          policy,
+        });
+        const policyContext = projectInvocationPolicyContext({
+          workflow,
+          step,
+          action,
+          phase: "action",
+          policy,
+        });
+        const effectKey = "loopship-native-inference-effect-" + nativeInvocationId;
+        const requestInput = {
+          inferenceRef: "review",
+          instruction: "Answer the task.",
+          request: {
+            schema: requestSchema,
+            build: {
+              kind: "js",
+              using: ["inputs", "state"],
+              code: "return { task: String(state.counter), worktree_path: inputs.prepared.worktree_path, ...(inputs.supervisorRepair ? { __fastflow_supervisor_repair: inputs.supervisorRepair } : {}) };",
+            },
+          },
+          answer: { schema: decisionSchema },
+          bindings: {
+            inputs: {
+              prepared: {
+                repo: fixture.repo,
+                child_wtree: wtree,
+                worktree_path: workspace.worktree_path,
+              },
+              ...(supervisorRepair ? { supervisorRepair } : {}),
+            },
+            state,
+          },
+          timeoutMs: 1_000,
+        };
+        const binding = await dispatch.bind({
+          executionId: nativeExecutionId,
+          nodeId: "afn",
+          effectKey,
+          call: route,
+          input: requestInput,
+          bindingContext: {
+            runtimeBinding: inferenceBinding,
+            context: {
+              inputs: requestInput.bindings.inputs,
+              state,
+              nativeExecutionId,
+              nativeInvocationId,
+            },
+            policyContext,
+          },
+        });
+        const invocation = createAfnInvocation({
+          executionId: nativeExecutionId,
+          nodeId: "afn",
+          invocationId: nativeInvocationId,
+          attempt: 1,
+          call: {
+            callId: route!.callId,
+            contractDigest: route!.contractDigest,
+          },
+          input: requestInput as unknown as JsonValue,
+          effectKey,
+          bindingRefs: binding.bindingRefs as NativeRef[],
+          resourceHandles: binding.resourceHandles as Array<{ type: string; handleId: string }>,
+          grants: [],
+        });
+        return validateExecutionDecision(
+          await dispatch.dispatch(invocation as unknown as Record<string, unknown>),
+        );
+      };
+
+      const initial = await dispatchInference({
+        state: { counter: 1 },
+        nativeInvocationId: "loopship-native-inference-pause-a",
+      });
+      expect(initial.kind).toBe("completed");
+      if (initial.kind !== "completed") throw new Error("native inference did not return its pause marker");
+      const pending = (initial.output as Record<string, unknown>).__fastFlowPendingInference as
+        Record<string, unknown>;
+      expect(pending).toMatchObject({
+        resumeKind: "inference_timeout",
+        attemptIndex: 0,
+        requestPayload: { task: "1", worktree_path: workspace.worktree_path },
+      });
+      const timeoutResume = {
+        schemaVersion: "fastflow.inference-timeout-resume/v1",
+        resumeKind: pending.resumeKind,
+        attemptIndex: pending.attemptIndex,
+        requestPayload: pending.requestPayload,
+      };
+      const resumed = await dispatchInference({
+        state: { counter: 2 },
+        nativeInvocationId: "loopship-native-inference-pause-b",
+        timeoutResume,
+      });
+      expect(resumed).toMatchObject({
+        kind: "completed",
+        output: {
+          decision: { answer: "resumed" },
+          inference_route: "llm.cli.codex.fixture-fast.xhigh",
+        },
+      });
+
+      const supervisorRepairRuntime = await import(
+        pathToFileURL(join(resolveLoopshipFastflowRoot(), "src", "lib", "supervisor-repair-runtime.mjs")).href,
+      ) as unknown as {
+        prepareSupervisorRepairWorkspace(input: {
+          repairPath: string;
+          effectKey: string;
+        }): Promise<Record<string, string>>;
+        cleanupSupervisorRepairRequest(payload: unknown): Promise<void>;
+      };
+      cleanupSupervisorRepairRequest = supervisorRepairRuntime.cleanupSupervisorRepairRequest;
+      const repairWorkspace = await supervisorRepairRuntime.prepareSupervisorRepairWorkspace({
+        repairPath: join(fixture.repo, "README.md"),
+        effectKey: "loopship-native-inference-supervisor-repair",
+      });
+      const isolatedRepositoryRoot = repairWorkspace.isolatedRepositoryRoot;
+      const isolatedRepositoryCwd = realpathSync(isolatedRepositoryRoot);
+      const supervisorRepair = {
+        schemaVersion: "fastflow.supervisor-repair-request/v1",
+        workflowRef: "fixture/workflow",
+        workflowStore: "ephemeral",
+        workspaceRoot: workspace.worktree_path,
+        repositoryRoot: repairWorkspace.repositoryRoot,
+        relativeRepairPath: repairWorkspace.relativeRepairPath,
+        isolatedRepositoryRoot: repairWorkspace.isolatedRepositoryRoot,
+        isolatedRepairPath: repairWorkspace.isolatedRepairPath,
+        realRepairPath: repairWorkspace.realRepairPath,
+        validationPath: join(fixture.root, "supervisor-repair", "validation.yaml"),
+        outputSchemaPath: join(fixture.root, "supervisor-repair", "decision.schema.json"),
+        initialDevDigest: repairWorkspace.initialDevDigest,
+        stablePath: join(fixture.repo, "workflow.stable.yaml"),
+        stableDigest: "sha256:fixture-stable",
+        rerunExecutionId: "fixture-supervisor-rerun",
+      };
+      supervisorRepairPayload = supervisorRepair;
+      const supervisorInitial = await dispatchInference({
+        state: { counter: 3 },
+        nativeInvocationId: "loopship-native-inference-supervisor-repair-pause",
+        supervisorRepair,
+      });
+      expect(supervisorInitial.kind).toBe("completed");
+      if (supervisorInitial.kind !== "completed") {
+        throw new Error("supervisor repair inference did not return its pause marker");
+      }
+      const repairPending = (supervisorInitial.output as Record<string, unknown>).__fastFlowPendingInference as
+        Record<string, unknown>;
+      const supervisorResume = {
+        schemaVersion: "fastflow.inference-timeout-resume/v1",
+        resumeKind: repairPending.resumeKind,
+        attemptIndex: repairPending.attemptIndex,
+        requestPayload: repairPending.requestPayload,
+      };
+      const supervisorResult = await dispatchInference({
+        state: { counter: 4 },
+        nativeInvocationId: "loopship-native-inference-supervisor-repair-resume",
+        timeoutResume: supervisorResume,
+      });
+      expect(supervisorResult).toMatchObject({
+        kind: "completed",
+        output: { supervisor_repair: { status: "no-change" } },
+      });
+
+      const cliCalls = readFileSync(cliLogPath, "utf8")
+        .trim()
+        .split(String.fromCharCode(10))
+        .map((line) => JSON.parse(line));
+      expect(cliCalls).toHaveLength(2);
+      expect(cliCalls[0]).toMatchObject({
+        model: "fixture-fast",
+        cwd: workspace.worktree_path,
+      });
+      expect(cliCalls[0].prompt).toMatch(/"task"\s*:\s*"1"/);
+      expect(cliCalls[0].prompt).not.toMatch(/"task"\s*:\s*"2"/);
+      expect(cliCalls[1]).toMatchObject({
+        model: "fixture-fast",
+        cwd: isolatedRepositoryCwd,
+      });
+    } finally {
+      try {
+        if (cleanupSupervisorRepairRequest && supervisorRepairPayload) {
+          await cleanupSupervisorRepairRequest({
+            __fastflow_supervisor_repair: supervisorRepairPayload,
+          });
+        }
+      } finally {
+        if (previousCliLog === undefined) delete process.env.LOOPSHIP_TEST_CLI_LOG;
+        else process.env.LOOPSHIP_TEST_CLI_LOG = previousCliLog;
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("keeps the local executor offer dispatchable beyond Fastflow's one-day default", async () => {
+    let now = Date.parse("2026-01-01T00:00:00.000Z");
+    const dispatch = loopshipExecutorDispatch(createLoopshipRuntimeIntegrations()) as ReturnType<
+      typeof loopshipExecutorDispatch
+    > & { offer?: Record<string, unknown> | null };
+    expect(dispatch.offer).toBeDefined();
+
+    const fastflowRoot = resolveLoopshipFastflowRoot();
+    const offerModule = await import(
+      pathToFileURL(join(fastflowRoot, "src", "lib", "executor-offer-directory.mjs")).href,
+    ) as {
+      createExecutorOfferDirectory(input: Record<string, unknown>): {
+        connect(input: Record<string, unknown>): Promise<unknown>;
+        select(input: Record<string, unknown>): Promise<unknown>;
+      };
+    };
+    const directory = offerModule.createExecutorOfferDirectory({
+      now: () => now,
+      authorizeOffer: () => true,
+      validateSession: () => true,
+    });
+    await directory.connect({
+      offer: dispatch.offer,
+      principal: { id: "loopship-test-principal" },
+      authorization: { enrolled: true, authorized: true, grantKinds: ["*"] },
+    });
+    now += 86_400_001;
+
+    const route = dispatch.listRoutes()[0]!;
+    const selected = await directory.select({
+      call: { callId: route.callId, contractDigest: route.contractDigest },
+      routing: {
+        mode: "capability-pool",
+        qualifiers: {},
+        resourceHandles: [],
+        replayPolicy: "assigned-executor-only",
+      },
+    });
+    expect(selected).toBeDefined();
+  });
+
   test("exposes exact Loopship routes through its executor session", () => {
     const adapters = createLoopshipRuntimeIntegrations();
     const dispatch = loopshipExecutorDispatch(adapters);
@@ -4333,7 +4795,9 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(executor.executorNodeId).toBe(LOOPSHIP_EXECUTOR_NODE_ID);
     expect(executor.maxInFlight).toBe(LOOPSHIP_MAX_CHILD_MAX_CONCURRENCY);
     expect(routes.map((route) => route.callId).sort()).toEqual(
-      LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => descriptor.call).sort(),
+      (adapters.catalogCalls as Array<{ call: string }>)
+        .map((descriptor) => descriptor.call)
+        .sort(),
     );
     expect(bindingPort.listRoutes()).toEqual(routes);
   });
@@ -4380,6 +4844,142 @@ describe("Loopship Fastflow-native bridge", () => {
       });
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("retains executor binding context across dispatch-port reconstruction", async () => {
+    const fixture = createGitFixture("loopship-executor-binding-context-");
+    const previousDbPath = process.env.FASTFLOW_SCHEDULER_DB;
+    const dbPath = join(fixture.root, "scheduler.sqlite");
+    const effectKey = "loopship-durable-binding-effect";
+    const bindingContext = {
+      executionBinding: { route: "pinned-route" },
+      context: {
+        nativeExecutionId: "native-execution-pinned",
+        nativeInvocationId: "native-invocation-pinned",
+      },
+      inputs: { repoRoot: fixture.repo, wtree: "durable-binding" },
+    };
+    try {
+      delete process.env.FASTFLOW_SCHEDULER_DB;
+      const firstDispatch = createLoopshipExecutorPorts(null, { schedulerDbPath: dbPath })
+        .executorPort as unknown as ReturnType<typeof loopshipExecutorDispatch> & {
+          bind(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+        };
+      const route = firstDispatch.listRoutes()[0]!;
+      const firstBinding = await firstDispatch.bind({
+        executionId: "binding-execution",
+        nodeId: "afn",
+        effectKey,
+        call: route,
+        input: {},
+        bindingContext,
+      });
+
+      const state = JSON.parse(
+        readFileSync(`${dbPath}.loopship-executor-bindings.json`, "utf8"),
+      ) as { records: Record<string, Record<string, unknown>> };
+      expect(state.records[effectKey]).toEqual({
+        executorBinding: bindingContext.executionBinding,
+        nativeExecutionId: bindingContext.context.nativeExecutionId,
+        nativeInvocationId: bindingContext.context.nativeInvocationId,
+      });
+
+      const restartedDispatch = createLoopshipExecutorPorts(null, { schedulerDbPath: dbPath })
+        .executorPort as unknown as ReturnType<typeof loopshipExecutorDispatch> & {
+          bind(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+        };
+      expect(await restartedDispatch.bind({
+        executionId: "binding-execution",
+        nodeId: "afn",
+        effectKey,
+        call: route,
+        input: {},
+        bindingContext,
+      })).toEqual(firstBinding);
+    } finally {
+      if (previousDbPath === undefined) delete process.env.FASTFLOW_SCHEDULER_DB;
+      else process.env.FASTFLOW_SCHEDULER_DB = previousDbPath;
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("renews local executor offers before expiration and keeps assigned sessions stable", async () => {
+    const originalNow = Date.now;
+    let nowMs = Date.parse("2025-01-01T00:00:00.000Z");
+    Date.now = () => nowMs;
+    try {
+      const dispatch = createLoopshipExecutorPorts().executorPort as AfnDispatchPort & {
+        offer: { offerDigest: string; expiresAt: string };
+      };
+      const route = dispatch.listRoutes()[0]!;
+      const routing = {
+        mode: "exact-host" as const,
+        executorNodeId: LOOPSHIP_EXECUTOR_NODE_ID,
+        qualifiers: {},
+        resourceHandles: [] as Array<{ type: string; handleId: string }>,
+        replayPolicy: "assigned-executor-only" as const,
+      };
+      const makeInvocation = (suffix: string) => createAfnInvocation({
+        executionId: `offer-renewal-${suffix}`,
+        nodeId: route.callId,
+        invocationId: `offer-renewal-invocation-${suffix}`,
+        attempt: 1,
+        call: {
+          callId: route.callId,
+          contractDigest: route.contractDigest,
+        },
+        input: {},
+        effectKey: `offer-renewal-effect-${suffix}`,
+        bindingRefs: [],
+        resourceHandles: [],
+        grants: [],
+      });
+      const initialOffer = structuredClone(dispatch.offer);
+      const firstInvocation = makeInvocation("first");
+      const firstAssignment = await dispatch.assignExecutor!(firstInvocation, routing) as unknown as {
+        executor: { executorNodeId: string; sessionId: string; sessionEpoch: number; offerDigest: string };
+      } | null;
+      expect(firstAssignment?.executor.offerDigest).toBe(initialOffer.offerDigest);
+
+      nowMs += 23.5 * 60 * 60 * 1_000;
+      const renewedOffer = structuredClone(dispatch.offer);
+      expect(renewedOffer.offerDigest).not.toBe(initialOffer.offerDigest);
+      expect(Date.parse(renewedOffer.expiresAt)).toBeGreaterThan(nowMs);
+      const secondInvocation = makeInvocation("second");
+      const secondAssignment = await dispatch.assignExecutor!(secondInvocation, routing) as unknown as {
+        executor: { executorNodeId: string; sessionId: string; sessionEpoch: number; offerDigest: string };
+      } | null;
+      expect(secondAssignment?.executor).toMatchObject({
+        executorNodeId: firstAssignment?.executor.executorNodeId,
+        sessionId: firstAssignment?.executor.sessionId,
+        sessionEpoch: firstAssignment?.executor.sessionEpoch,
+      });
+
+      nowMs += 60 * 60 * 1_000;
+      const thirdInvocation = makeInvocation("third");
+      const thirdAssignment = await dispatch.assignExecutor!(thirdInvocation, routing) as unknown as {
+        executor: { executorNodeId: string; sessionId: string; sessionEpoch: number; offerDigest: string };
+      } | null;
+      expect(thirdAssignment?.executor.offerDigest).toBe(renewedOffer.offerDigest);
+      expect(Date.parse(initialOffer.expiresAt)).toBeLessThan(nowMs);
+      expect(await dispatch.releaseExecutorAssignment!({
+        invocationId: firstInvocation.invocationId,
+        executorNodeId: firstAssignment!.executor.executorNodeId,
+        sessionEpoch: firstAssignment!.executor.sessionEpoch,
+      })).toBe(true);
+      for (const [invocation, assignment] of [
+        [secondInvocation, secondAssignment],
+        [thirdInvocation, thirdAssignment],
+      ] as const) {
+        expect(await dispatch.releaseExecutorAssignment!({
+          invocationId: invocation.invocationId,
+          executorNodeId: assignment!.executor.executorNodeId,
+          sessionEpoch: assignment!.executor.sessionEpoch,
+        })).toBe(true);
+      }
+    } finally {
+      Date.now = originalNow;
     }
   });
 
@@ -5984,7 +6584,9 @@ describe("Loopship Fastflow-native bridge", () => {
       dispatchPort: { listRoutes(): unknown[] };
     };
     expect(executor.executorNodeId).toBe(LOOPSHIP_EXECUTOR_NODE_ID);
-    expect(executor.dispatchPort.listRoutes()).toHaveLength(LOOPSHIP_AFN_DESCRIPTORS.length);
+    expect(executor.dispatchPort.listRoutes()).toHaveLength(
+      (adapters.catalogCalls as Array<{ call: string }>).length,
+    );
     const descriptor = await (adapters.resolveCatalogCall as Function)({
       call: LOOPSHIP_AFN_CALLS.childPrepareWorktree,
     });

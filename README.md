@@ -57,10 +57,11 @@ commit and `bun.lock` together, then run the release verification before
 publishing.
 
 `LOOPSHIP_FASTFLOW_ROOT` is only a source-linked development/test hook. It is
-rejected unless the same process explicitly sets
+`FASTFLOW_SOURCE_DIR` is an alias for that same hook. Both are rejected unless the same process sets
 `LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT=1`; production must leave both unset and load
 the Fastflow runtime bundled in the Loopship package. A configured source root
 must be complete or startup fails without falling back to the bundled runtime.
+The daemon and client resolve the same override and reject conflicting roots.
 
 `cmdproto` is the pinned shared runtime for the public Loopship commands. It owns
 descriptor-backed parsing, generated help, protobuf validation, dispatch, and the
@@ -72,8 +73,10 @@ run/resume responses.
 Every `loopship.v1.LoopshipService` method remains local and default-deny for
 remote access. Loopship is a client only of Fastflow's six descriptor-derived,
 allowlisted `fastflow.scheduler.v1.SchedulerControlService` unary Connect methods.
-Executor-session bootstrap uses the authenticated Fastflow session; Loopship does not reimplement
-the service or expose REST aliases.
+Loopship supplies Fastflow AFN v3 with a local executor port registered directly
+with the scheduler authority. This is a local dispatch session, not an enrolled
+WSS connection; Loopship does not reimplement the scheduler service or expose
+REST aliases.
 Fastflow workflow run/resume responses, the Loopship Fastflow consumer adapter,
 and JSON Schema payload contracts are the lifecycle contract.
 
@@ -105,19 +108,26 @@ work. Configure the daemon's SQLite path before startup:
 
 ```bash
 export FASTFLOW_SCHEDULER_DB=/durable/path/fastflow.sqlite
+# Inject LOOPSHIP_CATALOG_SIGNING_KEY from the deployment secret store.
 loopship-fastflow-daemon
 ```
+
+`LOOPSHIP_CATALOG_SIGNING_KEY` is required by both the daemon and client
+processes that prepare real sessions. Provision the same stable key to each
+process through the deployment secret store. Its value is the canonical
+base64 encoding of the raw 32-byte Ed25519 private key. Keep it out of source
+control, command arguments, and logs, and preserve it across restarts so
+catalog signatures remain verifiable.
 
 The supervised Bun daemon owns the private loopback scheduler authority and its
 atomically published runtime descriptor and is the only process that opens the
 scheduler database. Loopship commands discover that descriptor and use
 Fastflow's six allowlisted finite unary Connect controls; they never open or
 advance scheduler SQLite directly. The daemon registers Loopship's exact finite
-AFN handler offer under its enrolled executor identity and initiates an
-authenticated binary `fastflow.afn.v2` session back to that authority. AFN
-invocations, cancellations, receipts, capacity, and decisions
-never use newline JSON, generic LoopshipService commands, or an ad hoc HTTP
-route. LoopshipService remains local and default-deny.
+AFN handler offer through Fastflow's local AFN v3 dispatch port. AFN invocations, cancellations, receipts,
+capacity, and decisions never use newline JSON, generic LoopshipService
+commands, or an ad hoc HTTP route. LoopshipService remains local and
+default-deny.
 
 Loopship's hosted filesystem and Git AFNs are bounded atomic effects and do not
 claim cooperative cancellation after dispatch. Their host cancellation result

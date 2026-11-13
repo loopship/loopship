@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -30,7 +31,7 @@ import {
 import * as Fastflow from "@cueintent/fastflow";
 import type { CatalogAfnContract, CatalogBundleMountResolver, CatalogBundleRegistry } from "@cueintent/fastflow/catalog-bundle";
 import type { RegistryMountTable, WorkflowIrBinding } from "@cueintent/fastflow/workflow-ir";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   applyLandingReceipt,
   applySystemUpdate,
@@ -282,6 +283,10 @@ export const LOOPSHIP_DATA_CALLS = Object.freeze({
   documentPatch: "fastflow.afn.data.document.patch",
   eventLogAppend: "fastflow.afn.data.event-log.append",
   eventLogQuery: "fastflow.afn.data.event-log.query",
+});
+
+export const FASTFLOW_AFN_CALLS = Object.freeze({
+  requestInput: "fastflow.afn.core.request.input",
 });
 
 export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
@@ -694,8 +699,66 @@ export const LOOPSHIP_AFN_DESCRIPTORS: CallDescriptor[] = [
   },
 ];
 
+const FASTFLOW_REQUEST_INPUT_DESCRIPTOR: CallDescriptor = {
+  call: FASTFLOW_AFN_CALLS.requestInput,
+  summary: "Execute a native Fastflow inference request through the Loopship executor.",
+  inputs: {
+    required: ["inferenceRef", "instruction", "request", "answer", "bindings"],
+    optional: ["timeoutMs", "request_id"],
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["inferenceRef", "instruction", "request", "answer", "bindings"],
+      properties: {
+        inferenceRef: { type: "string", minLength: 1 },
+        instruction: { type: "string", minLength: 1 },
+        request: {
+          type: "object",
+          additionalProperties: false,
+          required: ["schema", "build"],
+          properties: {
+            schema: {},
+            build: {
+              type: "object",
+              additionalProperties: false,
+              required: ["using"],
+              properties: {
+                kind: { type: "string" },
+                using: { type: "array", items: { type: "string" } },
+                code: { type: "string" },
+                timeoutMs: { type: "integer", minimum: 1 },
+              },
+            },
+          },
+        },
+        answer: {
+          type: "object",
+          additionalProperties: false,
+          required: ["schema"],
+          properties: { schema: {} },
+        },
+        bindings: { type: "object", additionalProperties: true },
+        timeoutMs: { type: "integer", minimum: 1 },
+        request_id: { type: "string", minLength: 1 },
+      },
+    },
+  },
+  tags: ["fastflow", "native", "inference", "executor"],
+  preferWhen: ["A native Fastflow inference step must execute through the enrolled Loopship worktree executor."],
+  avoidWhen: ["The workflow step is not a native request-input inference action."],
+  metadata: {
+    allowed_phases: ["action"],
+    effects: ["inference.request"],
+  },
+};
+
+const LOOPSHIP_AFN_RUNTIME_DESCRIPTORS: CallDescriptor[] = [
+  ...LOOPSHIP_AFN_DESCRIPTORS,
+  FASTFLOW_REQUEST_INPUT_DESCRIPTOR,
+];
+
 const DESCRIPTOR_BY_CALL = new Map(
-  LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => [descriptor.call, descriptor]),
+  LOOPSHIP_AFN_RUNTIME_DESCRIPTORS.map((descriptor) => [descriptor.call, descriptor]),
 );
 
 export const LOOPSHIP_EXECUTOR_NODE_ID = `loopship-executor-${createHash("sha256")
@@ -704,6 +767,31 @@ export const LOOPSHIP_EXECUTOR_NODE_ID = `loopship-executor-${createHash("sha256
   .slice(0, 24)}`;
 
 const LOOPSHIP_FASTFLOW_SESSION_TIMEOUT_MS = 3_600_000;
+const loopshipInferenceWorkspace = new AsyncLocalStorage<string>();
+let inferenceCliCwdInstalled = false;
+
+async function withLoopshipInferenceCliCwd<T>(workspaceRoot: string, operation: () => Promise<T>): Promise<T> {
+  if (!inferenceCliCwdInstalled) {
+    const fastflowRoot = resolveLoopshipFastflowRoot();
+    const cliModule = await import(pathToFileURL(resolve(fastflowRoot, "src", "lib", "llm", "cli-client.mjs")).href) as {
+      CliLlmClient: { prototype: { complete: (...args: unknown[]) => Promise<unknown> } };
+    };
+    const prototype = cliModule.CliLlmClient.prototype;
+    const original = prototype.complete;
+    prototype.complete = function (...args: unknown[]) {
+      const options = isPlainObject(args[1]) ? args[1] : {};
+      const cwd = loopshipInferenceWorkspace.getStore();
+      if (!cwd) return original.apply(this, args);
+      // Fastflow supplies a validated supervisor-repair cwd; ordinary inference uses the quest worktree.
+      const selectedCwd = typeof options.cwd === "string" && options.cwd.trim()
+        ? options.cwd
+        : cwd;
+      return original.apply(this, [args[0], { ...options, cwd: selectedCwd }]);
+    };
+    inferenceCliCwdInstalled = true;
+  }
+  return loopshipInferenceWorkspace.run(workspaceRoot, operation);
+}
 
 export type LoopshipFastflowRunInput = {
   repoRoot: string;
@@ -1330,14 +1418,19 @@ function validateBodyAgainstDescriptor(
 export function resolveLoopshipFastflowRoot(
   requiredFiles = ["src/index.mjs", "src/catalog.mjs"],
 ): string {
-  const configuredDevRoot = String(process.env.LOOPSHIP_FASTFLOW_ROOT || "").trim();
+  const loopshipRoot = String(process.env.LOOPSHIP_FASTFLOW_ROOT || "").trim();
+  const genericRoot = String(process.env.FASTFLOW_SOURCE_DIR || "").trim();
+  if (loopshipRoot && genericRoot && resolve(loopshipRoot) !== resolve(genericRoot)) {
+    throw new Error("LOOPSHIP_FASTFLOW_ROOT and FASTFLOW_SOURCE_DIR select different runtimes");
+  }
+  const configuredDevRoot = loopshipRoot || genericRoot;
   if (
     configuredDevRoot &&
     String(process.env.LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT || "").trim() !== "1"
   ) {
     throw Object.assign(
       new Error(
-        "loopship_fastflow_dev_root_disabled: LOOPSHIP_FASTFLOW_ROOT is a development/test-only source override; set LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT=1 explicitly or use the packaged @cueintent/fastflow runtime.",
+        "loopship_fastflow_dev_root_disabled: source overrides are development/test-only; set LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT=1 explicitly or use the packaged @cueintent/fastflow runtime.",
       ),
       { code: "loopship_fastflow_dev_root_disabled" },
     );
@@ -1471,6 +1564,7 @@ type LoopshipFastflowCatalogRuntime = {
   resolver: CatalogBundleMountResolver;
   bundleDigest: string;
   bytes: Uint8Array;
+  supportingBundles: Array<{ bundleDigest: string; bytes: Uint8Array }>;
 };
 
 type FastflowRuntimeApi = {
@@ -1511,6 +1605,10 @@ type BuildFilesystemCatalogBundle = (input: {
   registryMounts: RegistryMountTable;
   workflowBindings: Array<{ binding: WorkflowIrBinding; sourcePath: string }>;
   afnContracts: Array<{ contract: CatalogAfnContract }>;
+  resolveAfnContract?: (input: {
+    callId: string;
+    contractDigest: string;
+  }) => CatalogAfnContract | null | Promise<CatalogAfnContract | null>;
   signPayload?: (input: {
     payload: string;
     payloadDigest: string;
@@ -1830,6 +1928,15 @@ export async function prepareLoopshipFastflowCatalog({
     : (await import(
       pathToFileURL(resolve(fastflowRoot, "src", "lib", "catalog-bundle-filesystem.mjs")).href,
     )).buildFilesystemCatalogBundle as BuildFilesystemCatalogBundle;
+  const catalogBundleApi = await import(
+    pathToFileURL(resolve(fastflowRoot, "src", "catalog-bundle.mjs")).href,
+  ) as unknown as {
+    buildCatalogBundle(input: Record<string, unknown>): Promise<{
+      bytes: Uint8Array;
+      bundle: { bundleDigest: string };
+    }>;
+    verifyCatalogBundle(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  };
   const createMemoryCatalogBundleRegistry = requireFastflowFunction<() => CatalogBundleRegistry>(
     loadedApi,
     "createMemoryCatalogBundleRegistry",
@@ -1982,25 +2089,230 @@ export async function prepareLoopshipFastflowCatalog({
     });
   }
   const placeholderDigest = `sha256:${"0".repeat(64)}`;
+  const fastflowRegistryId = "fastflow";
+  const coreContract = createLoopshipAfnContract(
+    FASTFLOW_REQUEST_INPUT_DESCRIPTOR,
+    requireFastflowFunction<LoopshipFastflowPortApi["digestAfnContract"]>(
+      loadedApi,
+      "digestAfnContract",
+    ),
+  );
+  const coreBundle = await (async () => {
+    const coreCatalogParent = mkdtempSync(join(tmpdir(), "loopship-fastflow-core-catalog-"));
+    const coreCatalogRoot = join(coreCatalogParent, "call-catalog");
+    const coreWorkflowRelativePath =
+      "fastflow/workflow/service/core/request-input-binding.stable.yaml";
+    const coreWorkflowCallId = "fastflow.workflow.service.core.request-input-binding";
+    const coreWorkflowPath = join(coreCatalogRoot, coreWorkflowRelativePath);
+    try {
+      const coreRequestScope = join(coreCatalogRoot, "fastflow", "afn", "core", "request");
+      const coreWorkflowScope = join(coreCatalogRoot, "fastflow", "workflow", "service", "core");
+      mkdirSync(coreRequestScope, { recursive: true });
+      mkdirSync(coreWorkflowScope, { recursive: true });
+      writeFileSync(
+        join(coreCatalogRoot, "index.yaml"),
+        stringifyYaml({
+          schemaVersion: "fastflow/call-catalog-manifest/v3",
+          pathTemplate: "{registry}/{kind}/{target}/{scope}/index.yaml",
+          prefixes: {
+            fastflow: {
+              afn: {
+                core: {
+                  request: { tags: "native, inference, request-input" },
+                },
+              },
+              workflow: {
+                service: {
+                  core: { tags: "internal, request-input, binding" },
+                },
+              },
+            },
+          },
+        }),
+        "utf8",
+      );
+      writeFileSync(
+        join(coreRequestScope, "index.yaml"),
+        stringifyYaml({
+          schemaVersion: "fastflow/call-catalog-scope/v2",
+          calls: [FASTFLOW_REQUEST_INPUT_DESCRIPTOR],
+        }),
+        "utf8",
+      );
+      writeFileSync(
+        join(coreWorkflowScope, "index.yaml"),
+        stringifyYaml({
+          schemaVersion: "fastflow/call-catalog-scope/v2",
+          workflows: {},
+        }),
+        "utf8",
+      );
+      writeFileSync(
+        coreWorkflowPath,
+        stringifyYaml({
+          document: {
+            dsl: "1.0.3",
+            namespace: "service-core",
+            name: "request-input-binding",
+            version: "1.0.0",
+            summary: "Internal request-input contract binding.",
+            metadata: {
+              inference: {
+                default: "request_input_probe",
+                groups: {
+                  request_input_probe: {
+                    timeoutMs: 1_000,
+                    on: ["timeout"],
+                    try: ["aitl.subagent"],
+                  },
+                },
+              },
+            },
+          },
+          input: { schema: { document: { type: "object", additionalProperties: true } } },
+          do: [
+            {
+              contract_gate: {
+                switch: [
+                  { disabled: { when: "$" + "{true}", then: "end" } },
+                  { invoke: { then: "request_input_binding" } },
+                ],
+              },
+            },
+            {
+              request_input_binding: {
+                then: "end",
+                call: FASTFLOW_AFN_CALLS.requestInput,
+                with: {
+                  body: {
+                    timeout_ms: 1_000,
+                    instruction: "Bind the native request-input executor contract.",
+                    request: {
+                      schema: { type: "object", additionalProperties: true },
+                      build: {
+                        kind: "js",
+                        using: ["inputs"],
+                        code: "return inputs || {};",
+                      },
+                    },
+                    answer: { schema: { type: "object", additionalProperties: true } },
+                  },
+                },
+              },
+            },
+          ],
+          output: {
+            schema: { document: { type: "object", additionalProperties: true } },
+            as: "$" + "{state.vars}",
+          },
+        }),
+        "utf8",
+      );
+      const coreWorkflowRecord = await api.loadWorkflowRecord(
+        coreWorkflowPath,
+        "external",
+        coreWorkflowCallId,
+      );
+      const workflowOwner = await import(
+        pathToFileURL(resolve(fastflowRoot, "src", "lib", "workflows.mjs")).href,
+      ) as unknown as {
+        markWorkflowRecordValidated(record: Record<string, unknown>): Record<string, unknown>;
+      };
+      const coreWorkflow = isPlainObject(coreWorkflowRecord.workflow)
+        ? coreWorkflowRecord.workflow
+        : {};
+      const coreSteps = Array.isArray(coreWorkflow.steps) ? coreWorkflow.steps : [];
+      const coreAction = coreSteps
+        .map((step) => isPlainObject(step) && isPlainObject(step.action) ? step.action : null)
+        .find((action) => action?.call === FASTFLOW_AFN_CALLS.requestInput);
+      if (
+        coreWorkflowRecord.workflow_call_id !== coreWorkflowCallId ||
+        !coreAction ||
+        coreAction.kind !== "inference"
+      ) {
+        throw new Error("Internal Fastflow request-input binding workflow failed its structural check");
+      }
+      workflowOwner.markWorkflowRecordValidated(coreWorkflowRecord);
+      const coreBinding = await api.bindNativeWorkflow(coreWorkflowRecord, {
+        workspaceRoot: coreCatalogRoot,
+        resolveCallDescriptor: ({ call }: { call: string }) =>
+          call === FASTFLOW_AFN_CALLS.requestInput
+            ? {
+                ...clone(FASTFLOW_REQUEST_INPUT_DESCRIPTOR),
+                contractDigest: loopshipAfnContractDigest(
+                  FASTFLOW_REQUEST_INPUT_DESCRIPTOR,
+                  digestAfnContract,
+                ),
+              }
+            : null,
+      });
+      return await buildFilesystemCatalogBundle({
+        registryId: fastflowRegistryId,
+        catalogRoot: coreCatalogRoot,
+        releaseVersion: PACKAGE_JSON.version || "0.0.0",
+        registryMounts: createRegistryMountTable([{
+          registryId: fastflowRegistryId,
+          bundleDigest: placeholderDigest,
+        }]),
+        workflowBindings: [{
+          binding: coreBinding as unknown as WorkflowIrBinding,
+          sourcePath: coreWorkflowRelativePath,
+        }],
+        afnContracts: [{ contract: coreContract }],
+        signPayload: (input: { payload: string }) =>
+          requireLoopshipCatalogTrustSigningPayload(input, signingKey),
+      });
+    } finally {
+      rmSync(coreCatalogParent, { recursive: true, force: true });
+    }
+  })();
+  const catalogTrustPolicy = createLoopshipCatalogTrustPolicy({ signingKey });
+  const verifiedCoreBundle = await catalogBundleApi.verifyCatalogBundle({
+    bytes: coreBundle.bytes,
+    expectedDigest: coreBundle.bundle.bundleDigest,
+    trustPolicy: catalogTrustPolicy,
+  });
+  if (verifiedCoreBundle.bundleDigest !== coreBundle.bundle.bundleDigest) {
+    throw new Error("Fastflow core request-input catalog failed trust verification");
+  }
+  const registry = createMemoryCatalogBundleRegistry();
+  await registry.registerCatalogBundle({
+    bytes: coreBundle.bytes,
+    expectedDigest: coreBundle.bundle.bundleDigest,
+    trustPolicy: catalogTrustPolicy,
+  });
   const placeholderMounts = createRegistryMountTable([
     { registryId: LOOPSHIP_WORKFLOW_REGISTRY, bundleDigest: placeholderDigest },
+    { registryId: fastflowRegistryId, bundleDigest: coreBundle.bundle.bundleDigest },
   ]);
+  const boundLoopshipCalls = new Set(
+    workflowBindings.flatMap(({ binding }) =>
+      binding.calls
+        .map((entry) => entry.call.callId)
+        .filter((callId) => callId.startsWith("loopship.afn.")),
+    ),
+  );
   const built = await buildFilesystemCatalogBundle({
     registryId: LOOPSHIP_WORKFLOW_REGISTRY,
     catalogRoot,
     releaseVersion: PACKAGE_JSON.version || "0.0.0",
     registryMounts: placeholderMounts,
     workflowBindings,
-    afnContracts: LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => ({
+    afnContracts: LOOPSHIP_AFN_DESCRIPTORS
+      .filter((descriptor) => boundLoopshipCalls.has(descriptor.call))
+      .map((descriptor) => ({
       contract: createLoopshipAfnContract(
         descriptor,
         requireFastflowFunction<LoopshipFastflowPortApi["digestAfnContract"]>(loadedApi, "digestAfnContract"),
       ),
-    })),
+      })),
+    resolveAfnContract: ({ callId, contractDigest }) =>
+      callId === coreContract.callId && contractDigest === coreContract.contractDigest
+        ? coreContract
+        : null,
     signPayload: (input: { payload: string }) =>
       requireLoopshipCatalogTrustSigningPayload(input, signingKey),
   });
-  const registry = createMemoryCatalogBundleRegistry();
   await registry.registerCatalogBundle({
     bytes: built.bytes,
     expectedDigest: built.bundle.bundleDigest,
@@ -2008,17 +2320,46 @@ export async function prepareLoopshipFastflowCatalog({
   });
   const mounts = createRegistryMountTable([
     {
+      registryId: fastflowRegistryId,
+      bundleDigest: coreBundle.bundle.bundleDigest,
+    },
+    {
       registryId: LOOPSHIP_WORKFLOW_REGISTRY,
       bundleDigest: built.bundle.bundleDigest,
     },
   ]);
-  const resolver = createCatalogBundleMountResolver({ registry, mounts });
+  const mountedResolver = createCatalogBundleMountResolver({ registry, mounts });
+  const resolver: CatalogBundleMountResolver = Object.freeze({
+    ...mountedResolver,
+    async listCatalogCalls() {
+      const calls = await mountedResolver.listCatalogCalls();
+      return calls.map((call) => call.call === coreContract.callId
+        ? { ...call, contractDigest: coreContract.contractDigest }
+        : call);
+    },
+    async resolveAfnContract(call: { callId: string; contractDigest: string }) {
+      if (
+        call.callId === coreContract.callId &&
+        call.contractDigest === coreContract.contractDigest
+      ) {
+        return {
+          bundleDigest: coreBundle.bundle.bundleDigest,
+          contract: coreContract,
+        };
+      }
+      return mountedResolver.resolveAfnContract(call);
+    },
+  });
   return Object.freeze({
     registry,
     mounts,
     resolver,
     bundleDigest: built.bundle.bundleDigest,
     bytes: built.bytes,
+    supportingBundles: [{
+      bundleDigest: coreBundle.bundle.bundleDigest,
+      bytes: coreBundle.bytes,
+    }],
   });
 }
 
@@ -3754,6 +4095,7 @@ type LoopshipAfnEffectContext = {
   executorBinding?: Record<string, unknown>;
   nativeExecutionId?: string;
   nativeInvocationId?: string;
+  inferenceWorkflowContext?: LoopshipInferenceWorkflowContext;
 };
 
 function resolveLoopshipLandingOperation(
@@ -4136,32 +4478,96 @@ async function executeLoopshipWorkflowInference(
       pending?: Record<string, unknown> | null;
     }>;
   };
-  const workflow = isPlainObject(body.workflow)
-    ? body.workflow
-    : { name: "loopship", metadata: {} };
-  const step = isPlainObject(body.step)
-    ? body.step
-    : { id: "inference" };
+  const nativeRequestBody = typeof body.inferenceRef === "string" &&
+    isPlainObject(body.request) &&
+    isPlainObject(body.answer)
+    ? {
+        inferenceRef: body.inferenceRef,
+        request: body.request,
+        answer: body.answer,
+      }
+    : null;
+  const nativeBindings = nativeRequestBody && isPlainObject(body.bindings)
+    ? body.bindings
+    : {};
+  const inferenceWorkflowContext = effectContext.inferenceWorkflowContext;
+  const workflow = nativeRequestBody
+    ? inferenceWorkflowContext?.workflow
+    : isPlainObject(body.workflow)
+      ? body.workflow
+      : { name: "loopship", metadata: {} };
+  const step = nativeRequestBody
+    ? inferenceWorkflowContext?.step
+    : isPlainObject(body.step)
+      ? body.step
+      : { id: "inference" };
+  if (!workflow || !step) {
+    throw new Error("Native inference execution context is missing its workflow or step binding");
+  }
+  const nativeBuild = nativeRequestBody && isPlainObject(nativeRequestBody.request.build)
+    ? nativeRequestBody.request.build
+    : {};
+  const requestBuilder = nativeRequestBody
+    ? {
+        kind: nativeBuild.kind,
+        using: Array.isArray(nativeBuild.using) ? nativeBuild.using : [],
+        code: nativeBuild.code,
+        ...(Number.isInteger(nativeBuild.timeoutMs)
+          ? { timeout_ms: Number(nativeBuild.timeoutMs) }
+          : {}),
+      }
+    : isPlainObject(body.request_builder)
+      ? body.request_builder
+      : null;
   const resolvedAction = {
-    inference_ref: requireString(body.inference_ref, "inference_ref"),
-    ...(typeof body.message === "string" ? { message: body.message } : {}),
+    inference_ref: requireString(
+      nativeRequestBody ? nativeRequestBody.inferenceRef : body.inference_ref,
+      "inference_ref",
+    ),
+    ...(nativeRequestBody
+      ? { message: typeof body.message === "string" ? body.message : "" }
+      : typeof body.message === "string"
+        ? { message: body.message }
+        : {}),
     ...(typeof body.instruction === "string" ? { instruction: body.instruction } : {}),
-    ...(Object.prototype.hasOwnProperty.call(body, "request_schema")
-      ? { request_schema: body.request_schema }
+    ...(nativeRequestBody || Object.prototype.hasOwnProperty.call(body, "request_schema")
+      ? {
+          request_schema: nativeRequestBody
+            ? nativeRequestBody.request.schema
+            : body.request_schema,
+        }
       : {}),
-    ...(Object.prototype.hasOwnProperty.call(body, "decision_schema")
-      ? { decision_schema: body.decision_schema }
+    ...(nativeRequestBody || Object.prototype.hasOwnProperty.call(body, "decision_schema")
+      ? {
+          decision_schema: nativeRequestBody
+            ? nativeRequestBody.answer.schema
+            : body.decision_schema,
+        }
       : {}),
-    ...(isPlainObject(body.request_builder)
-      ? { request_builder: body.request_builder }
+    ...(requestBuilder
+      ? { request_builder: requestBuilder }
       : {}),
-    ...(Number.isInteger(body.timeout_ms) ? { timeout_ms: Number(body.timeout_ms) } : {}),
+    ...(Number.isInteger(nativeRequestBody ? body.timeoutMs : body.timeout_ms)
+      ? { timeout_ms: Number(nativeRequestBody ? body.timeoutMs : body.timeout_ms) }
+      : {}),
   };
+  const inputs = nativeRequestBody
+    ? isPlainObject(nativeBindings.inputs) ? nativeBindings.inputs : {}
+    : isPlainObject(body.inputs) ? body.inputs : {};
+  const state = nativeRequestBody
+    ? isPlainObject(nativeBindings.state) ? nativeBindings.state : {}
+    : isPlainObject(body.state) ? body.state : {};
+  const env = nativeRequestBody
+    ? isPlainObject(nativeBindings.env) ? nativeBindings.env : {}
+    : isPlainObject(body.env) ? body.env : {};
+  const args = nativeRequestBody
+    ? isPlainObject(nativeBindings.args) ? nativeBindings.args : inputs
+    : isPlainObject(body.args) ? body.args : body.inputs || inputs;
   const context = {
-    inputs: isPlainObject(body.inputs) ? body.inputs : {},
-    args: isPlainObject(body.args) ? body.args : body.inputs || {},
-    state: isPlainObject(body.state) ? body.state : {},
-    env: isPlainObject(body.env) ? body.env : {},
+    inputs,
+    args,
+    state,
+    env,
     ...(typeof body.native_execution_id === "string"
       ? { nativeExecutionId: body.native_execution_id }
       : {}),
@@ -4174,7 +4580,35 @@ async function executeLoopshipWorkflowInference(
     ...(typeof effectContext.nativeInvocationId === "string"
       ? { nativeInvocationId: effectContext.nativeInvocationId }
       : {}),
+    ...(isPlainObject(inferenceWorkflowContext?.nativeInferenceTimeoutResume)
+      ? { nativeInferenceTimeoutResume: clone(inferenceWorkflowContext.nativeInferenceTimeoutResume) }
+      : {}),
   };
+  const preparedInputs = isPlainObject(context.inputs.prepared)
+    ? context.inputs.prepared
+    : {};
+  const inputRepo = requireString(
+    context.inputs.repoRoot || context.inputs.repo || preparedInputs.repo || preparedInputs.context_root,
+    "inference inputs.repoRoot",
+  );
+  const repoRoot = canonicalRepositoryRoot(inputRepo, "inference inputs.repoRoot");
+  const wtree = requireString(
+    context.inputs.wtree || preparedInputs.child_wtree,
+    "inference inputs.wtree",
+  );
+  const expectedWorkspaceRoot = coordinatorWorktreePath(repoRoot, wtree);
+  if (
+    optionalString(preparedInputs.worktree_path) &&
+    resolve(String(preparedInputs.worktree_path)) !== expectedWorkspaceRoot
+  ) {
+    throw new Error("Native inference prepared worktree does not match its canonical child worktree");
+  }
+  const workspaceRoot = requireCanonicalRegisteredWorktree({
+    repoRoot,
+    workspaceRoot: expectedWorkspaceRoot,
+    wtree,
+    operation: "Workflow inference",
+  }).workspaceRoot;
   const runtime = {
     ...(isPlainObject(body.runtime) ? body.runtime : {}),
     ...(effectContext.executorBinding
@@ -4223,16 +4657,18 @@ async function executeLoopshipWorkflowInference(
         : resolvedAction?.timeout_ms,
     });
   };
-  const outcome = await inferenceModule.executeInferenceAction({
-    runtime,
-    workflow,
-    step,
-    context,
-    resolvedAction,
-    logger: null,
-    runCheckFn: async () => ({ ok: false }),
-    materializeRequestPayloadFn,
-  });
+  const outcome = await withLoopshipInferenceCliCwd(workspaceRoot, () =>
+    inferenceModule.executeInferenceAction({
+      runtime,
+      workflow,
+      step,
+      context,
+      resolvedAction,
+      logger: null,
+      runCheckFn: async () => ({ ok: false }),
+      materializeRequestPayloadFn,
+    }),
+  );
   if (outcome.kind === "resolved") return outcome.actionResult || { ok: true };
   if (outcome.kind === "pending") {
     // The scheduler persists AFN decisions as portable JSON. The inference
@@ -4363,45 +4799,11 @@ function normalizeLoopshipWorkflowStep({
     }
   }
   if (action?.kind === "inference") {
-    const inferenceAction = action;
     normalized.action = {
-      kind: "extension",
-      call: LOOPSHIP_AFN_CALLS.workflowInfer,
-      with: {
-        body: {
-          inference_ref: requireString(inferenceAction.inference_ref, "inference_ref"),
-          ...(typeof inferenceAction.message === "string"
-            ? { message: inferenceAction.message }
-            : {}),
-          ...(typeof inferenceAction.instruction === "string"
-            ? { instruction: inferenceAction.instruction }
-            : {}),
-          ...(Object.prototype.hasOwnProperty.call(inferenceAction, "request_schema")
-            ? { request_schema: structuredClone(inferenceAction.request_schema) }
-            : {}),
-          ...(Object.prototype.hasOwnProperty.call(inferenceAction, "decision_schema")
-            ? { decision_schema: structuredClone(inferenceAction.decision_schema) }
-            : {}),
-          ...(isPlainObject(inferenceAction.request_builder)
-            ? { request_builder: structuredClone(inferenceAction.request_builder) }
-            : {}),
-          ...(Number.isInteger(inferenceAction.timeout_ms)
-            ? { timeout_ms: Number(inferenceAction.timeout_ms) }
-            : {}),
-          inputs: "${inputs}",
-          state: "${state}",
-          args: "${args}",
-          workflow: inferenceWorkflowContext,
-          step: {
-            id: normalized.id || null,
-            description: normalized.description || null,
-          },
-          env: {},
-          identity: {},
-          action: "${result}",
-          post: "${result}",
-        },
-      },
+      ...action,
+      call: FASTFLOW_AFN_CALLS.requestInput,
+      inference_ref: requireString(action.inference_ref, "inference_ref"),
+      kind: "inference",
     };
   } else if (
     action?.kind === "extension" &&
@@ -4457,7 +4859,121 @@ type LoopshipAfnEffectReceipt = {
 };
 
 const LOOPSHIP_AFN_EFFECT_LOCK_WAIT_MS = 30_000;
+const LOOPSHIP_EXECUTOR_OFFER_TTL_MS = 24 * 60 * 60 * 1_000;
+const LOOPSHIP_EXECUTOR_OFFER_RENEW_BEFORE_MS = 60 * 60 * 1_000;
 const LOOPSHIP_AFN_EFFECT_BUSY = "loopship-afn-effect-busy";
+
+type LoopshipInferenceWorkflowContext = {
+  schemaVersion: "loopship.afn-inference-context/v1";
+  workflow: {
+    name: string | null;
+    namespace: string | null;
+    version: string | null;
+    metadata: { inference: Record<string, unknown> };
+  };
+  step: { id: string | null; description: string | null };
+  nativeInferenceTimeoutResume?: Record<string, unknown>;
+};
+
+const loopshipAfnPolicyContexts = new WeakMap<object, LoopshipInferenceWorkflowContext>();
+
+function parseLoopshipInferenceWorkflowContext(
+  value: unknown,
+): LoopshipInferenceWorkflowContext | undefined {
+  if (
+    !isPlainObject(value) ||
+    value.schemaVersion !== "loopship.afn-inference-context/v1" ||
+    !isPlainObject(value.workflow) ||
+    !isPlainObject(value.workflow.metadata) ||
+    !isPlainObject(value.workflow.metadata.inference) ||
+    !isPlainObject(value.step)
+  ) {
+    return undefined;
+  }
+  return {
+    schemaVersion: "loopship.afn-inference-context/v1",
+    workflow: {
+      name: optionalString(value.workflow.name) || null,
+      namespace: optionalString(value.workflow.namespace) || null,
+      version: optionalString(value.workflow.version) || null,
+      metadata: {
+        inference: structuredClone(value.workflow.metadata.inference),
+      },
+    },
+    step: {
+      id: optionalString(value.step.id) || null,
+      description: optionalString(value.step.description) || null,
+    },
+    ...(isPlainObject(value.nativeInferenceTimeoutResume)
+      ? { nativeInferenceTimeoutResume: structuredClone(value.nativeInferenceTimeoutResume) }
+      : {}),
+  };
+}
+
+type LoopshipExecutorBindingContext = {
+  executorBinding?: Record<string, unknown>;
+  nativeExecutionId?: string;
+  nativeInvocationId?: string;
+  inferenceWorkflowContext?: LoopshipInferenceWorkflowContext;
+};
+
+type LoopshipExecutorBindingState = {
+  schemaVersion: "loopship.executor-binding-context/v1";
+  records: Record<string, LoopshipExecutorBindingContext>;
+};
+
+function loopshipExecutorBindingStatePath(schedulerDbPath?: string): string | null {
+  const configuredPath = optionalString(schedulerDbPath) || optionalString(process.env.FASTFLOW_SCHEDULER_DB);
+  if (!configuredPath) return null;
+  if (!isAbsolute(configuredPath)) {
+    throw new Error("FASTFLOW_SCHEDULER_DB must be an absolute path for executor bindings");
+  }
+  return `${resolve(configuredPath)}.loopship-executor-bindings.json`;
+}
+
+function withLoopshipExecutorBindingState<T>(
+  path: string,
+  action: (state: LoopshipExecutorBindingState) => T,
+): T {
+  mkdirSync(dirname(path), { recursive: true });
+  const releaseLock = acquireCrashSafeFileLock(`${path}.lock`, LOOPSHIP_AFN_EFFECT_LOCK_WAIT_MS);
+  try {
+    let state: LoopshipExecutorBindingState = {
+      schemaVersion: "loopship.executor-binding-context/v1",
+      records: {},
+    };
+    if (existsSync(path)) {
+      const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+      if (
+        !isPlainObject(parsed) ||
+        parsed.schemaVersion !== "loopship.executor-binding-context/v1" ||
+        !isPlainObject(parsed.records)
+      ) {
+        throw new Error("Loopship executor binding context state is malformed");
+      }
+      state = parsed as unknown as LoopshipExecutorBindingState;
+    }
+    const result = action(state);
+    writeText(path, `${JSON.stringify(state)}\n`);
+    return result;
+  } finally {
+    releaseLock();
+  }
+}
+
+function readLoopshipExecutorBindingContext(
+  path: string | null,
+  effectKey: string,
+): LoopshipExecutorBindingContext | undefined {
+  if (!path || !existsSync(path)) return undefined;
+  let result: LoopshipExecutorBindingContext | undefined;
+  withLoopshipExecutorBindingState(path, (state) => {
+    result = state.records[effectKey]
+      ? clone(state.records[effectKey])
+      : undefined;
+  });
+  return result;
+}
 
 async function withLoopshipLandingMutationLock<T>(
   repo: string,
@@ -5271,6 +5787,7 @@ function createLoopshipAfnHandlerRegistry(): ReadonlyMap<string, LoopshipAfnHand
   return new Map<string, LoopshipAfnHandler>([
     [LOOPSHIP_AFN_CALLS.workflowExecuteScript, executeLoopshipWorkflowScript],
     [LOOPSHIP_AFN_CALLS.workflowInfer, executeLoopshipWorkflowInference],
+    [FASTFLOW_AFN_CALLS.requestInput, executeLoopshipWorkflowInference],
     [LOOPSHIP_AFN_CALLS.childPrepareWorktree, prepareLoopshipNativeChild],
     [LOOPSHIP_AFN_CALLS.childValidateDag, validateLoopshipChildDag],
     [LOOPSHIP_AFN_CALLS.childRecordLifecycle, recordLoopshipNativeChildLifecycle],
@@ -5354,12 +5871,17 @@ function prepareLoopshipAfnInvocation(
 
 function createLoopshipAfnDispatchPort(
   fastflowApi: Record<string, unknown> | null = null,
+  schedulerDbPath?: string,
 ): AfnDispatchPort {
   const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
   const handlers = createLoopshipAfnHandlerRegistry();
   const activeInvocations = new Map<string, AfnInvocation>();
   const executorBindings = new Map<string, Record<string, unknown>>();
-  const executorContexts = new Map<string, Pick<LoopshipAfnEffectContext, "nativeExecutionId" | "nativeInvocationId">>();
+  const executorContexts = new Map<string, Pick<
+    LoopshipAfnEffectContext,
+    "nativeExecutionId" | "nativeInvocationId" | "inferenceWorkflowContext"
+  >>();
+  const executorBindingStatePath = loopshipExecutorBindingStatePath(schedulerDbPath);
   const implementationDigest = String(
     loopshipAfnImplementationEvidence(
       LOOPSHIP_AFN_DESCRIPTORS[0]?.call || "loopship.afn.service.step.unknown",
@@ -5368,11 +5890,12 @@ function createLoopshipAfnDispatchPort(
   const createDispatchPort = portApi.createAfnDispatchPort as unknown as (
     input: Record<string, unknown>
   ) => AfnDispatchPort;
-  const port = createDispatchPort({
+  const createPort = () => createDispatchPort({
     executorNodeId: LOOPSHIP_EXECUTOR_NODE_ID,
     sessionId: `loopship-executor-session-${LOOPSHIP_EXECUTOR_NODE_ID.split("/").at(-1)}`,
     sessionEpoch: 1,
     offerId: `loopship-executor-offer-${LOOPSHIP_EXECUTOR_NODE_ID.split("/").at(-1)}`,
+    offerExpiresAt: new Date(Date.now() + LOOPSHIP_EXECUTOR_OFFER_TTL_MS).toISOString(),
     bind: async (input: Parameters<AfnDispatchPort["bind"]>[0]) => {
       const bindingContext = isPlainObject(input.bindingContext)
         ? input.bindingContext
@@ -5392,16 +5915,53 @@ function createLoopshipAfnDispatchPort(
       const nativeInvocationId = typeof bindingContextState.nativeInvocationId === "string"
         ? bindingContextState.nativeInvocationId
         : null;
-      if (nativeExecutionId || nativeInvocationId) {
-        executorContexts.set(input.effectKey, {
+      const inferenceWorkflowContext = parseLoopshipInferenceWorkflowContext(
+        bindingContext.policyContext,
+      );
+      const executorContext = {
           ...(nativeExecutionId ? { nativeExecutionId } : {}),
           ...(nativeInvocationId ? { nativeInvocationId } : {}),
+          ...(inferenceWorkflowContext ? { inferenceWorkflowContext } : {}),
+        };
+      if (Object.keys(executorContext).length > 0) {
+        executorContexts.set(input.effectKey, executorContext);
+      }
+      if (
+        executorBindingStatePath &&
+        (isPlainObject(executorBinding) || Object.keys(executorContext).length > 0)
+      ) {
+        const persistedContext: LoopshipExecutorBindingContext = {
+          ...(isPlainObject(executorBinding) ? { executorBinding: clone(executorBinding) } : {}),
+          ...executorContext,
+        };
+        withLoopshipExecutorBindingState(executorBindingStatePath, (state) => {
+          const existing = state.records[input.effectKey];
+          if (
+            existing &&
+            digestNativeContract(existing as unknown as JsonValue) !==
+              digestNativeContract(persistedContext as unknown as JsonValue)
+          ) {
+            throw Object.assign(
+              new Error(`Loopship executor binding changed for effect '${input.effectKey}'`),
+              { code: "loopship_executor_binding_conflict" },
+            );
+          }
+          state.records[input.effectKey] = persistedContext;
         });
       }
       const descriptor = DESCRIPTOR_BY_CALL.get(String(input.call?.callId || ""));
+      const requestInputBindings = isPlainObject(input.input) &&
+        isPlainObject(input.input.bindings)
+        ? input.input.bindings
+        : {};
+      const contextInputs = isPlainObject(bindingContextState.inputs)
+        ? bindingContextState.inputs
+        : {};
       const bindingInputs = {
         ...bindingContext,
+        ...contextInputs,
         ...(isPlainObject(bindingContext.inputs) ? bindingContext.inputs : {}),
+        ...(isPlainObject(requestInputBindings.inputs) ? requestInputBindings.inputs : {}),
         ...(isPlainObject(input.input) ? input.input : {}),
       };
       const binding = resolveLoopshipExecutionBinding({
@@ -5424,7 +5984,7 @@ function createLoopshipAfnDispatchPort(
               : {}),
           };
     },
-    routes: LOOPSHIP_AFN_DESCRIPTORS.map((descriptor) => {
+    routes: LOOPSHIP_AFN_RUNTIME_DESCRIPTORS.map((descriptor) => {
       const contractDigest = loopshipAfnContractDigest(descriptor, portApi.digestAfnContract);
       return {
         callId: descriptor.call,
@@ -5457,19 +6017,25 @@ function createLoopshipAfnDispatchPort(
         activeInvocations.set(invocation.invocationId, invocation);
         try {
           const prepared = prepareLoopshipAfnInvocation(invocation, handlers);
+          const persistedContext = readLoopshipExecutorBindingContext(
+            executorBindingStatePath,
+            invocation.effectKey,
+          );
+          const processContext = executorBindings.has(invocation.effectKey) ||
+            executorContexts.has(invocation.effectKey)
+            ? {
+                ...(executorBindings.has(invocation.effectKey)
+                  ? { executorBinding: clone(executorBindings.get(invocation.effectKey)) }
+                  : {}),
+                ...(executorContexts.get(invocation.effectKey) || {}),
+              }
+            : undefined;
           const output = await executeLoopshipAfnEffect({
             descriptor: prepared.descriptor,
             invocation,
             body: prepared.body,
             handler: prepared.handler,
-            context: executorBindings.has(invocation.effectKey)
-              ? {
-                  executorBinding: clone(executorBindings.get(invocation.effectKey)),
-                  ...(executorContexts.get(invocation.effectKey) || {}),
-                }
-              : executorContexts.has(invocation.effectKey)
-                ? { ...executorContexts.get(invocation.effectKey) }
-                : undefined,
+            context: persistedContext || processContext,
           });
           return completedDecision({
             invocationId: invocation.invocationId,
@@ -5535,25 +6101,77 @@ function createLoopshipAfnDispatchPort(
       };
     },
   });
+  let port = createPort();
+  const pendingAssignments = new Map<string, AfnDispatchPort>();
+  const renewOfferIfNeeded = (): void => {
+    const offer = (port as AfnDispatchPort & { offer?: { expiresAt?: string } }).offer;
+    const expiresAt = Date.parse(String(offer?.expiresAt || ""));
+    if (
+      Number.isFinite(expiresAt) &&
+      expiresAt <= Date.now() + LOOPSHIP_EXECUTOR_OFFER_RENEW_BEFORE_MS
+    ) {
+      // Keep executor identity stable; active assignments remain with their
+      // original port until the scheduler releases them.
+      port = createPort();
+    }
+  };
   return Object.freeze({
-    ...port,
-    listRoutes: () => port.listRoutes().map((route) => {
-      const descriptor = DESCRIPTOR_BY_CALL.get(route.callId);
-      return descriptor
-        ? {
-            ...route,
-            replayPolicy: createLoopshipAfnContract(descriptor, portApi.digestAfnContract).replayPolicy,
-          }
-        : route;
-    }),
-    bind: (input: Parameters<AfnDispatchPort["bind"]>[0]) => port.bind(input),
+    get offer() {
+      renewOfferIfNeeded();
+      return (port as AfnDispatchPort & { offer?: unknown }).offer;
+    },
+    get durableMailbox() {
+      return port.durableMailbox;
+    },
+    get atomicExecutorAssignment() {
+      return port.atomicExecutorAssignment;
+    },
+    listRoutes: () => {
+      renewOfferIfNeeded();
+      return port.listRoutes().map((route) => {
+        const descriptor = DESCRIPTOR_BY_CALL.get(route.callId);
+        return descriptor
+          ? {
+              ...route,
+              replayPolicy: createLoopshipAfnContract(descriptor, portApi.digestAfnContract).replayPolicy,
+            }
+          : route;
+      });
+    },
+    supportsCall: (call: Parameters<NonNullable<AfnDispatchPort["supportsCall"]>>[0]) => {
+      renewOfferIfNeeded();
+      return port.supportsCall?.(call) ?? false;
+    },
+    assignExecutor: async (...args: Parameters<NonNullable<AfnDispatchPort["assignExecutor"]>>) => {
+      renewOfferIfNeeded();
+      const assigned = await port.assignExecutor?.(...args) ?? null;
+      if (assigned) pendingAssignments.set(args[0].invocationId, port);
+      return assigned;
+    },
+    releaseExecutorAssignment: async (input: Parameters<NonNullable<AfnDispatchPort["releaseExecutorAssignment"]>>[0]) => {
+      const assignedPort = pendingAssignments.get(input.invocationId) || port;
+      const released = await assignedPort.releaseExecutorAssignment?.(input) ?? false;
+      if (released) pendingAssignments.delete(input.invocationId);
+      return released;
+    },
+    bind: async (input: Parameters<AfnDispatchPort["bind"]>[0]) => {
+      renewOfferIfNeeded();
+      return port.bind(input);
+    },
     preflight(invocation: AfnInvocation) {
       prepareLoopshipAfnInvocation(invocation, handlers);
       return invocation;
     },
-    dispatch: (invocation: AfnInvocation) => port.dispatch(invocation),
-    cancel: (request: Parameters<AfnDispatchPort["cancel"]>[0]) => port.cancel(request),
-  });
+    dispatch: (invocation: AfnInvocation, assignment?: Parameters<AfnDispatchPort["dispatch"]>[1]) => {
+      renewOfferIfNeeded();
+      const assignedPort = pendingAssignments.get(invocation.invocationId) || port;
+      return assignedPort.dispatch(invocation, assignment);
+    },
+    cancel: (request: Parameters<AfnDispatchPort["cancel"]>[0]) => {
+      const assignedPort = pendingAssignments.get(request.invocationId) || port;
+      return assignedPort.cancel(request);
+    },
+  } as AfnDispatchPort);
 }
 
 function createLoopshipAfnBindingPort(dispatchPort: AfnDispatchPort): Pick<
@@ -5895,13 +6513,13 @@ function resolveLoopshipResourceHandle(
 
 export function createLoopshipExecutorPorts(
   fastflowApi: Record<string, unknown> | null = null,
-  options: { resourceLeaseStatePath?: string | null } = {},
+  options: { resourceLeaseStatePath?: string | null; schedulerDbPath?: string } = {},
 ): {
   executorPort: AfnDispatchPort;
   resourceLeasePort: ReturnType<typeof createLoopshipResourceLeasePort>;
 } {
   return {
-    executorPort: createLoopshipAfnDispatchPort(fastflowApi),
+    executorPort: createLoopshipAfnDispatchPort(fastflowApi, options.schedulerDbPath),
     resourceLeasePort: createLoopshipResourceLeasePort(
       fastflowApi,
       options.resourceLeaseStatePath,
@@ -5933,7 +6551,7 @@ export function validateLoopshipCallInvocation({
 
 export function createLoopshipRuntimeIntegrations(
   fastflowApi: Record<string, unknown> | null = null,
-  options: { resourceLeaseStatePath?: string | null } = {},
+  options: { resourceLeaseStatePath?: string | null; schedulerDbPath?: string } = {},
 ): Record<string, unknown> {
   const portApi = resolveLoopshipFastflowPortApi(fastflowApi);
   const runtimeIdentity = PACKAGE_JSON.name || "@omar391/loopship";
@@ -5957,7 +6575,45 @@ export function createLoopshipRuntimeIntegrations(
       runtime: loopshipApplicationRuntimeRef(),
     }),
     resolveExecutionBinding: resolveLoopshipExecutionBinding,
-    catalogCalls: clone(LOOPSHIP_AFN_DESCRIPTORS),
+    evaluateExecutionPolicy(input: Record<string, unknown>) {
+      const action = isPlainObject(input.action) ? input.action : {};
+      const policy = isPlainObject(input.policy) ? input.policy : null;
+      if (action.call !== FASTFLOW_AFN_CALLS.requestInput || !policy) return;
+      const workflow = isPlainObject(input.workflow) ? input.workflow : {};
+      const workflowMetadata = isPlainObject(workflow.metadata)
+        ? workflow.metadata
+        : {};
+      const inference = isPlainObject(workflowMetadata.inference)
+        ? structuredClone(workflowMetadata.inference)
+        : {};
+      const step = isPlainObject(input.step) ? input.step : {};
+      const context = isPlainObject(input.context) ? input.context : {};
+      const inferenceContext: LoopshipInferenceWorkflowContext = {
+        schemaVersion: "loopship.afn-inference-context/v1",
+        workflow: {
+          name: typeof workflow.name === "string" ? workflow.name : null,
+          namespace: typeof workflow.namespace === "string" ? workflow.namespace : null,
+          version: typeof workflow.version === "string" ? workflow.version : null,
+          metadata: { inference },
+        },
+        step: {
+          id: typeof step.id === "string" ? step.id : null,
+          description: typeof step.description === "string" ? step.description : null,
+        },
+        ...(isPlainObject(context.nativeInferenceTimeoutResume)
+          ? { nativeInferenceTimeoutResume: structuredClone(context.nativeInferenceTimeoutResume) }
+          : {}),
+      };
+      loopshipAfnPolicyContexts.set(policy, inferenceContext);
+    },
+    projectInvocationPolicyContext(input: Record<string, unknown>) {
+      const policy = isPlainObject(input.policy) ? input.policy : null;
+      if (!policy) return null;
+      const inferenceContext = loopshipAfnPolicyContexts.get(policy) || null;
+      loopshipAfnPolicyContexts.delete(policy);
+      return inferenceContext;
+    },
+    catalogCalls: clone(LOOPSHIP_AFN_RUNTIME_DESCRIPTORS),
     resolveCatalogCall({ call }: { call?: string } = {}) {
       const descriptor = DESCRIPTOR_BY_CALL.get(String(call || ""));
       return descriptor

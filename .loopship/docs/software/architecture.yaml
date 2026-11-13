@@ -84,8 +84,8 @@ context:
     execjson mirrors the public CLI as a machine interface without replacing the lifecycle.
     Every LoopshipService method remains local and default-deny. Loopship is a client only of
     Fastflow's six descriptor-derived, allowlisted SchedulerControlService unary Connect methods.
-    Executor bootstrap uses explicit node/runtime ports and the authenticated binary Fastflow
-    v2 WSS executor session; exact handlers remain private to the executor integration.
+    Executor bootstrap uses explicit node/runtime ports and Fastflow's local AFN v3 executor
+    port; exact handlers remain private to the executor integration.
 solution_strategy: |-
   Loopship treats workflow steps, task payloads, Native child invocations, system updates,
   and route outputs as schema-backed contracts rather than loose prose conventions. Runtime
@@ -139,7 +139,7 @@ structure:
       The Fastflow facade binds promoted workflow and step contracts to the current native
       route-metadata-only binding port. The supervised Bun daemon alone owns scheduler SQLite,
       publishes the private runtime descriptor, and supervises Loopship's package-identity-derived
-      executor session over authenticated WSS. Loopship rejects incompatible
+      local executor port registered with the scheduler authority. Loopship rejects incompatible
       persisted execution state without interpreting or migrating it. No AFN invocation or
       cancellation uses a raw newline-JSON or process-local production transport.
     system-update: |-
@@ -283,7 +283,7 @@ interfaces:
       and reaches the same typed command service as the human CLI. Every LoopshipService method
       remains local and is never placed on a remote allowlist. Scheduler commands use Fastflow's
       six descriptor-derived, allowlisted SchedulerControlService unary Connect methods; executor
-      admission uses the authenticated v2 WSS session boundary. Loopship does not implement REST
+      admission uses the Fastflow AFN v3 local executor-port boundary. Loopship does not implement REST
       aliases or expose a second transport for these commands.
   task-yaml:
     kind: file

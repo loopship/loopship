@@ -73,6 +73,7 @@ export async function createFastflowSchedulerNode({
   });
   const ports = loopship.createLoopshipExecutorPorts(fastflow, {
     resourceLeaseStatePath: `${schedulerDbPath}.resource-leases.json`,
+    schedulerDbPath,
   });
 
   return fastflow.createBunSqliteFastflowNode({
@@ -82,11 +83,18 @@ export async function createFastflowSchedulerNode({
     descriptorPath,
     catalogs: {
       mounts: catalog.mounts,
-      registrations: [{
-        bytes: catalog.bytes,
-        expectedDigest: catalog.bundleDigest,
-        trustPolicy: catalogTrustPolicy,
-      }],
+      registrations: [
+        ...catalog.supportingBundles.map((bundle) => ({
+          bytes: bundle.bytes,
+          expectedDigest: bundle.bundleDigest,
+          trustPolicy: catalogTrustPolicy,
+        })),
+        {
+          bytes: catalog.bytes,
+          expectedDigest: catalog.bundleDigest,
+          trustPolicy: catalogTrustPolicy,
+        },
+      ],
     },
     trust: { mode: "production", owner: "loopship", catalogs: catalogTrustPolicy },
     authority: {
@@ -100,13 +108,25 @@ export async function createFastflowSchedulerNode({
 }
 
 function resolveFastflowSource(env) {
-  const configuredRoot = String(
-    env.LOOPSHIP_FASTFLOW_ROOT || env.FASTFLOW_SOURCE_DIR || "",
-  ).trim();
+  const loopshipRoot = String(env.LOOPSHIP_FASTFLOW_ROOT || "").trim();
+  const genericRoot = String(env.FASTFLOW_SOURCE_DIR || "").trim();
+  if (loopshipRoot && genericRoot && resolve(loopshipRoot) !== resolve(genericRoot)) {
+    throw new Error("LOOPSHIP_FASTFLOW_ROOT and FASTFLOW_SOURCE_DIR select different runtimes");
+  }
+  const configuredRoot = loopshipRoot || genericRoot;
   if (configuredRoot) {
+    if (String(env.LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT || "").trim() !== "1") {
+      throw new Error(
+        "loopship_fastflow_dev_root_disabled: source overrides require LOOPSHIP_ENABLE_FASTFLOW_DEV_ROOT=1",
+      );
+    }
     const root = resolve(configuredRoot);
     const entry = resolve(root, "src", "index.mjs");
-    if (!existsSync(resolve(root, "package.json")) || !existsSync(entry)) {
+    if (
+      !existsSync(resolve(root, "package.json")) ||
+      !existsSync(entry) ||
+      !existsSync(resolve(root, "src", "catalog.mjs"))
+    ) {
       throw new Error(`Selected Fastflow source is incomplete: ${root}`);
     }
     return { root, specifier: pathToFileURL(entry).href };

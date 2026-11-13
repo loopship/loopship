@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 if (!process.versions.bun) {
@@ -16,12 +17,12 @@ const loopshipHome = String(process.env.LOOPSHIP_HOME || "").trim();
 if (loopshipHome && !isAbsolute(loopshipHome)) {
   throw new Error("LOOPSHIP_HOME must be an absolute path for Loopship");
 }
-if (loopshipHome) process.env.LOOPSHIP_HOME = loopshipHome;
-else delete process.env.LOOPSHIP_HOME;
+const effectiveLoopshipHome = resolve(loopshipHome || join(homedir(), ".loopship"));
+process.env.LOOPSHIP_HOME = effectiveLoopshipHome;
 
-if (loopshipHome && !String(process.env.FASTFLOW_SCHEDULER_DESCRIPTOR || "").trim()) {
+if (!String(process.env.FASTFLOW_SCHEDULER_DESCRIPTOR || "").trim()) {
   process.env.FASTFLOW_SCHEDULER_DESCRIPTOR = resolve(
-    loopshipHome,
+    effectiveLoopshipHome,
     "scheduler",
     "fastflow.runtime.json",
   );

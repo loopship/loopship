@@ -39,7 +39,7 @@ actors:
     text: |-
       The Loopship runtime validates payloads, persists quest state, binds consumer orchestration
       to Fastflow's current native scheduler, runs exact handlers through explicit executor
-      integrations and the authenticated v2 WSS session, and enforces lifecycle transitions for
+      integrations and the local Fastflow AFN v3 executor port, and enforces lifecycle transitions for
       agent actions. Local LoopshipService commands are never remotely exposed.
 responsibilities:
   scout-root-first: |-
