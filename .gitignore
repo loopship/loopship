@@ -9,6 +9,7 @@ dist/*
 !dist/cmdproto/schema.binpb
 !dist/cmdproto/runtime.binpb
 *.tgz
+!vendor/artifacts/*.tgz
 
 # code coverage
 coverage

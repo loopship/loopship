@@ -1314,8 +1314,39 @@ describe("Loopship Fastflow-native bridge", () => {
     expect(packageJson.engines.node).toBeUndefined();
     expect(packageJson.engines.bun).toBe(">=1.3.0");
     const fastflowPin = packageJson.dependencies["@cueintent/fastflow"];
-    expect(fastflowPin).toMatch(
-      /^git\+ssh:\/\/git@github\.com\/cueintent\/fastflow\.git#[0-9a-f]{40}$/,
+    const fastflowArtifact =
+      /^file:vendor\/artifacts\/(cueintent-fastflow-[\w.-]+\.tgz)$/.exec(
+        fastflowPin ?? "",
+      )?.[1];
+    expect(fastflowArtifact).toBeDefined();
+    const artifactPath = join("vendor", "artifacts", fastflowArtifact!);
+    expect(existsSync(artifactPath)).toBe(true);
+    const bundleManifest = JSON.parse(
+      readFileSync(
+        join("vendor", "artifacts", "manifest.json"),
+        "utf8",
+      ),
+    ) as {
+      schema?: string;
+      commit?: string;
+      packages?: Array<{
+        package?: string;
+        file?: string;
+        sha256?: string;
+      }>;
+    };
+    expect(bundleManifest.schema).toBe("cueintent.candidate-bundle/v1");
+    expect(bundleManifest.commit).toMatch(/^[0-9a-f]{40}$/);
+    const manifestEntry = bundleManifest.packages?.find(
+      (entry) =>
+        entry.package === "@cueintent/fastflow" && entry.file === fastflowArtifact,
+    );
+    expect(manifestEntry).toBeDefined();
+    expect(manifestEntry?.sha256).toBe(
+      "sha256:" +
+        createHash("sha256")
+          .update(readFileSync(artifactPath))
+          .digest("hex"),
     );
     expect(packageJson.dependencies["@cueintent/secret-manager"]).toBeUndefined();
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(fastflowPin);

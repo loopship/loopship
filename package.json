@@ -74,7 +74,7 @@
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-node": "2.1.2",
     "@connectrpc/connect-web": "2.1.2",
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#91dfedbe649bd646aa100b271e12a2bd684d27ad",
+    "@cueintent/fastflow": "file:vendor/artifacts/cueintent-fastflow-4.0.0.tgz",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "cmdproto": "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
@@ -84,7 +84,7 @@
     "cmdproto"
   ],
   "resolutions": {
-    "@cueintent/fastflow": "git+ssh://git@github.com/cueintent/fastflow.git#91dfedbe649bd646aa100b271e12a2bd684d27ad"
+    "@cueintent/fastflow": "file:vendor/artifacts/cueintent-fastflow-4.0.0.tgz"
   },
   "bundledDependencies": [
     "@cueintent/fastflow",

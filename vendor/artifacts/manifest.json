@@ -1,0 +1,63 @@
+{
+  "schema": "cueintent.candidate-bundle/v1",
+  "commit": "635efc672b8a070ed3cf5f205a97f5d2548d4679",
+  "createdAt": "2026-11-14T10:32:20.381Z",
+  "packages": [
+    {
+      "package": "@cueintent/fastflow",
+      "version": "4.0.0",
+      "file": "cueintent-fastflow-4.0.0.tgz",
+      "sha256": "sha256:71366901705573cabbf480220f0d4e9f60a5549fe237f2b9123c45578b29f208",
+      "bytes": 8861544
+    },
+    {
+      "package": "@cueintent/core",
+      "version": "0.1.0",
+      "file": "cueintent-core-0.1.0.tgz",
+      "sha256": "sha256:f6313ceb8f4047e0c73c5de7d160a8e508703effd709f23a9034f7a316150342",
+      "bytes": 39675
+    },
+    {
+      "package": "@cueintent/runtime",
+      "version": "0.1.0",
+      "file": "cueintent-runtime-0.1.0.tgz",
+      "sha256": "sha256:121238e858379bf003658b444526d14bc9c3b138962ceee83e846e9260e9636a",
+      "bytes": 72880
+    },
+    {
+      "package": "@cueintent/agent",
+      "version": "0.1.0",
+      "file": "cueintent-agent-0.1.0.tgz",
+      "sha256": "sha256:bb5aa09e58870114e2a30d197f4daea7fa1a5ff9c4261fd5d3b7a10da6de17b8",
+      "bytes": 18124
+    },
+    {
+      "package": "@cueintent/ui",
+      "version": "0.1.0",
+      "file": "cueintent-ui-0.1.0.tgz",
+      "sha256": "sha256:7642a5077f2fc30ca28e9ca2393262fbda00b695cfcd0fbde596c2943413c572",
+      "bytes": 26686
+    },
+    {
+      "package": "@cueintent/mcp-kit",
+      "version": "0.1.0",
+      "file": "cueintent-mcp-kit-0.1.0.tgz",
+      "sha256": "sha256:28d6b8901827612e0858594ab59426e7fddc41c99ead82e9f7ce6b9457a2ef08",
+      "bytes": 5830
+    },
+    {
+      "package": "@cueintent/store-sqlite",
+      "version": "0.1.0",
+      "file": "cueintent-store-sqlite-0.1.0.tgz",
+      "sha256": "sha256:eaa27eb5272ae21d86ca3e32c0a1264339bf0d6ed336b50800a26f015464bc35",
+      "bytes": 43169
+    },
+    {
+      "package": "@cueintent/host-local",
+      "version": "0.1.0",
+      "file": "cueintent-host-local-0.1.0.tgz",
+      "sha256": "sha256:601674d842d8ced8ec68f4bd8251a26d60eb715325fa05f7605286c253a443fe",
+      "bytes": 8414
+    }
+  ]
+}
