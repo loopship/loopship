@@ -1030,8 +1030,11 @@ function requireCanonicalRegisteredWorktree(input: {
     !existsSync(workspaceRoot) ||
     realpathSync(workspaceRoot) !== workspaceRoot
   ) {
-    throw new Error(
-      `${input.operation} requires canonical worktree ${expectedWorkspaceRoot}`,
+    // A caller-correctable precondition: the code keeps the message public
+    // under cmdproto's fail-closed error policy (unknown errors are redacted).
+    throw Object.assign(
+      new Error(`${input.operation} requires canonical worktree ${expectedWorkspaceRoot}`),
+      { code: "FAILED_PRECONDITION" },
     );
   }
   const registered = parseGitWorktrees(input.repoRoot).find(

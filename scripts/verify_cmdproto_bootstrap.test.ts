@@ -213,7 +213,8 @@ describe("cmdproto build dependency bootstrap", () => {
       const packed = spawnSync(
         "npm",
         ["pack", "--json", "--ignore-scripts", "--pack-destination", root],
-        { cwd: ROOT, encoding: "utf8", timeout: 120_000 },
+        // The --json file list of the bundled package exceeds the default 1 MB.
+        { cwd: ROOT, encoding: "utf8", timeout: 120_000, maxBuffer: 64 * 1024 * 1024 },
       );
       expect(packed.status, packed.stderr || packed.stdout).toBe(0);
       const metadata = JSON.parse(packed.stdout) as Array<{ filename: string }>;
@@ -228,7 +229,7 @@ describe("cmdproto build dependency bootstrap", () => {
         join(sourceCmdprotoRoot, "package.json"),
         "utf8",
       );
-      expect(JSON.parse(sourceManifest).version).toBe("0.2.0");
+      expect(JSON.parse(sourceManifest).version).toBe("0.3.0");
       const installedCmdproto = join(appRoot, "node_modules", "cmdproto");
       mkdirSync(dirname(installedCmdproto), { recursive: true });
       cpSync(sourceCmdprotoRoot, installedCmdproto, {
@@ -257,7 +258,7 @@ describe("cmdproto build dependency bootstrap", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 300_000);
 
   test("keeps generated paths package-local and independent of Git worktrees", () => {
     const bootstrap = readFileSync(BOOTSTRAP, "utf8");

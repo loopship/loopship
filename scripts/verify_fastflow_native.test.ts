@@ -1348,20 +1348,39 @@ describe("Loopship Fastflow-native bridge", () => {
           .update(readFileSync(artifactPath))
           .digest("hex"),
     );
-    expect(packageJson.dependencies["@cueintent/secret-manager"]).toBeUndefined();
+    // Fastflow consumes Secret Manager as a public package; Loopship bundles the
+    // frozen bundle's artifact so a packed install carries it.
+    const secretManagerArtifact = "cueintent-secret-manager-1.0.0-31e1d63-shared.tgz";
+    expect(packageJson.dependencies["@cueintent/secret-manager"]).toBe(
+      `file:vendor/artifacts/${secretManagerArtifact}`,
+    );
+    for (const [name, file] of [
+      ["@cueintent/secret-manager", secretManagerArtifact],
+      ["cmdproto", "cmdproto-0.3.0.tgz"],
+    ]) {
+      const entry = bundleManifest.packages?.find(
+        (candidate) => candidate.package === name && candidate.file === file,
+      );
+      expect(entry).toBeDefined();
+      expect(entry?.sha256).toBe(
+        "sha256:" +
+          createHash("sha256")
+            .update(readFileSync(join("vendor", "artifacts", file)))
+            .digest("hex"),
+      );
+    }
     expect(packageJson.resolutions?.["@cueintent/fastflow"]).toBe(fastflowPin);
     expect(packageJson.bundledDependencies).toEqual([
       "@cueintent/fastflow",
       "cmdproto",
+      "@cueintent/secret-manager",
       "@bufbuild/protobuf",
       "@connectrpc/connect",
       "@connectrpc/connect-node",
       "@connectrpc/connect-web",
       "yaml",
     ]);
-    expect(packageJson.dependencies.cmdproto).toBe(
-      "git+https://github.com/omar391/cmdproto.git#9d2b675aba6d22c6f2b8100fedec64b7bd7a7f63",
-    );
+    expect(packageJson.dependencies.cmdproto).toBe("file:vendor/artifacts/cmdproto-0.3.0.tgz");
     expect(packageJson.devDependencies.typescript).toBe("^5");
     expect(packageJson.peerDependencies).toBeUndefined();
     expect(packageJson.bin?.loopship).toBe("bin/loopship");
