@@ -1,6 +1,6 @@
 {
-  "commit": "20b3143ef69126504ad943448f68873e30dfc98e",
-  "createdAt": "2026-11-26T13:28:05.000Z",
+  "commit": "7c92f191498bfdb5336a333c90b3177c7b3fcbf4",
+  "createdAt": "2026-11-27T09:58:31.000Z",
   "packages": [
     {
       "bytes": 922,
@@ -184,7 +184,7 @@
       "version": "0.1.0"
     },
     {
-      "bytes": 1519979,
+      "bytes": 1521626,
       "file": "cueintent-runtime-0.1.0.tgz",
       "package": "@cueintent/runtime",
       "publicSubpaths": [
@@ -225,7 +225,7 @@
         "./verification-events",
         "./workflow-schema"
       ],
-      "sha256": "sha256:8acbddec5111e79966a73915bbba78ea4c4a286735deac1b25fb0d2b4c7c96d7",
+      "sha256": "sha256:5d4914f800ec90eaafcd1f7793edff2fbb540028c23f56d13a1728b251581f21",
       "version": "0.1.0"
     },
     {
@@ -358,7 +358,7 @@
     }
   },
   "schema": "cueintent.candidate-bundle/v1",
-  "sourceLockSha256": "sha256:d088045c6bd4c6a0c886b6f1cc232950383c1bb1360c6495ad04c9b2d5cccbed",
+  "sourceLockSha256": "sha256:86cb45d66e71d28131e2a79a7115811cfdeaacf9bfa93b6580a5ceecbeae89a5",
   "toolchain": {
     "bun": "1.4.4",
     "node": "v26.13.1",
