@@ -39,7 +39,7 @@
 
     "@connectrpc/connect-web": ["@connectrpc/connect-web@2.1.2", "", { "peerDependencies": { "@bufbuild/protobuf": "^2.7.0", "@connectrpc/connect": "2.1.2" } }, "sha512-1tfaK85MU+gJjwwmL31d2rzdf0XCYX99chZf63uG89SGBUd4XuZ4ZzhGo2u79TPXOE6nLIZQ2okrpyey42PYdg=="],
 
-    "@cueintent/fastflow": ["@cueintent/fastflow@vendor/artifacts/cueintent-fastflow-4.0.0.tgz", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "@cueintent/secret-manager": "1.0.0", "cmdproto": "0.3.0", "yaml": "2.9.0" }, "hasInstallScript": true, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-bw": "./bin/fastflow-bw.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "sha512-zaY2O1xgZeygmr89FUC9Te8HAIEdRnBT+PsyLZpsKqPqqcXEINU96E3zdbB1ztBmo5Hp/n93TtPIzaGKCCqkSQ=="],
+    "@cueintent/fastflow": ["@cueintent/fastflow@vendor/artifacts/cueintent-fastflow-4.0.0.tgz", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "@cueintent/secret-manager": "1.0.0", "cmdproto": "0.3.0", "yaml": "^2.9.1" }, "hasInstallScript": true, "bin": { "fastflow": "./bin/fastflow.mjs", "fastflow-bw": "./bin/fastflow-bw.mjs", "fastflow-scheduler-daemon": "./scripts/fastflow-scheduler-daemon.mjs" } }, "sha512-mjD1XsPjwp/C7Y1pXbO7imIWbf5luCEaLPdejZAA5ChAUfOU6lB4ytoE6sVKefRuIPTY88nLBo+bhoHuGTk7FQ=="],
 
     "@cueintent/secret-manager": ["@cueintent/secret-manager@vendor/artifacts/cueintent-secret-manager-1.0.0-31e1d63-shared.tgz", { "dependencies": { "@bufbuild/protobuf": "2.12.1", "cmdproto": "0.3.0" }, "bin": { "secret-manager": "./bin/secret-manager.mjs", "secret-manager-daemon": "./scripts/secret-manager-daemon.mjs", "secret-manager-git-credential": "./bin/secret-manager-git-credential.mjs", "secret-manager-gh": "./bin/secret-manager-gh.mjs" } }, "sha512-pV9NMkc3vzJShbjwplKYCuf9IhrpyGyIgnRtLWpaMQwnWuVyTzna2k7WdeoIjS2UUr6N9agrsFu8/0NsU61wwQ=="],
 
@@ -441,8 +441,6 @@
 
     "@cueintent/fastflow/wrappy": ["wrappy@1.0.2", "", {}, "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="],
 
-    "@cueintent/fastflow/yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
-
     "@cueintent/fastflow/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "@cueintent/fastflow/zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
@@ -456,8 +454,6 @@
     "type-is/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
 
     "@cueintent/fastflow/body-parser/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
-
-    "@cueintent/fastflow/cmdproto/yaml": ["yaml@2.9.1", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw=="],
 
     "@cueintent/fastflow/express/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
 

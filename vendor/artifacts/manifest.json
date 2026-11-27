@@ -1,6 +1,6 @@
 {
-  "commit": "61dfe379d7ff4f8685abdc4b26dd4cda3c2fb6d3",
-  "createdAt": "2026-11-27T13:51:48.000Z",
+  "commit": "7704ff0d464c5952380a92ad9918d6d91b539679",
+  "createdAt": "2026-11-27T16:15:34.000Z",
   "packages": [
     {
       "bytes": 922,
@@ -60,7 +60,7 @@
       "version": "0.1.0"
     },
     {
-      "bytes": 13226288,
+      "bytes": 13225498,
       "file": "cueintent-fastflow-4.0.0.tgz",
       "package": "@cueintent/fastflow",
       "publicSubpaths": [
@@ -142,7 +142,7 @@
         "./session-envelope",
         "./resource-partition"
       ],
-      "sha256": "sha256:8d1c1f696789a015ec7ba49fbce3987b2c71b5975853ee06b7485991137465d9",
+      "sha256": "sha256:79e72683106a406e3017b956bba6d8b56aa2b1a779d5f850752acd62d82976c8",
       "version": "4.0.0"
     },
     {
@@ -358,7 +358,7 @@
     }
   },
   "schema": "cueintent.candidate-bundle/v1",
-  "sourceLockSha256": "sha256:86cb45d66e71d28131e2a79a7115811cfdeaacf9bfa93b6580a5ceecbeae89a5",
+  "sourceLockSha256": "sha256:eb09ec35569bb9460dc7e8b2d9590456a4c64c5aaa0c02ac30197554c502e41e",
   "toolchain": {
     "bun": "1.4.4",
     "node": "v26.13.1",
