@@ -1,6 +1,6 @@
 {
-  "commit": "7704ff0d464c5952380a92ad9918d6d91b539679",
-  "createdAt": "2026-11-27T16:15:34.000Z",
+  "commit": "4c69a77dfb6f017d4b184360e6dfd30ce041923b",
+  "createdAt": "2026-11-28T07:25:32.000Z",
   "packages": [
     {
       "bytes": 922,
@@ -33,15 +33,17 @@
       "version": "0.1.0"
     },
     {
-      "bytes": 41538,
+      "bytes": 56179,
       "file": "cueintent-command-center-0.1.0.tgz",
       "package": "@cueintent/command-center",
       "publicSubpaths": [
         ".",
         "./app",
-        "./persisted-chat"
+        "./mini-app-shell",
+        "./persisted-chat",
+        "./remote-contract"
       ],
-      "sha256": "sha256:af2a8cc9765afb50767ba12c56f12738593ef754377d211dccf55551021d3928",
+      "sha256": "sha256:b2a8f9bcd3e5d6c17c11d813ab0fbf97fa4f540f14061861c89d2bc6154280d0",
       "version": "0.1.0"
     },
     {
@@ -146,18 +148,18 @@
       "version": "4.0.0"
     },
     {
-      "bytes": 171593,
+      "bytes": 173254,
       "file": "cueintent-host-cloudflare-0.1.0.tgz",
       "package": "@cueintent/host-cloudflare",
       "publicSubpaths": [
         ".",
         "./worker"
       ],
-      "sha256": "sha256:876e9fabb56f92c9b79e5bdbb50c7d79739f48ad60b8240691303a347c5576e7",
+      "sha256": "sha256:40b2fda24bcb8b9fe790503d497e69d135cfa710430e96be12f636f230a55d2e",
       "version": "0.1.0"
     },
     {
-      "bytes": 53642,
+      "bytes": 54233,
       "file": "cueintent-host-local-0.1.0.tgz",
       "package": "@cueintent/host-local",
       "publicSubpaths": [
@@ -168,7 +170,7 @@
         "./run-learning-wake",
         "./run-learning-wake-catalog"
       ],
-      "sha256": "sha256:74b739cd35b9f967deee6f1bb12ddca44069e6713361737cc1db6f6d7897bc16",
+      "sha256": "sha256:a915e7892971b09fb7a508aa8f449a9ccf6eb93a9613f49fb912845c1fbcf3f3",
       "version": "0.1.0"
     },
     {
@@ -358,7 +360,7 @@
     }
   },
   "schema": "cueintent.candidate-bundle/v1",
-  "sourceLockSha256": "sha256:eb09ec35569bb9460dc7e8b2d9590456a4c64c5aaa0c02ac30197554c502e41e",
+  "sourceLockSha256": "sha256:be95c4bb367742e956ca3981b6119febdb63d7a240c57fa65ca25b9ba10758d9",
   "toolchain": {
     "bun": "1.4.4",
     "node": "v26.13.1",
